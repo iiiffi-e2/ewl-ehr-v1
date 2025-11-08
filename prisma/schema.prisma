@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id          Int          @id @default(autoincrement())
+  companyKey  String       @unique
+  name        String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  residents   Resident[]
+  events      EventLog[]
+  credential  Credential?
+}
+
+model Credential {
+  id           Int      @id @default(autoincrement())
+  companyId    Int      @unique
+  username     String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id])
+}
+
+model Resident {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  alisResidentId Int       @unique
+  status         String
+  productType    String?
+  classification String?
+  firstName      String?
+  lastName       String?
+  dateOfBirth    DateTime?
+  roomNumber     String?
+  bed            String?
+  room           String?
+  updatedAtUtc   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+}
+
+model EventLog {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  communityId    Int?
+  eventType      String
+  eventMessageId String    @unique
+  payload        Json
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  status         String
+  error          String?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, eventType])
+}
