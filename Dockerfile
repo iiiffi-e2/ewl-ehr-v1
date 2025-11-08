@@ -27,4 +27,5 @@ COPY --from=build /app/dist ./dist
 
 EXPOSE 8080
 
-CMD ["node", "dist/http/server.js"]
+# Run migrations and start the application
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/http/server.js"]

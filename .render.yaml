@@ -1,0 +1,75 @@
+# Render Blueprint for ALIS EyeWatch Integration
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Main HTTP API Service
+  - type: web
+    name: alis-eyewatch-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: LOG_LEVEL
+        value: info
+      - key: ENABLE_SWAGGER
+        value: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: alis-eyewatch-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: alis-eyewatch-redis
+          property: connectionString
+      # Add these as secret environment variables in Render dashboard:
+      # - WEBHOOK_BASIC_USER
+      # - WEBHOOK_BASIC_PASS
+      # - IP_ALLOWLIST
+      # - ALIS_API_BASE
+      # - ALIS_TEST_USERNAME
+      # - ALIS_TEST_PASSWORD
+      # - CASPIO_TOKEN_URL
+      # - CASPIO_CLIENT_ID
+      # - CASPIO_CLIENT_SECRET
+      # - CASPIO_TABLE_ENDPOINT
+      # - CASPIO_SCOPE
+      # - WORKER_CONCURRENCY
+      # - REQUEST_TIMEOUT_MS
+
+  # Background Worker Service
+  - type: worker
+    name: alis-eyewatch-worker
+    runtime: docker
+    plan: starter
+    dockerCommand: npm run deploy:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: alis-eyewatch-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: alis-eyewatch-redis
+          property: connectionString
+      # Add same secret environment variables as above
+
+databases:
+  - name: alis-eyewatch-db
+    databaseName: ewl
+    plan: starter
+    postgresMajorVersion: 15
+
+  - name: alis-eyewatch-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+

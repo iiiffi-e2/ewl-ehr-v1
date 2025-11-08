@@ -87,6 +87,8 @@ Dockerfile
 | `npm run dev:worker`    | Start BullMQ worker for `process-alis-event` jobs        |
 | `npm run build`         | Type-check and emit compiled JS to `dist/`               |
 | `npm start`             | Run built server (`node dist/http/server.js`)            |
+| `npm run deploy`        | Run migrations + start server (production)               |
+| `npm run deploy:worker` | Run migrations + start worker (production)               |
 | `npm run worker`        | Run built worker (`node dist/workers/index.js`)          |
 | `npm test`              | Jest + Supertest test suite                              |
 | `npm run prisma:migrate`| Apply Postgres migrations (deploy mode)                  |
@@ -195,6 +197,20 @@ npm test
    docker-compose up -d
    # Postgres on 5432, Redis on 6379
    ```
+
+---
+
+## Deployment
+
+For production deployment instructions, including database migration setup and platform-specific guides (Render, Railway, Heroku, AWS, GCP), see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
+
+**Quick deployment commands:**
+```bash
+# Build and deploy with automatic migrations
+npm run build
+npm run deploy          # For HTTP server
+npm run deploy:worker   # For BullMQ worker
+```
 
 ---
 
