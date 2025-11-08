@@ -52,6 +52,5 @@ build
 # Misc
 .prettierrc
 .eslintrc.cjs
-tsconfig.json
 jest.config.js
 
