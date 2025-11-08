@@ -41,7 +41,8 @@ export const openApiDocument: OpenAPIV3.Document = {
   },
   servers: [
     {
-      url: `http://localhost:${env.PORT}`,
+      url: env.PUBLIC_URL || `http://localhost:${env.PORT}`,
+      description: env.PUBLIC_URL ? 'Production server' : 'Local development server',
     },
   ],
   paths: {

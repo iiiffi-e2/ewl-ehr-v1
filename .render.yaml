@@ -27,6 +27,7 @@ services:
           name: alis-eyewatch-redis
           property: connectionString
       # Add these as secret environment variables in Render dashboard:
+      # - PUBLIC_URL (e.g., https://your-app.onrender.com)
       # - WEBHOOK_BASIC_USER
       # - WEBHOOK_BASIC_PASS
       # - IP_ALLOWLIST

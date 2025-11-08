@@ -220,6 +220,7 @@ Before deploying, ensure all required environment variables are set:
 - [ ] `PORT` (default: 8080)
 - [ ] `LOG_LEVEL` (default: info)
 - [ ] `ENABLE_SWAGGER` (default: false in production)
+- [ ] `PUBLIC_URL` (optional, e.g., `https://your-app.onrender.com` - used for Swagger docs server URL)
 
 ### Database & Queue
 - [ ] `DATABASE_URL` - PostgreSQL connection string

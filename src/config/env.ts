@@ -14,6 +14,7 @@ const EnvSchema = z
         if (typeof val === 'boolean') return val;
         return val.toLowerCase() === 'true';
       }),
+    PUBLIC_URL: z.string().url().optional(),
     DATABASE_URL: z.string(),
     REDIS_URL: z.string(),
     ALIS_API_BASE: z.string().url(),

@@ -102,7 +102,7 @@ Dockerfile
 
 Required keys (see `.env.example`):
 
-- **Service:** `NODE_ENV`, `PORT`, `LOG_LEVEL`, `ENABLE_SWAGGER`
+- **Service:** `NODE_ENV`, `PORT`, `LOG_LEVEL`, `ENABLE_SWAGGER`, `PUBLIC_URL` (optional, for Swagger docs in production)
 - **Database/Queue:** `DATABASE_URL`, `REDIS_URL`
 - **Webhook security:** `WEBHOOK_BASIC_USER`, `WEBHOOK_BASIC_PASS`, `IP_ALLOWLIST`
 - **ALIS API:** `ALIS_API_BASE`, `ALIS_TEST_USERNAME`, `ALIS_TEST_PASSWORD`
