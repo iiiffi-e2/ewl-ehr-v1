@@ -1,9 +1,11 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
-const prismaLogLevels: Prisma.LogLevel[] =
+type LogLevel = 'info' | 'query' | 'warn' | 'error';
+
+const prismaLogLevels: LogLevel[] =
   env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['warn', 'error'];
 
 class PrismaSingleton {

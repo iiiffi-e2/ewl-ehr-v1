@@ -70,10 +70,13 @@ function matchIp(ip: string, allowed: string): boolean {
       return false;
     }
     const parsedIp = ipaddr.parse(ip);
-    const normalizedIp =
-      parsedIp.kind() === 'ipv6' && parsedIp.isIPv4MappedAddress()
-        ? parsedIp.toIPv4Address()
-        : parsedIp;
+    let normalizedIp: ipaddr.IPv4 | ipaddr.IPv6 = parsedIp;
+    if (parsedIp.kind() === 'ipv6') {
+      const ipv6 = parsedIp as ipaddr.IPv6;
+      if (ipv6.isIPv4MappedAddress()) {
+        normalizedIp = ipv6.toIPv4Address();
+      }
+    }
 
     if (allowed.includes('/')) {
       const [range, bits] = allowed.split('/');
@@ -81,14 +84,14 @@ function matchIp(ip: string, allowed: string): boolean {
         return false;
       }
       const parsedRange = ipaddr.parse(range);
-      const normalizedRange =
-        parsedRange.kind() === 'ipv6' && parsedRange.isIPv4MappedAddress()
-          ? parsedRange.toIPv4Address()
-          : parsedRange;
-      return (normalizedIp as ipaddr.IPv4 | ipaddr.IPv6).match(
-        normalizedRange as ipaddr.IPv4 | ipaddr.IPv6,
-        Number(bits),
-      );
+      let normalizedRange: ipaddr.IPv4 | ipaddr.IPv6 = parsedRange;
+      if (parsedRange.kind() === 'ipv6') {
+        const ipv6Range = parsedRange as ipaddr.IPv6;
+        if (ipv6Range.isIPv4MappedAddress()) {
+          normalizedRange = ipv6Range.toIPv4Address();
+        }
+      }
+      return normalizedIp.match(normalizedRange, Number(bits));
     }
 
     if (!ipaddr.isValid(allowed)) {
@@ -96,10 +99,13 @@ function matchIp(ip: string, allowed: string): boolean {
     }
 
     const allowedIp = ipaddr.parse(allowed);
-    const normalizedAllowed =
-      allowedIp.kind() === 'ipv6' && allowedIp.isIPv4MappedAddress()
-        ? allowedIp.toIPv4Address()
-        : allowedIp;
+    let normalizedAllowed: ipaddr.IPv4 | ipaddr.IPv6 = allowedIp;
+    if (allowedIp.kind() === 'ipv6') {
+      const ipv6Allowed = allowedIp as ipaddr.IPv6;
+      if (ipv6Allowed.isIPv4MappedAddress()) {
+        normalizedAllowed = ipv6Allowed.toIPv4Address();
+      }
+    }
 
     return normalizedIp.toString() === normalizedAllowed.toString();
   } catch (error) {

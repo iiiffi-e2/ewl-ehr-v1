@@ -6,6 +6,8 @@ RUN npm install
 
 COPY tsconfig*.json ./
 COPY prisma ./prisma
+RUN npx prisma generate
+
 COPY src ./src
 
 RUN npm run build
@@ -18,8 +20,10 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY --from=build /app/dist ./dist
 
 EXPOSE 8080
 

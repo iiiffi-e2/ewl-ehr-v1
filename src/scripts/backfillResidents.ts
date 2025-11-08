@@ -50,8 +50,7 @@ async function main(): Promise<void> {
     }
 
     for (const resident of residents) {
-      const residentId =
-        resident.ResidentId ?? resident.residentId ?? Number(resident['ResidentID']);
+      const residentId = resident.ResidentId ?? resident.residentId;
       if (!residentId) {
         logger.warn({ message: 'Skipping resident without ResidentId' }, 'backfill_skip_record');
         continue;

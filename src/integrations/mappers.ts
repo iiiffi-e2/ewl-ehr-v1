@@ -185,7 +185,7 @@ function getString<T extends Record<string, unknown> | undefined>(
 ): string | undefined {
   if (!obj) return undefined;
   for (const key of keys) {
-    const value = obj[key as keyof typeof obj];
+    const value = (obj as Record<string, unknown>)[key];
     if (typeof value === 'string' && value.trim().length > 0) {
       return value;
     }
@@ -199,7 +199,7 @@ function getNumber<T extends Record<string, unknown> | undefined>(
 ): number | undefined {
   if (!obj) return undefined;
   for (const key of keys) {
-    const value = obj[key as keyof typeof obj];
+    const value = (obj as Record<string, unknown>)[key];
     if (typeof value === 'number' && Number.isFinite(value)) {
       return value;
     }
