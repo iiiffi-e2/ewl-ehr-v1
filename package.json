@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only --exit-child src/http/server.ts",
+    "dev": "tsx watch src/http/server.ts",
     "start": "node dist/http/server.js",
     "build": "tsc -p tsconfig.build.json",
     "postbuild": "prisma generate",
@@ -16,8 +16,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
     "worker": "node dist/workers/index.js",
-    "dev:worker": "ts-node-dev --respawn --transpile-only --exit-child src/workers/index.ts",
-    "backfill": "ts-node src/scripts/backfillResidents.ts"
+    "dev:worker": "tsx watch src/workers/index.ts",
+    "backfill": "tsx src/scripts/backfillResidents.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
@@ -58,6 +58,7 @@
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.5.4"
   },
   "jest": {
