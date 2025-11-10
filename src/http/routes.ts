@@ -84,6 +84,166 @@ router.get('/admin/test-communities', authAdmin, async (_req, res) => {
   }
 });
 
+// Test endpoint: Get resident details from ALIS
+router.get('/admin/test-resident/:residentId', authAdmin, async (req, res) => {
+  try {
+    const residentId = Number(req.params.residentId);
+
+    if (!residentId || isNaN(residentId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid residentId parameter',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ residentId }, 'admin_test_resident_called');
+
+    const credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+
+    const client = createAlisClient(credentials);
+    const [detail, basicInfo] = await Promise.all([
+      client.getResident(residentId),
+      client.getResidentBasicInfo(residentId),
+    ]);
+
+    logger.info({ residentId }, 'test_resident_success');
+
+    res.json({
+      success: true,
+      residentId,
+      timestamp: new Date().toISOString(),
+      data: {
+        detail,
+        basicInfo,
+      },
+    });
+  } catch (error) {
+    logger.error({ error, residentId: req.params.residentId }, 'test_resident_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Test endpoint: Get resident leaves from ALIS
+router.get('/admin/test-leaves/:residentId', authAdmin, async (req, res) => {
+  try {
+    const residentId = Number(req.params.residentId);
+
+    if (!residentId || isNaN(residentId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid residentId parameter',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ residentId }, 'admin_test_leaves_called');
+
+    const credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+
+    const client = createAlisClient(credentials);
+    const leaves = await client.getResidentLeaves(residentId);
+
+    logger.info({ residentId, count: leaves.length }, 'test_leaves_success');
+
+    res.json({
+      success: true,
+      residentId,
+      count: leaves.length,
+      timestamp: new Date().toISOString(),
+      leaves,
+    });
+  } catch (error) {
+    logger.error({ error, residentId: req.params.residentId }, 'test_leaves_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Test endpoint: List residents from ALIS with pagination
+router.get('/admin/list-residents', authAdmin, async (req, res) => {
+  try {
+    const companyKey = req.query.companyKey as string | undefined;
+    const communityId = req.query.communityId
+      ? Number(req.query.communityId)
+      : undefined;
+    const page = req.query.page ? Number(req.query.page) : undefined;
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+
+    logger.info({ companyKey, communityId, page, pageSize }, 'admin_list_residents_called');
+
+    const credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+
+    const client = createAlisClient(credentials);
+    const result = await client.listResidents({
+      companyKey,
+      communityId,
+      page,
+      pageSize,
+    });
+
+    logger.info(
+      {
+        companyKey,
+        communityId,
+        page,
+        count: result.residents.length,
+        hasMore: result.hasMore,
+      },
+      'list_residents_success',
+    );
+
+    res.json({
+      success: true,
+      count: result.residents.length,
+      hasMore: result.hasMore,
+      timestamp: new Date().toISOString(),
+      filters: {
+        companyKey,
+        communityId,
+        page,
+        pageSize,
+      },
+      residents: result.residents.map((r) => ({
+        residentId: r.ResidentId ?? r.residentId,
+        firstName: r.FirstName ?? r.firstName,
+        lastName: r.LastName ?? r.lastName,
+        status: r.Status ?? r.status,
+        classification: r.Classification ?? r.classification,
+        productType: r.ProductType ?? r.productType,
+        dateOfBirth: r.DateOfBirth ?? r.dateOfBirth,
+        rooms: r.Rooms ?? r.rooms,
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, 'list_residents_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 router.get('/docs.json', (_req, res) => {
   res.json(openApiDocument);
 });

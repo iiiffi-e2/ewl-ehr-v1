@@ -219,6 +219,256 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/test-resident/{residentId}': {
+      get: {
+        summary: 'Test ALIS Resident API',
+        description:
+          'Fetches detailed information for a specific resident from ALIS API. ' +
+          'Returns both detail and basicInfo data. Useful for debugging resident sync issues and verifying data format.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin'],
+        parameters: [
+          {
+            name: 'residentId',
+            in: 'path',
+            required: true,
+            description: 'The ALIS resident ID',
+            schema: { type: 'integer', example: 12345 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved resident data from ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    residentId: { type: 'integer', example: 12345 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        detail: {
+                          type: 'object',
+                          description: 'Full resident details from ALIS',
+                        },
+                        basicInfo: {
+                          type: 'object',
+                          description: 'Basic resident info from ALIS',
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid residentId parameter.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'Invalid residentId parameter' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'ALIS API error or internal server error.' },
+        },
+      },
+    },
+    '/admin/test-leaves/{residentId}': {
+      get: {
+        summary: 'Test ALIS Leave API',
+        description:
+          'Fetches all leaves (temporary absences) for a specific resident from ALIS API. ' +
+          'Useful for debugging leave-related events and verifying leave data structure.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin'],
+        parameters: [
+          {
+            name: 'residentId',
+            in: 'path',
+            required: true,
+            description: 'The ALIS resident ID',
+            schema: { type: 'integer', example: 12345 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved leave data from ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    residentId: { type: 'integer', example: 12345 },
+                    count: { type: 'integer', example: 2 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    leaves: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          LeaveId: { type: 'integer' },
+                          ResidentId: { type: 'integer' },
+                          StartDate: { type: 'string' },
+                          ExpectedReturnDate: { type: 'string' },
+                          EndDate: { type: 'string', nullable: true },
+                          Reason: { type: 'string' },
+                          Status: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  residentId: 12345,
+                  count: 1,
+                  timestamp: '2025-11-10T17:00:00.000Z',
+                  leaves: [
+                    {
+                      LeaveId: 789,
+                      ResidentId: 12345,
+                      StartDate: '2025-11-05',
+                      ExpectedReturnDate: '2025-11-10',
+                      EndDate: null,
+                      Reason: 'Hospital Visit',
+                      Status: 'Active',
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '400': { description: 'Invalid residentId parameter.' },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'ALIS API error or internal server error.' },
+        },
+      },
+    },
+    '/admin/list-residents': {
+      get: {
+        summary: 'List Residents from ALIS',
+        description:
+          'Lists residents from ALIS API with optional filtering and pagination. ' +
+          'Useful for exploring available residents, finding resident IDs, and verifying data.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin'],
+        parameters: [
+          {
+            name: 'companyKey',
+            in: 'query',
+            required: false,
+            description: 'Filter by company key (e.g., "appstoresandbox")',
+            schema: { type: 'string', example: 'appstoresandbox' },
+          },
+          {
+            name: 'communityId',
+            in: 'query',
+            required: false,
+            description: 'Filter by community ID',
+            schema: { type: 'integer', example: 123 },
+          },
+          {
+            name: 'page',
+            in: 'query',
+            required: false,
+            description: 'Page number (default: 1)',
+            schema: { type: 'integer', example: 1 },
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            description: 'Number of residents per page (default: 50)',
+            schema: { type: 'integer', example: 50 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved residents list from ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    count: { type: 'integer', example: 2 },
+                    hasMore: { type: 'boolean', example: false },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    filters: {
+                      type: 'object',
+                      properties: {
+                        companyKey: { type: 'string' },
+                        communityId: { type: 'integer' },
+                        page: { type: 'integer' },
+                        pageSize: { type: 'integer' },
+                      },
+                    },
+                    residents: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          residentId: { type: 'integer' },
+                          firstName: { type: 'string' },
+                          lastName: { type: 'string' },
+                          status: { type: 'string' },
+                          classification: { type: 'string' },
+                          productType: { type: 'string' },
+                          dateOfBirth: { type: 'string' },
+                          rooms: {
+                            type: 'array',
+                            items: { type: 'object' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  count: 2,
+                  hasMore: true,
+                  timestamp: '2025-11-10T17:00:00.000Z',
+                  filters: {
+                    companyKey: 'appstoresandbox',
+                    communityId: 123,
+                    page: 1,
+                    pageSize: 50,
+                  },
+                  residents: [
+                    {
+                      residentId: 12345,
+                      firstName: 'John',
+                      lastName: 'Doe',
+                      status: 'Active',
+                      classification: 'Independent Living',
+                      productType: 'Apartment',
+                      dateOfBirth: '1950-01-15',
+                      rooms: [{ roomNumber: '101', bed: 'A' }],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'ALIS API error or internal server error.' },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
