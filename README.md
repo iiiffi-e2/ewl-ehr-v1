@@ -163,7 +163,9 @@ Required keys (see `.env.example`):
 
 ## Testing ALIS Communities API
 
-Test the ALIS Communities endpoint to verify API connectivity and explore available communities:
+### Local Testing
+
+Test the ALIS Communities endpoint locally to verify API connectivity and explore available communities:
 
 ```bash
 npm run test:communities
@@ -176,6 +178,22 @@ This script:
 - Logs structured output for debugging
 
 The `AlisClient` now includes a `getCommunities()` method that returns properly typed `AlisCommunity[]` data.
+
+### Production Testing
+
+A secure test endpoint is available for testing in production:
+
+```bash
+# Test the Communities API in production (requires BasicAuth)
+curl -u "webhook-user:webhook-pass" https://your-app.com/admin/test-communities
+```
+
+**Endpoint:** `GET /admin/test-communities`
+- Protected with BasicAuth (same credentials as webhook endpoint)
+- Returns all communities from ALIS API
+- Includes structured logging for debugging
+
+See **[TESTING_PRODUCTION.md](./TESTING_PRODUCTION.md)** for complete production testing guide.
 
 ---
 
