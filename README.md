@@ -183,15 +183,25 @@ The `AlisClient` now includes a `getCommunities()` method that returns properly 
 
 A secure test endpoint is available for testing in production:
 
+**Option 1: Using Swagger UI (Recommended)**
+1. Navigate to `https://your-app.com/docs`
+2. Find the `GET /admin/test-communities` endpoint
+3. Click "Authorize" and enter your BasicAuth credentials
+4. Click "Try it out" → "Execute"
+
+See **[SWAGGER_USAGE.md](./SWAGGER_USAGE.md)** for detailed Swagger UI guide.
+
+**Option 2: Using curl**
 ```bash
 # Test the Communities API in production (requires BasicAuth)
 curl -u "webhook-user:webhook-pass" https://your-app.com/admin/test-communities
 ```
 
-**Endpoint:** `GET /admin/test-communities`
+**Endpoint Details:** `GET /admin/test-communities`
 - Protected with BasicAuth (same credentials as webhook endpoint)
 - Returns all communities from ALIS API
 - Includes structured logging for debugging
+- Fully documented in Swagger/OpenAPI
 
 See **[TESTING_PRODUCTION.md](./TESTING_PRODUCTION.md)** for complete production testing guide.
 
