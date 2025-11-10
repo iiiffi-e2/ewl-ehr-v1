@@ -10,6 +10,7 @@ import { alisWebhookHandler } from '../webhook/handler.js';
 import { env } from '../config/env.js';
 
 import { authWebhook } from './middleware/authWebhook.js';
+import { authAdmin } from './middleware/authAdmin.js';
 
 export const router = Router();
 
@@ -32,8 +33,8 @@ router.post('/webhook/alis', authWebhook, async (req, res, next) => {
 });
 
 // Temporary secure endpoint to test ALIS Communities API
-// Protected with the same BasicAuth as webhook endpoint
-router.get('/admin/test-communities', authWebhook, async (_req, res) => {
+// Protected with BasicAuth but NOT IP allowlist (unlike webhook endpoint)
+router.get('/admin/test-communities', authAdmin, async (_req, res) => {
   try {
     logger.info('admin_test_communities_called');
 
