@@ -272,13 +272,36 @@ function mapAlisError(error: unknown, action: string): AlisApiError {
   if (error instanceof AxiosError) {
     const status = error.response?.status;
     const code = error.code;
+    const responseData = error.response?.data;
 
-    const message =
-      status === 401
-        ? 'Unauthorized to call ALIS API (401)'
-        : status === 403
-        ? 'Forbidden calling ALIS API (403)'
+    let message: string;
+    if (status === 401) {
+      message = 'Unauthorized to call ALIS API (401) - Check ALIS credentials';
+    } else if (status === 403) {
+      message = 'Forbidden calling ALIS API (403) - Insufficient permissions';
+    } else if (status === 404) {
+      message = `ALIS API endpoint not found (404) - Endpoint may not exist or credentials lack access. URL: ${error.config?.url}`;
+    } else if (responseData && typeof responseData === 'object') {
+      // Include ALIS API error details if available
+      const alisMessage = (responseData as any).message || (responseData as any).error;
+      message = alisMessage
+        ? `ALIS API error (${status}): ${alisMessage}`
         : error.message;
+    } else {
+      message = error.message;
+    }
+
+    logger.error(
+      {
+        action,
+        status,
+        code,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        responseData,
+      },
+      'alis_api_error_details',
+    );
 
     return new AlisApiError(message, status, code);
   }
