@@ -128,7 +128,7 @@ export const openApiDocument: OpenAPIV3.Document = {
           'Tests connectivity to the ALIS Communities API and returns all available communities. ' +
           'Protected with BasicAuth. Useful for verifying production ALIS credentials and exploring community data.',
         security: [{ basicAuth: [] }],
-        tags: ['Admin', 'Testing'],
+        tags: ['Admin'],
         responses: {
           '200': {
             description: 'Successfully retrieved communities from ALIS API.',
