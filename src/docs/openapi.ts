@@ -121,6 +121,104 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/test-communities': {
+      get: {
+        summary: 'Test ALIS Communities API',
+        description:
+          'Tests connectivity to the ALIS Communities API and returns all available communities. ' +
+          'Protected with BasicAuth. Useful for verifying production ALIS credentials and exploring community data.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin', 'Testing'],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved communities from ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    count: { type: 'integer', example: 2 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    communities: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'integer', example: 123 },
+                          name: { type: 'string', example: 'Sunset Senior Living' },
+                          companyKey: { type: 'string', example: 'appstoresandbox' },
+                          address: { type: 'string', example: '123 Main St' },
+                          city: { type: 'string', example: 'Springfield' },
+                          state: { type: 'string', example: 'IL' },
+                          zipCode: { type: 'string', example: '62701' },
+                          phone: { type: 'string', example: '555-0123' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  count: 2,
+                  timestamp: '2025-11-10T15:30:00.000Z',
+                  communities: [
+                    {
+                      id: 123,
+                      name: 'Sunset Senior Living',
+                      companyKey: 'appstoresandbox',
+                      address: '123 Main St',
+                      city: 'Springfield',
+                      state: 'IL',
+                      zipCode: '62701',
+                      phone: '555-0123',
+                    },
+                    {
+                      id: 456,
+                      name: 'Green Valley Care Center',
+                      companyKey: 'appstoresandbox',
+                      address: '456 Oak Ave',
+                      city: 'Portland',
+                      state: 'OR',
+                      zipCode: '97201',
+                      phone: '555-0456',
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '401': {
+            description: 'Basic authentication failed.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string', example: 'Unauthorized' },
+                  },
+                },
+              },
+            },
+          },
+          '500': {
+            description: 'ALIS API error or internal server error.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'Unauthorized to call ALIS API (401)' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
