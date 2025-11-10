@@ -62,6 +62,7 @@ router.get('/admin/test-communities', authAdmin, async (_req, res) => {
       success: true,
       count: communities.length,
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/communities`,
       communities: communities.map((c) => ({
         id: c.CommunityId ?? c.communityId,
         name: c.CommunityName ?? c.communityName,
@@ -80,6 +81,7 @@ router.get('/admin/test-communities', authAdmin, async (_req, res) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/communities`,
     });
   }
 });
@@ -116,6 +118,7 @@ router.get('/admin/test-resident/:residentId', authAdmin, async (req, res) => {
       success: true,
       residentId,
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents/${residentId}`,
       data: {
         detail,
         basicInfo,
@@ -124,10 +127,12 @@ router.get('/admin/test-resident/:residentId', authAdmin, async (req, res) => {
   } catch (error) {
     logger.error({ error, residentId: req.params.residentId }, 'test_resident_failed');
 
+    const residentId = req.params.residentId;
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents/${residentId}`,
     });
   }
 });
@@ -162,15 +167,18 @@ router.get('/admin/test-leaves/:residentId', authAdmin, async (req, res) => {
       residentId,
       count: leaves.length,
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents/${residentId}/leaves`,
       leaves,
     });
   } catch (error) {
     logger.error({ error, residentId: req.params.residentId }, 'test_leaves_failed');
 
+    const residentId = req.params.residentId;
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents/${residentId}/leaves`,
     });
   }
 });
@@ -216,6 +224,7 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       count: result.residents.length,
       hasMore: result.hasMore,
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents`,
       filters: {
         companyKey,
         communityId,
@@ -240,6 +249,7 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents`,
     });
   }
 });
