@@ -17,7 +17,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "worker": "node dist/workers/index.js",
     "dev:worker": "tsx watch src/workers/index.ts",
-    "backfill": "tsx src/scripts/backfillResidents.ts"
+    "backfill": "tsx src/scripts/backfillResidents.ts",
+    "test:communities": "tsx src/scripts/testCommunities.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

@@ -74,6 +74,25 @@ export type AlisLeave = {
   status?: string;
 };
 
+export type AlisCommunity = {
+  CommunityId?: number;
+  communityId?: number;
+  CommunityName?: string;
+  communityName?: string;
+  CompanyKey?: string;
+  companyKey?: string;
+  Address?: string;
+  address?: string;
+  City?: string;
+  city?: string;
+  State?: string;
+  state?: string;
+  ZipCode?: string;
+  zipCode?: string;
+  Phone?: string;
+  phone?: string;
+};
+
 export class AlisApiError extends Error {
   status?: number;
   code?: string;
@@ -145,13 +164,17 @@ export function createAlisClient(credentials: AlisCredentials) {
       }
     },
 
-    async listCommunities(): Promise<unknown> {
+    async getCommunities(): Promise<AlisCommunity[]> {
       try {
-        const response = await http.get('/v1/integration/communities');
+        const response = await http.get<AlisCommunity[]>('/v1/integration/communities');
         return response.data;
       } catch (error) {
-        throw mapAlisError(error, 'listCommunities');
+        throw mapAlisError(error, 'getCommunities');
       }
+    },
+
+    async listCommunities(): Promise<AlisCommunity[]> {
+      return this.getCommunities();
     },
 
     async listResidents(params: ListResidentsParams = {}): Promise<ListResidentsResponse> {

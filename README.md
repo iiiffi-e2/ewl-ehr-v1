@@ -95,6 +95,7 @@ Dockerfile
 | `npm run prisma:migrate:dev` | Create/apply migrations in dev (Postgres)          |
 | `npm run prisma:generate` | Regenerate Prisma client                              |
 | `npm run backfill -- --companyKey <key> [--dryRun] [--skipCaspio]` | Backfill ALIS residents via API |
+| `npm run test:communities` | Test ALIS Communities API endpoint                    |
 
 ---
 
@@ -157,6 +158,24 @@ Required keys (see `.env.example`):
 - Worker entrypoint `npm run worker` (`src/workers/index.ts`)
 - Concurrency configurable via `WORKER_CONCURRENCY`
 - Redis connection automatically swaps to `ioredis-mock` during Jest tests
+
+---
+
+## Testing ALIS Communities API
+
+Test the ALIS Communities endpoint to verify API connectivity and explore available communities:
+
+```bash
+npm run test:communities
+```
+
+This script:
+- Connects to ALIS API using sandbox credentials from `.env`
+- Fetches all communities via `GET /v1/integration/communities`
+- Displays community details (ID, name, company key, location, contact info)
+- Logs structured output for debugging
+
+The `AlisClient` now includes a `getCommunities()` method that returns properly typed `AlisCommunity[]` data.
 
 ---
 
