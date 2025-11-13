@@ -47,15 +47,24 @@ export function createApp() {
   );
 
   // Serve static files from public directory
-  // In production (dist/http/app.js), public is at dist/public
-  // In development (src/http/app.ts), public is at ./public
-  const publicPath = path.join(__dirname, '../../public');
+  // In production (dist/http/app.js), __dirname is /app/dist/http, public is at /app/dist/public
+  // So we need to go up one level: ../public
+  // In development (src/http/app.ts), __dirname is /path/to/src/http, public is at /path/to/public
+  // So we need to go up two levels: ../../public
+  
+  // Check if we're in production (dist folder) or development (src folder)
+  const isProduction = __dirname.includes('/dist/') || __dirname.includes('\\dist\\');
+  const publicPath = isProduction 
+    ? path.join(__dirname, '../public')  // dist/http -> dist/public
+    : path.join(__dirname, '../../public'); // src/http -> public
+  
   const publicExists = fs.existsSync(publicPath);
   
   logger.info({ 
     publicPath, 
     publicExists,
     __dirname,
+    isProduction,
     resolvedPath: path.resolve(publicPath)
   }, 'static_files_configuration');
 
