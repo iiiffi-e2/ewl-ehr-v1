@@ -46,7 +46,11 @@ export function createApp() {
   );
 
   // Serve static files from public directory
-  app.use('/public', express.static(path.join(__dirname, '../../public')));
+  // In production (dist/http/app.js), public is at dist/public
+  // In development (src/http/app.ts), public is at ./public
+  const publicPath = path.join(__dirname, '../../public');
+  app.use('/public', express.static(publicPath));
+  logger.info({ publicPath }, 'serving_static_files');
 
   app.use(router);
 
