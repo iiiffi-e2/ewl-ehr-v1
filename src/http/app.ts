@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 import { logger } from '../config/logger.js';
 
@@ -49,8 +50,21 @@ export function createApp() {
   // In production (dist/http/app.js), public is at dist/public
   // In development (src/http/app.ts), public is at ./public
   const publicPath = path.join(__dirname, '../../public');
-  app.use('/public', express.static(publicPath));
-  logger.info({ publicPath }, 'serving_static_files');
+  const publicExists = fs.existsSync(publicPath);
+  
+  logger.info({ 
+    publicPath, 
+    publicExists,
+    __dirname,
+    resolvedPath: path.resolve(publicPath)
+  }, 'static_files_configuration');
+
+  if (publicExists) {
+    app.use('/public', express.static(publicPath));
+    logger.info('static_files_middleware_registered');
+  } else {
+    logger.error({ publicPath }, 'public_directory_not_found');
+  }
 
   app.use(router);
 
