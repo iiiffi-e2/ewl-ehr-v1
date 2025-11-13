@@ -469,6 +469,296 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/webhook-events': {
+      get: {
+        summary: 'View Received Webhook Events',
+        description:
+          'Lists all webhook events received from ALIS with filtering options. ' +
+          'Useful for monitoring webhook delivery, debugging event processing, and verifying event payloads.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin', 'Webhooks'],
+        parameters: [
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            description: 'Maximum number of events to return (default: 50)',
+            schema: { type: 'integer', example: 50 },
+          },
+          {
+            name: 'status',
+            in: 'query',
+            required: false,
+            description: 'Filter by event status (received, queued, processed, failed, ignored)',
+            schema: {
+              type: 'string',
+              enum: ['received', 'queued', 'processed', 'failed', 'ignored'],
+              example: 'processed',
+            },
+          },
+          {
+            name: 'eventType',
+            in: 'query',
+            required: false,
+            description: 'Filter by event type (e.g., residents.move_in)',
+            schema: { type: 'string', example: 'residents.move_in' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved webhook events.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    count: { type: 'integer', example: 10 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    filters: {
+                      type: 'object',
+                      properties: {
+                        status: { type: 'string' },
+                        eventType: { type: 'string' },
+                        limit: { type: 'integer' },
+                      },
+                    },
+                    summary: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          status: { type: 'string' },
+                          count: { type: 'integer' },
+                        },
+                      },
+                    },
+                    events: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'integer' },
+                          eventMessageId: { type: 'string' },
+                          eventType: { type: 'string' },
+                          status: { type: 'string' },
+                          companyKey: { type: 'string' },
+                          communityId: { type: 'integer', nullable: true },
+                          receivedAt: { type: 'string', format: 'date-time' },
+                          processedAt: { type: 'string', format: 'date-time', nullable: true },
+                          error: { type: 'string', nullable: true },
+                          payload: { type: 'object' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  count: 2,
+                  timestamp: '2025-11-13T10:00:00.000Z',
+                  filters: { limit: 50 },
+                  summary: [
+                    { status: 'processed', count: 15 },
+                    { status: 'queued', count: 3 },
+                  ],
+                  events: [
+                    {
+                      id: 1,
+                      eventMessageId: 'evt_123',
+                      eventType: 'residents.move_in',
+                      status: 'processed',
+                      companyKey: 'appstoresandbox',
+                      communityId: 123,
+                      receivedAt: '2025-11-13T09:00:00.000Z',
+                      processedAt: '2025-11-13T09:00:05.000Z',
+                      error: null,
+                      payload: {
+                        CompanyKey: 'appstoresandbox',
+                        EventType: 'residents.move_in',
+                        EventMessageId: 'evt_123',
+                        NotificationData: { ResidentId: 456 },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'Database error or internal server error.' },
+        },
+      },
+    },
+    '/admin/webhook-events/{eventMessageId}': {
+      get: {
+        summary: 'Get Webhook Event Details',
+        description:
+          'Retrieves detailed information about a specific webhook event by its EventMessageId. ' +
+          'Useful for debugging specific events and viewing complete payload data.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin', 'Webhooks'],
+        parameters: [
+          {
+            name: 'eventMessageId',
+            in: 'path',
+            required: true,
+            description: 'The unique EventMessageId from ALIS',
+            schema: { type: 'string', example: 'evt_123' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved event details.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    event: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'integer' },
+                        eventMessageId: { type: 'string' },
+                        eventType: { type: 'string' },
+                        status: { type: 'string' },
+                        company: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer' },
+                            companyKey: { type: 'string' },
+                            createdAt: { type: 'string', format: 'date-time' },
+                          },
+                        },
+                        communityId: { type: 'integer', nullable: true },
+                        receivedAt: { type: 'string', format: 'date-time' },
+                        processedAt: { type: 'string', format: 'date-time', nullable: true },
+                        error: { type: 'string', nullable: true },
+                        payload: { type: 'object' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '404': {
+            description: 'Event not found.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'Event not found' },
+                    eventMessageId: { type: 'string' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'Database error or internal server error.' },
+        },
+      },
+    },
+    '/admin/simulate-webhook': {
+      post: {
+        summary: 'Simulate Webhook Event',
+        description:
+          'Simulates an ALIS webhook event for testing purposes. ' +
+          'Creates a test event and processes it through the webhook handler. ' +
+          'Useful for testing webhook processing logic without waiting for real events from ALIS.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin', 'Webhooks'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  eventType: {
+                    type: 'string',
+                    example: 'test.event',
+                    description: 'Event type to simulate (default: test.event)',
+                  },
+                  companyKey: {
+                    type: 'string',
+                    example: 'TEST_COMPANY',
+                    description: 'Company key for the test event (default: TEST_COMPANY)',
+                  },
+                  communityId: {
+                    type: 'integer',
+                    nullable: true,
+                    example: 123,
+                    description: 'Community ID for the test event (default: null)',
+                  },
+                  notificationData: {
+                    type: 'object',
+                    example: { ResidentId: 456, LeaveId: 789 },
+                    description: 'Custom notification data (default: {})',
+                  },
+                },
+              },
+              example: {
+                eventType: 'residents.move_in',
+                companyKey: 'appstoresandbox',
+                communityId: 123,
+                notificationData: { ResidentId: 456 },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Webhook simulation completed successfully.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Webhook simulation completed' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    testPayload: {
+                      type: 'object',
+                      description: 'The payload that was sent to the webhook handler',
+                    },
+                    result: {
+                      type: 'object',
+                      description: 'Response from the webhook handler',
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  message: 'Webhook simulation completed',
+                  timestamp: '2025-11-13T10:30:00.000Z',
+                  testPayload: {
+                    CompanyKey: 'TEST_COMPANY',
+                    CommunityId: null,
+                    EventType: 'test.event',
+                    EventMessageId: 'TEST_1699876200000_abc123',
+                    EventMessageDate: '2025-11-13T10:30:00.000Z',
+                    NotificationData: {},
+                  },
+                  result: {
+                    statusCode: 202,
+                    data: { status: 'test_acknowledged' },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': { description: 'Simulation failed or internal server error.' },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

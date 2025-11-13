@@ -254,6 +254,213 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
   }
 });
 
+// Webhook Testing Endpoints
+
+// View all received webhook events
+router.get('/admin/webhook-events', authAdmin, async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const status = req.query.status as string | undefined;
+    const eventType = req.query.eventType as string | undefined;
+
+    logger.info({ limit, status, eventType }, 'admin_webhook_events_called');
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    if (eventType) {
+      where.eventType = eventType;
+    }
+
+    const events = await prisma.eventLog.findMany({
+      where,
+      orderBy: { receivedAt: 'desc' },
+      take: limit,
+      include: {
+        company: {
+          select: {
+            companyKey: true,
+          },
+        },
+      },
+    });
+
+    const summary = await prisma.eventLog.groupBy({
+      by: ['status'],
+      _count: true,
+    });
+
+    logger.info(
+      {
+        count: events.length,
+        filters: { status, eventType, limit },
+      },
+      'webhook_events_retrieved',
+    );
+
+    res.json({
+      success: true,
+      count: events.length,
+      timestamp: new Date().toISOString(),
+      filters: { status, eventType, limit },
+      summary: summary.map((s) => ({
+        status: s.status,
+        count: s._count,
+      })),
+      events: events.map((e) => ({
+        id: e.id,
+        eventMessageId: e.eventMessageId,
+        eventType: e.eventType,
+        status: e.status,
+        companyKey: e.company.companyKey,
+        communityId: e.communityId,
+        receivedAt: e.receivedAt,
+        processedAt: e.processedAt,
+        error: e.error,
+        payload: e.payload,
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, 'webhook_events_retrieval_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Simulate a webhook event for testing
+router.post('/admin/simulate-webhook', authAdmin, async (req, res) => {
+  try {
+    const {
+      eventType = 'test.event',
+      companyKey = 'TEST_COMPANY',
+      communityId = null,
+      notificationData = {},
+    } = req.body;
+
+    const eventMessageId = `TEST_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const eventMessageDate = new Date().toISOString();
+
+    const testPayload = {
+      CompanyKey: companyKey,
+      CommunityId: communityId,
+      EventType: eventType,
+      EventMessageId: eventMessageId,
+      EventMessageDate: eventMessageDate,
+      NotificationData: notificationData,
+    };
+
+    logger.info(
+      {
+        eventMessageId,
+        eventType,
+        companyKey,
+      },
+      'admin_simulate_webhook_called',
+    );
+
+    // Call the webhook handler directly
+    const mockReq = {
+      body: testPayload,
+    } as any;
+
+    const mockRes = {
+      status: (code: number) => ({
+        json: (data: any) => {
+          logger.info(
+            {
+              statusCode: code,
+              response: data,
+            },
+            'simulate_webhook_response',
+          );
+          return { statusCode: code, data };
+        },
+      }),
+    } as any;
+
+    const result = await alisWebhookHandler(mockReq, mockRes);
+
+    res.json({
+      success: true,
+      message: 'Webhook simulation completed',
+      timestamp: new Date().toISOString(),
+      testPayload,
+      result,
+    });
+  } catch (error) {
+    logger.error({ error }, 'simulate_webhook_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get details of a specific webhook event
+router.get('/admin/webhook-events/:eventMessageId', authAdmin, async (req, res) => {
+  try {
+    const { eventMessageId } = req.params;
+
+    logger.info({ eventMessageId }, 'admin_webhook_event_detail_called');
+
+    const event = await prisma.eventLog.findUnique({
+      where: { eventMessageId },
+      include: {
+        company: {
+          select: {
+            id: true,
+            companyKey: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        error: 'Event not found',
+        eventMessageId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ eventMessageId, status: event.status }, 'webhook_event_detail_retrieved');
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      event: {
+        id: event.id,
+        eventMessageId: event.eventMessageId,
+        eventType: event.eventType,
+        status: event.status,
+        company: event.company,
+        communityId: event.communityId,
+        receivedAt: event.receivedAt,
+        processedAt: event.processedAt,
+        error: event.error,
+        payload: event.payload,
+      },
+    });
+  } catch (error) {
+    logger.error({ error, eventMessageId: req.params.eventMessageId }, 'webhook_event_detail_failed');
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 router.get('/docs.json', (_req, res) => {
   res.json(openApiDocument);
 });
