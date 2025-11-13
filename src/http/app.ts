@@ -1,17 +1,24 @@
 import express from 'express';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { logger } from '../config/logger.js';
 
 import { router } from './routes.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export function createApp() {
   const app = express();
 
   app.set('trust proxy', true);
 
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: false, // Allow inline scripts for webhook monitor
+  }));
   app.use(
     express.json({
       limit: '1mb',
@@ -37,6 +44,9 @@ export function createApp() {
       },
     }),
   );
+
+  // Serve static files from public directory
+  app.use('/public', express.static(path.join(__dirname, '../../public')));
 
   app.use(router);
 

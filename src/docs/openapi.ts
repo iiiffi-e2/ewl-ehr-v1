@@ -759,6 +759,50 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/webhook-events-stream': {
+      get: {
+        summary: 'Real-Time Webhook Event Stream',
+        description:
+          'Server-Sent Events (SSE) stream of webhook events in real-time. ' +
+          'Connect to this endpoint to receive live updates as webhook events arrive and are processed. ' +
+          'Perfect for monitoring webhook activity in real-time. ' +
+          'Use the /monitor page for a visual interface, or connect directly for programmatic access.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin', 'Webhooks'],
+        responses: {
+          '200': {
+            description: 'SSE stream established. Events will be sent as they occur.',
+            content: {
+              'text/event-stream': {
+                schema: {
+                  type: 'string',
+                  description: 'Server-Sent Events stream',
+                },
+                example:
+                  'data: {"type":"connected","message":"Webhook event stream connected","timestamp":"2025-11-13T10:00:00.000Z"}\n\n' +
+                  'data: {"type":"event","data":{"id":1,"eventMessageId":"evt_123","eventType":"residents.move_in","status":"processed","companyKey":"appstoresandbox","communityId":123,"receivedAt":"2025-11-13T10:00:01.000Z","processedAt":"2025-11-13T10:00:05.000Z","error":null,"payload":{...}},"timestamp":"2025-11-13T10:00:05.000Z"}\n\n',
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+        },
+      },
+    },
+    '/monitor': {
+      get: {
+        summary: 'Webhook Monitor Dashboard',
+        description:
+          'Interactive real-time dashboard for monitoring webhook events. ' +
+          'Provides a visual interface with live updates, statistics, and event details. ' +
+          'Redirects to /public/webhook-monitor.html.',
+        tags: ['Admin', 'Webhooks'],
+        responses: {
+          '302': {
+            description: 'Redirects to webhook monitor dashboard.',
+          },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhook Event Monitor - Real-Time</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: #161b22;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #30363d;
+        }
+
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #6e7681;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: #3fb950;
+        }
+
+        .status-indicator.disconnected {
+            background: #f85149;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .controls {
+            background: #161b22;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #30363d;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .controls label {
+            color: #8b949e;
+            font-size: 14px;
+        }
+
+        .controls input {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #2ea043;
+        }
+
+        button.secondary {
+            background: #21262d;
+            border: 1px solid #30363d;
+        }
+
+        button.secondary:hover {
+            background: #30363d;
+        }
+
+        button.danger {
+            background: #da3633;
+        }
+
+        button.danger:hover {
+            background: #f85149;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #161b22;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+        }
+
+        .stat-card h3 {
+            font-size: 12px;
+            color: #8b949e;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #58a6ff;
+        }
+
+        .events-container {
+            background: #161b22;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            overflow: hidden;
+        }
+
+        .events-header {
+            padding: 15px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .events-header h2 {
+            font-size: 16px;
+            color: #c9d1d9;
+        }
+
+        .events-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .event-item {
+            padding: 15px;
+            border-bottom: 1px solid #30363d;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .event-item:hover {
+            background: #0d1117;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .event-type {
+            font-weight: 600;
+            color: #58a6ff;
+            font-size: 14px;
+        }
+
+        .event-time {
+            font-size: 12px;
+            color: #8b949e;
+        }
+
+        .event-meta {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .event-meta span {
+            font-size: 12px;
+            color: #8b949e;
+        }
+
+        .event-meta strong {
+            color: #c9d1d9;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-badge.received { background: #1f6feb; color: white; }
+        .status-badge.queued { background: #9e6a03; color: white; }
+        .status-badge.processed { background: #238636; color: white; }
+        .status-badge.failed { background: #da3633; color: white; }
+        .status-badge.ignored { background: #6e7681; color: white; }
+
+        .event-payload {
+            background: #0d1117;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .empty-state {
+            padding: 60px 20px;
+            text-align: center;
+            color: #8b949e;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔴 Webhook Event Monitor - Real-Time</h1>
+            <p>Live stream of webhook events from ALIS</p>
+            <div class="status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </header>
+
+        <div class="controls">
+            <div style="flex: 1;">
+                <label>Username:</label>
+                <input type="text" id="username" placeholder="WEBHOOK_USERNAME">
+            </div>
+            <div style="flex: 1;">
+                <label>Password:</label>
+                <input type="password" id="password" placeholder="WEBHOOK_PASSWORD">
+            </div>
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button class="secondary" onclick="clearEvents()">Clear</button>
+            <button class="secondary" onclick="toggleAutoScroll()">
+                <span id="autoScrollText">Auto-scroll: ON</span>
+            </button>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Events</h3>
+                <div class="value" id="totalEvents">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Processed</h3>
+                <div class="value" style="color: #3fb950;" id="processedCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Failed</h3>
+                <div class="value" style="color: #f85149;" id="failedCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last Event</h3>
+                <div class="value" style="font-size: 14px; color: #8b949e;" id="lastEventTime">Never</div>
+            </div>
+        </div>
+
+        <div class="events-container">
+            <div class="events-header">
+                <h2>Live Events</h2>
+                <span id="eventCount" style="color: #8b949e; font-size: 14px;">0 events</span>
+            </div>
+            <div class="events-list" id="eventsList">
+                <div class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    <p>Waiting for webhook events...</p>
+                    <p style="font-size: 12px; margin-top: 8px;">Enter credentials and click Connect to start monitoring</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let events = [];
+        let autoScroll = true;
+        let stats = {
+            total: 0,
+            processed: 0,
+            failed: 0
+        };
+
+        // Load saved credentials
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedUsername = localStorage.getItem('webhook_username');
+            const savedPassword = localStorage.getItem('webhook_password');
+            if (savedUsername) document.getElementById('username').value = savedUsername;
+            if (savedPassword) document.getElementById('password').value = savedPassword;
+        });
+
+        function connect() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                alert('Please enter username and password');
+                return;
+            }
+
+            // Save credentials
+            localStorage.setItem('webhook_username', username);
+            localStorage.setItem('webhook_password', password);
+
+            // Close existing connection
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            // Create auth header
+            const auth = btoa(`${username}:${password}`);
+            const url = `/admin/webhook-events-stream`;
+
+            // Create EventSource with auth
+            eventSource = new EventSource(url, {
+                headers: {
+                    'Authorization': `Basic ${auth}`
+                }
+            });
+
+            eventSource.onopen = () => {
+                updateStatus('connected', 'Connected - Listening for events...');
+                document.getElementById('connectBtn').textContent = 'Disconnect';
+                document.getElementById('connectBtn').onclick = disconnect;
+                document.getElementById('connectBtn').classList.add('danger');
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'connected') {
+                        console.log('Stream connected:', data.message);
+                    } else if (data.type === 'event') {
+                        addEvent(data.data);
+                    }
+                } catch (error) {
+                    console.error('Error parsing event:', error);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('EventSource error:', error);
+                updateStatus('disconnected', 'Connection error - Check credentials');
+                disconnect();
+            };
+        }
+
+        function disconnect() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            updateStatus('disconnected', 'Disconnected');
+            document.getElementById('connectBtn').textContent = 'Connect';
+            document.getElementById('connectBtn').onclick = connect;
+            document.getElementById('connectBtn').classList.remove('danger');
+        }
+
+        function updateStatus(status, text) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            indicator.className = 'status-indicator ' + status;
+            statusText.textContent = text;
+        }
+
+        function addEvent(eventData) {
+            events.unshift(eventData);
+            
+            // Update stats
+            stats.total++;
+            if (eventData.status === 'processed') stats.processed++;
+            if (eventData.status === 'failed') stats.failed++;
+            
+            updateStats();
+            renderEvents();
+        }
+
+        function updateStats() {
+            document.getElementById('totalEvents').textContent = stats.total;
+            document.getElementById('processedCount').textContent = stats.processed;
+            document.getElementById('failedCount').textContent = stats.failed;
+            document.getElementById('eventCount').textContent = `${events.length} events`;
+            
+            if (events.length > 0) {
+                const lastEvent = new Date(events[0].receivedAt);
+                document.getElementById('lastEventTime').textContent = lastEvent.toLocaleTimeString();
+            }
+        }
+
+        function renderEvents() {
+            const container = document.getElementById('eventsList');
+            
+            if (events.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                        <p>No events yet</p>
+                        <p style="font-size: 12px; margin-top: 8px;">Waiting for webhook events from ALIS...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = events.map(event => {
+                const time = new Date(event.receivedAt).toLocaleTimeString();
+                const payload = JSON.stringify(event.payload, null, 2);
+                
+                return `
+                    <div class="event-item">
+                        <div class="event-header">
+                            <span class="event-type">${event.eventType}</span>
+                            <span class="event-time">${time}</span>
+                        </div>
+                        <div class="event-meta">
+                            <span><strong>ID:</strong> ${event.eventMessageId}</span>
+                            <span><strong>Status:</strong> <span class="status-badge ${event.status}">${event.status}</span></span>
+                            <span><strong>Company:</strong> ${event.companyKey}</span>
+                            ${event.communityId ? `<span><strong>Community:</strong> ${event.communityId}</span>` : ''}
+                            ${event.error ? `<span style="color: #f85149;"><strong>Error:</strong> ${event.error}</span>` : ''}
+                        </div>
+                        <details>
+                            <summary style="cursor: pointer; color: #58a6ff; font-size: 12px; margin-top: 8px;">View Payload</summary>
+                            <div class="event-payload">${payload}</div>
+                        </details>
+                    </div>
+                `;
+            }).join('');
+
+            if (autoScroll) {
+                container.scrollTop = 0;
+            }
+        }
+
+        function clearEvents() {
+            if (confirm('Clear all events from the display?')) {
+                events = [];
+                stats = { total: 0, processed: 0, failed: 0 };
+                updateStats();
+                renderEvents();
+            }
+        }
+
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            document.getElementById('autoScrollText').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>
+

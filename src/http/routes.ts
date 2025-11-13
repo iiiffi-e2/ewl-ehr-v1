@@ -18,6 +18,11 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Redirect to webhook monitor
+router.get('/monitor', (_req, res) => {
+  res.redirect('/public/webhook-monitor.html');
+});
+
 router.get('/health/deps', async (_req, res) => {
   const result = await healthCheck();
   const statusCode = result.status === 'ok' ? 200 : 503;
@@ -459,6 +464,81 @@ router.get('/admin/webhook-events/:eventMessageId', authAdmin, async (req, res) 
       timestamp: new Date().toISOString(),
     });
   }
+});
+
+// Real-time webhook event stream (Server-Sent Events)
+router.get('/admin/webhook-events-stream', authAdmin, async (req, res) => {
+  logger.info('admin_webhook_events_stream_connected');
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Webhook event stream connected', timestamp: new Date().toISOString() })}\n\n`);
+
+  // Poll database for new events
+  let lastEventId = 0;
+  
+  const pollInterval = setInterval(async () => {
+    try {
+      const newEvents = await prisma.eventLog.findMany({
+        where: {
+          id: {
+            gt: lastEventId,
+          },
+        },
+        orderBy: {
+          id: 'asc',
+        },
+        take: 10,
+        include: {
+          company: {
+            select: {
+              companyKey: true,
+            },
+          },
+        },
+      });
+
+      if (newEvents.length > 0) {
+        for (const event of newEvents) {
+          const eventData = {
+            type: 'event',
+            data: {
+              id: event.id,
+              eventMessageId: event.eventMessageId,
+              eventType: event.eventType,
+              status: event.status,
+              companyKey: event.company.companyKey,
+              communityId: event.communityId,
+              receivedAt: event.receivedAt,
+              processedAt: event.processedAt,
+              error: event.error,
+              payload: event.payload,
+            },
+            timestamp: new Date().toISOString(),
+          };
+
+          res.write(`data: ${JSON.stringify(eventData)}\n\n`);
+          lastEventId = event.id;
+        }
+      }
+
+      // Send heartbeat every poll to keep connection alive
+      res.write(`:heartbeat ${Date.now()}\n\n`);
+    } catch (error) {
+      logger.error({ error }, 'webhook_stream_poll_error');
+    }
+  }, 2000); // Poll every 2 seconds
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    clearInterval(pollInterval);
+    logger.info({ lastEventId }, 'admin_webhook_events_stream_disconnected');
+  });
 });
 
 router.get('/docs.json', (_req, res) => {
