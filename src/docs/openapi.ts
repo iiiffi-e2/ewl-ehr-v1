@@ -469,6 +469,262 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/residents/{residentId}/full-data': {
+      get: {
+        summary: 'Get Complete Resident Data',
+        description:
+          'Fetches comprehensive resident information from multiple ALIS API endpoints in a single call. ' +
+          'Returns basic info, insurance, room assignments, diagnoses/allergies, and contacts. ' +
+          'Handles errors gracefully - if one endpoint fails, others still return data. ' +
+          'Perfect for testing data collection before Caspio integration and verifying all available resident data.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin'],
+        parameters: [
+          {
+            name: 'residentId',
+            in: 'path',
+            required: true,
+            description: 'The ALIS resident ID',
+            schema: { type: 'integer', example: 69227 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully retrieved comprehensive resident data from ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    residentId: { type: 'integer', example: 69227 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    apiBase: { type: 'string', example: 'https://api.alis.com' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        resident: {
+                          type: 'object',
+                          description: 'Full resident details from /residents/{id}',
+                        },
+                        basicInfo: {
+                          type: 'object',
+                          description: 'Basic resident info from /residents/{id}/basicInfo',
+                        },
+                        insurance: {
+                          type: 'array',
+                          description: 'Insurance records from /residents/{id}/insurance',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              InsuranceName: { type: 'string' },
+                              InsuranceType: { type: 'string' },
+                              GroupNumber: { type: 'string' },
+                              AccountNumber: { type: 'string' },
+                              EffectiveDate: { type: 'string' },
+                              ExpirationDate: { type: 'string' },
+                            },
+                          },
+                        },
+                        roomAssignments: {
+                          type: 'array',
+                          description: 'Room assignment history from /residents/{id}/roomAssignments',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              RoomNumber: { type: 'string' },
+                              AssignmentDate: { type: 'string' },
+                              StartDate: { type: 'string' },
+                              EndDate: { type: 'string', nullable: true },
+                              IsPrimary: { type: 'boolean' },
+                            },
+                          },
+                        },
+                        diagnosesAndAllergies: {
+                          type: 'array',
+                          description:
+                            'Diagnoses and allergies from /residents/{id}/diagnosesAndAllergies',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              Code: { type: 'string' },
+                              Description: { type: 'string' },
+                              Type: { type: 'string' },
+                              OnsetDate: { type: 'string' },
+                            },
+                          },
+                        },
+                        contacts: {
+                          type: 'array',
+                          description: 'Contact information from /residents/{id}/contacts',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              FirstName: { type: 'string' },
+                              LastName: { type: 'string' },
+                              RelationshipType: { type: 'string' },
+                              PhoneNumber: { type: 'string' },
+                              Email: { type: 'string' },
+                              Address: { type: 'string' },
+                              City: { type: 'string' },
+                              State: { type: 'string' },
+                              ZipCode: { type: 'string' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    counts: {
+                      type: 'object',
+                      description: 'Count of items in each category',
+                      properties: {
+                        insurance: { type: 'integer', example: 2 },
+                        roomAssignments: { type: 'integer', example: 3 },
+                        diagnosesAndAllergies: { type: 'integer', example: 5 },
+                        contacts: { type: 'integer', example: 2 },
+                      },
+                    },
+                    errors: {
+                      type: 'object',
+                      description:
+                        'Optional. Present only if some endpoints failed. Failed endpoints still return empty arrays.',
+                      properties: {
+                        insurance: { type: 'string', example: 'Failed to fetch insurance' },
+                        roomAssignments: {
+                          type: 'string',
+                          example: 'Failed to fetch room assignments',
+                        },
+                        diagnosesAndAllergies: {
+                          type: 'string',
+                          example: 'Failed to fetch diagnoses and allergies',
+                        },
+                        contacts: { type: 'string', example: 'Failed to fetch contacts' },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  residentId: 69227,
+                  timestamp: '2025-12-02T15:30:00.000Z',
+                  apiBase: 'https://sandbox-api.alis.com',
+                  data: {
+                    resident: {
+                      ResidentId: 69227,
+                      FirstName: 'John',
+                      LastName: 'Smith',
+                      DateOfBirth: '1950-05-15',
+                      Status: 'Active',
+                    },
+                    basicInfo: {
+                      ResidentId: 69227,
+                      Classification: 'Assisted Living',
+                      ProductType: 'Standard Care',
+                    },
+                    insurance: [
+                      {
+                        InsuranceName: 'Medicare',
+                        InsuranceType: 'Medical',
+                        GroupNumber: 'GRP123',
+                        AccountNumber: 'ACC456789',
+                        EffectiveDate: '2023-01-01',
+                        ExpirationDate: null,
+                      },
+                      {
+                        InsuranceName: 'Blue Cross',
+                        InsuranceType: 'Medical',
+                        GroupNumber: 'GRP456',
+                        AccountNumber: 'ACC789123',
+                        EffectiveDate: '2023-01-01',
+                        ExpirationDate: null,
+                      },
+                    ],
+                    roomAssignments: [
+                      {
+                        RoomNumber: '50',
+                        AssignmentDate: '2025-11-14T06:00:00',
+                        StartDate: '2025-11-14T06:00:00',
+                        EndDate: null,
+                        IsPrimary: true,
+                      },
+                    ],
+                    diagnosesAndAllergies: [
+                      {
+                        Code: 'I10',
+                        Description: 'Essential hypertension',
+                        Type: 'Diagnosis',
+                        OnsetDate: '2020-03-15',
+                      },
+                      {
+                        Code: 'E11',
+                        Description: 'Type 2 diabetes mellitus',
+                        Type: 'Diagnosis',
+                        OnsetDate: '2018-07-22',
+                      },
+                    ],
+                    contacts: [
+                      {
+                        FirstName: 'Jane',
+                        LastName: 'Smith',
+                        RelationshipType: 'Financial',
+                        PhoneNumber: '555-0123',
+                        Email: 'jane.smith@example.com',
+                        Address: '123 Main St',
+                        City: 'Springfield',
+                        State: 'IL',
+                        ZipCode: '62701',
+                      },
+                    ],
+                  },
+                  counts: {
+                    insurance: 2,
+                    roomAssignments: 1,
+                    diagnosesAndAllergies: 2,
+                    contacts: 1,
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid residentId parameter.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'Invalid residentId parameter' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '500': {
+            description: 'ALIS API error or internal server error.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: {
+                      type: 'string',
+                      example: 'ALIS API endpoint not found (404)',
+                    },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    apiBase: { type: 'string' },
+                    residentId: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     '/admin/webhook-events': {
       get: {
         summary: 'View Received Webhook Events',
