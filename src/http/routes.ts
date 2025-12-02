@@ -2,7 +2,11 @@ import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
 
 import { openApiDocument } from '../docs/openapi.js';
-import { verifyAlisConnectivity, createAlisClient } from '../integrations/alisClient.js';
+import {
+  verifyAlisConnectivity,
+  createAlisClient,
+  fetchAllResidentData,
+} from '../integrations/alisClient.js';
 import { prisma } from '../db/prisma.js';
 import { getRedisConnection } from '../workers/connection.js';
 import { logger } from '../config/logger.js';
@@ -255,6 +259,80 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
       apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents`,
+    });
+  }
+});
+
+// Test endpoint: Get full resident data with all related information
+router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res) => {
+  try {
+    const residentId = Number(req.params.residentId);
+
+    if (!residentId || isNaN(residentId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid residentId parameter',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ residentId }, 'admin_full_resident_data_called');
+
+    const credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+
+    const allData = await fetchAllResidentData(credentials, residentId);
+
+    logger.info(
+      {
+        residentId,
+        insuranceCount: allData.insurance.length,
+        roomAssignmentsCount: allData.roomAssignments.length,
+        diagnosesAndAllergiesCount: allData.diagnosesAndAllergies.length,
+        contactsCount: allData.contacts.length,
+        hasErrors: !!allData.errors && Object.keys(allData.errors).length > 0,
+      },
+      'full_resident_data_success',
+    );
+
+    res.json({
+      success: true,
+      residentId,
+      timestamp: new Date().toISOString(),
+      apiBase: env.ALIS_API_BASE,
+      data: {
+        resident: allData.resident,
+        basicInfo: allData.basicInfo,
+        insurance: allData.insurance,
+        roomAssignments: allData.roomAssignments,
+        diagnosesAndAllergies: allData.diagnosesAndAllergies,
+        contacts: allData.contacts,
+      },
+      counts: {
+        insurance: allData.insurance.length,
+        roomAssignments: allData.roomAssignments.length,
+        diagnosesAndAllergies: allData.diagnosesAndAllergies.length,
+        contacts: allData.contacts.length,
+      },
+      ...(allData.errors && Object.keys(allData.errors).length > 0
+        ? { errors: allData.errors }
+        : {}),
+    });
+  } catch (error) {
+    logger.error(
+      { error, residentId: req.params.residentId },
+      'full_resident_data_failed',
+    );
+
+    const residentId = req.params.residentId;
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+      apiBase: env.ALIS_API_BASE,
+      residentId,
     });
   }
 });

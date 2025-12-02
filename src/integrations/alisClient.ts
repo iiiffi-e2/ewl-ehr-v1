@@ -93,6 +93,88 @@ export type AlisCommunity = {
   phone?: string;
 };
 
+export type AlisInsurance = {
+  InsuranceId?: number;
+  insuranceId?: number;
+  InsuranceName?: string;
+  insuranceName?: string;
+  InsuranceType?: string;
+  insuranceType?: string;
+  GroupNumber?: string;
+  groupNumber?: string;
+  AccountNumber?: string;
+  accountNumber?: string;
+  EffectiveDate?: string;
+  effectiveDate?: string;
+  ExpirationDate?: string;
+  expirationDate?: string;
+};
+
+export type AlisRoomAssignment = {
+  RoomAssignmentId?: number;
+  roomAssignmentId?: number;
+  RoomNumber?: string;
+  roomNumber?: string;
+  AssignmentDate?: string;
+  assignmentDate?: string;
+  StartDate?: string;
+  startDate?: string;
+  EndDate?: string;
+  endDate?: string;
+  IsPrimary?: boolean;
+  isPrimary?: boolean;
+};
+
+export type AlisDiagnosisOrAllergy = {
+  DiagnosisId?: number;
+  diagnosisId?: number;
+  AllergyId?: number;
+  allergyId?: number;
+  Code?: string;
+  code?: string;
+  Description?: string;
+  description?: string;
+  Type?: string;
+  type?: string;
+  OnsetDate?: string;
+  onsetDate?: string;
+};
+
+export type AlisContact = {
+  ContactId?: number;
+  contactId?: number;
+  FirstName?: string;
+  firstName?: string;
+  LastName?: string;
+  lastName?: string;
+  Name?: string;
+  name?: string;
+  RelationshipType?: string;
+  relationshipType?: string;
+  Relationship?: string;
+  relationship?: string;
+  PhoneNumber?: string;
+  phoneNumber?: string;
+  Phone?: string;
+  phone?: string;
+  Email?: string;
+  email?: string;
+  Address?: string;
+  address?: string;
+  Address1?: string;
+  address1?: string;
+  Address2?: string;
+  address2?: string;
+  City?: string;
+  city?: string;
+  State?: string;
+  state?: string;
+  ZipCode?: string;
+  zipCode?: string;
+  IsPrimaryContact?: boolean;
+  isPrimaryContact?: boolean;
+};
+
 export class AlisApiError extends Error {
   status?: number;
   code?: string;
@@ -213,6 +295,71 @@ export function createAlisClient(credentials: AlisCredentials) {
         throw mapAlisError(error, 'listResidents');
       }
     },
+
+    async getResidentInsurance(residentId: number): Promise<AlisInsurance[]> {
+      try {
+        const response = await http.get<{ Insurance?: AlisInsurance[] }>(
+          `/v1/integration/residents/${residentId}/insurance`,
+        );
+        const insurance = response.data?.Insurance ?? (response.data as unknown as AlisInsurance[]);
+        if (Array.isArray(insurance)) {
+          return insurance;
+        }
+        return [];
+      } catch (error) {
+        throw mapAlisError(error, 'getResidentInsurance');
+      }
+    },
+
+    async getResidentRoomAssignments(residentId: number): Promise<AlisRoomAssignment[]> {
+      try {
+        const response = await http.get<{ RoomAssignments?: AlisRoomAssignment[] }>(
+          `/v1/integration/residents/${residentId}/roomAssignments`,
+        );
+        const roomAssignments =
+          response.data?.RoomAssignments ?? (response.data as unknown as AlisRoomAssignment[]);
+        if (Array.isArray(roomAssignments)) {
+          return roomAssignments;
+        }
+        return [];
+      } catch (error) {
+        throw mapAlisError(error, 'getResidentRoomAssignments');
+      }
+    },
+
+    async getResidentDiagnosesAndAllergies(
+      residentId: number,
+    ): Promise<AlisDiagnosisOrAllergy[]> {
+      try {
+        const response = await http.get<{ DiagnosesAndAllergies?: AlisDiagnosisOrAllergy[] }>(
+          `/v1/integration/residents/${residentId}/diagnosesAndAllergies`,
+        );
+        const diagnosesAndAllergies =
+          response.data?.DiagnosesAndAllergies ??
+          (response.data as unknown as AlisDiagnosisOrAllergy[]);
+        if (Array.isArray(diagnosesAndAllergies)) {
+          return diagnosesAndAllergies;
+        }
+        return [];
+      } catch (error) {
+        throw mapAlisError(error, 'getResidentDiagnosesAndAllergies');
+      }
+    },
+
+    async getResidentContacts(residentId: number): Promise<AlisContact[]> {
+      try {
+        const response = await http.get<{ Contacts?: AlisContact[] }>(
+          `/v1/integration/residents/${residentId}/contacts`,
+        );
+        const contacts = response.data?.Contacts ?? (response.data as unknown as AlisContact[]);
+        if (Array.isArray(contacts)) {
+          return contacts;
+        }
+        return [];
+      } catch (error) {
+        throw mapAlisError(error, 'getResidentContacts');
+      }
+    },
   };
 }
 
@@ -227,6 +374,21 @@ export type ListResidentsResponse = {
   residents: AlisResidentDetail[];
   hasMore: boolean;
   raw: unknown;
+};
+
+export type AllResidentData = {
+  resident: AlisResidentDetail;
+  basicInfo: AlisResidentBasicInfo;
+  insurance: AlisInsurance[];
+  roomAssignments: AlisRoomAssignment[];
+  diagnosesAndAllergies: AlisDiagnosisOrAllergy[];
+  contacts: AlisContact[];
+  errors?: {
+    insurance?: string;
+    roomAssignments?: string;
+    diagnosesAndAllergies?: string;
+    contacts?: string;
+  };
 };
 
 export async function resolveAlisCredentials(
@@ -253,6 +415,77 @@ export async function resolveAlisCredentials(
     'credential_record_found_but_password_hash_unusable_for_api_call',
   );
   throw new Error('Stored credentials are hashed; configure runtime secrets for ALIS access.');
+}
+
+export async function fetchAllResidentData(
+  credentials: AlisCredentials,
+  residentId: number,
+): Promise<AllResidentData> {
+  const client = createAlisClient(credentials);
+
+  // Fetch basic resident info first (these are required)
+  const [resident, basicInfo] = await Promise.all([
+    client.getResident(residentId),
+    client.getResidentBasicInfo(residentId),
+  ]);
+
+  // Fetch additional data with graceful error handling
+  const errors: AllResidentData['errors'] = {};
+
+  const [insurance, roomAssignments, diagnosesAndAllergies, contacts] = await Promise.allSettled([
+    client.getResidentInsurance(residentId),
+    client.getResidentRoomAssignments(residentId),
+    client.getResidentDiagnosesAndAllergies(residentId),
+    client.getResidentContacts(residentId),
+  ]);
+
+  const insuranceData = insurance.status === 'fulfilled' ? insurance.value : [];
+  if (insurance.status === 'rejected') {
+    errors.insurance = insurance.reason?.message ?? 'Failed to fetch insurance';
+    logger.warn(
+      { residentId, error: insurance.reason?.message },
+      'failed_to_fetch_resident_insurance',
+    );
+  }
+
+  const roomAssignmentsData = roomAssignments.status === 'fulfilled' ? roomAssignments.value : [];
+  if (roomAssignments.status === 'rejected') {
+    errors.roomAssignments = roomAssignments.reason?.message ?? 'Failed to fetch room assignments';
+    logger.warn(
+      { residentId, error: roomAssignments.reason?.message },
+      'failed_to_fetch_resident_room_assignments',
+    );
+  }
+
+  const diagnosesAndAllergiesData =
+    diagnosesAndAllergies.status === 'fulfilled' ? diagnosesAndAllergies.value : [];
+  if (diagnosesAndAllergies.status === 'rejected') {
+    errors.diagnosesAndAllergies =
+      diagnosesAndAllergies.reason?.message ?? 'Failed to fetch diagnoses and allergies';
+    logger.warn(
+      { residentId, error: diagnosesAndAllergies.reason?.message },
+      'failed_to_fetch_resident_diagnoses_and_allergies',
+    );
+  }
+
+  const contactsData = contacts.status === 'fulfilled' ? contacts.value : [];
+  if (contacts.status === 'rejected') {
+    errors.contacts = contacts.reason?.message ?? 'Failed to fetch contacts';
+    logger.warn(
+      { residentId, error: contacts.reason?.message },
+      'failed_to_fetch_resident_contacts',
+    );
+  }
+
+  return {
+    resident,
+    basicInfo,
+    insurance: insuranceData,
+    roomAssignments: roomAssignmentsData,
+    diagnosesAndAllergies: diagnosesAndAllergiesData,
+    contacts: contactsData,
+    ...(Object.keys(errors).length > 0 ? { errors } : {}),
+  };
 }
 
 export async function verifyAlisConnectivity(): Promise<void> {

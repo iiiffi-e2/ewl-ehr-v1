@@ -2,7 +2,11 @@ import { Job, Worker } from 'bullmq';
 
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import { createAlisClient, resolveAlisCredentials } from '../integrations/alisClient.js';
+import {
+  createAlisClient,
+  fetchAllResidentData,
+  resolveAlisCredentials,
+} from '../integrations/alisClient.js';
 import { buildCaspioPayload, normalizeResident } from '../integrations/mappers.js';
 import { sendResidentToCaspio } from '../integrations/caspioClient.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
@@ -93,6 +97,50 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           const id = extractNumeric(leave, ['LeaveId', 'leaveId']);
           return Boolean(id);
         }) ?? null;
+      }
+    }
+
+    // Fetch additional resident data for move_in events
+    if (eventType === 'residents.move_in') {
+      try {
+        const allResidentData = await fetchAllResidentData(credentials, residentId);
+        logger.info(
+          {
+            eventMessageId,
+            residentId,
+            insuranceCount: allResidentData.insurance.length,
+            roomAssignmentsCount: allResidentData.roomAssignments.length,
+            diagnosesAndAllergiesCount: allResidentData.diagnosesAndAllergies.length,
+            contactsCount: allResidentData.contacts.length,
+            errors: allResidentData.errors,
+          },
+          'move_in_additional_data_fetched',
+        );
+
+        // Log detailed data for inspection
+        logger.info(
+          {
+            eventMessageId,
+            residentId,
+            data: {
+              insurance: allResidentData.insurance,
+              roomAssignments: allResidentData.roomAssignments,
+              diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
+              contacts: allResidentData.contacts,
+            },
+          },
+          'move_in_additional_data_details',
+        );
+      } catch (error) {
+        // Log error but don't fail the entire job
+        logger.error(
+          {
+            eventMessageId,
+            residentId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'failed_to_fetch_additional_resident_data',
+        );
       }
     }
 
