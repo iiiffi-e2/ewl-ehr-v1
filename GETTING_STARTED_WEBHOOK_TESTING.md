@@ -1,6 +1,6 @@
 # Getting Started with Webhook Testing
 
-## 🎯 Quick Start (5 Minutes)
+## 🎯 Quick Start
 
 ### Step 1: Access Swagger UI
 
