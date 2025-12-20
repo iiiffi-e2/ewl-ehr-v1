@@ -208,13 +208,33 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
         )
       : undefined;
 
-  // CommunityName
-  const communityName = getStringValue(resident, [
-    'CompanyTextKey',
-    'companyTextKey',
-    'CommunityName',
-    'communityName',
-  ]);
+  // CommunityName and Community_Address - from community data
+  const community = data.community as Record<string, unknown> | undefined | null;
+  const communityName = community
+    ? getStringValue(community, ['CommunityName', 'communityName'])
+    : undefined;
+
+  // Community_Address - format as "City, State Zip"
+  let communityAddress: string | undefined = undefined;
+  if (community) {
+    const city = getStringValue(community, ['City', 'city']);
+    const state = getStringValue(community, ['State', 'state']);
+    const zipCode = getStringValue(community, ['ZipCode', 'zipCode', 'Zip', 'zip']);
+    const addressParts: string[] = [];
+    if (city) addressParts.push(city);
+    if (state) addressParts.push(state);
+    if (zipCode) addressParts.push(zipCode);
+    if (addressParts.length > 0) {
+      // Format as "City, State Zip"
+      if (addressParts.length === 3) {
+        communityAddress = `${addressParts[0]}, ${addressParts[1]} ${addressParts[2]}`;
+      } else if (addressParts.length === 2) {
+        communityAddress = addressParts.join(', ');
+      } else {
+        communityAddress = addressParts[0];
+      }
+    }
+  }
 
   // Insurance mapping
   const insurance = (data.insurance || []) as Array<Record<string, unknown>>;
@@ -315,6 +335,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     Off_Prem: offPrem,
     Off_Prem_Date: offPremDate,
     CommunityName: communityName,
+    Community_Address: communityAddress,
     Insurance_Name: insuranceName,
     Insurance_Type: insuranceType,
     Group_: groupNumber,
@@ -365,4 +386,5 @@ export function redactForLogs(obj: unknown): unknown {
 
   return redacted;
 }
+
 

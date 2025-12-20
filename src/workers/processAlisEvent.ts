@@ -104,15 +104,17 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     // Fetch all resident data for Caspio push
     let allResidentData;
     try {
-      allResidentData = await fetchAllResidentData(credentials, residentId);
+      allResidentData = await fetchAllResidentData(credentials, residentId, communityId ?? null);
       logger.info(
         {
           eventMessageId,
           residentId,
+          communityId,
           insuranceCount: allResidentData.insurance.length,
           roomAssignmentsCount: allResidentData.roomAssignments.length,
           diagnosesAndAllergiesCount: allResidentData.diagnosesAndAllergies.length,
           contactsCount: allResidentData.contacts.length,
+          hasCommunity: !!allResidentData.community,
           errors: allResidentData.errors,
         },
         'resident_data_fetched_for_caspio',
@@ -135,6 +137,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         roomAssignments: [],
         diagnosesAndAllergies: [],
         contacts: [],
+        community: null,
         errors: {
           insurance: error instanceof Error ? error.message : String(error),
         },
@@ -161,6 +164,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         roomAssignments: allResidentData.roomAssignments,
         diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
         contacts: allResidentData.contacts,
+        community: allResidentData.community,
       },
       counts: {
         insurance: allResidentData.insurance.length,

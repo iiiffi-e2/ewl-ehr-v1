@@ -572,6 +572,24 @@ export const openApiDocument: OpenAPIV3.Document = {
                             },
                           },
                         },
+                        community: {
+                          type: 'object',
+                          nullable: true,
+                          description:
+                            'Community information from /v1/integration/communities (fetched when communityId is available)',
+                          properties: {
+                            communityId: { type: 'integer', example: 113 },
+                            communityName: { type: 'string', example: 'EyeWatch LIVE' },
+                            city: { type: 'string', example: 'Chicago - IL' },
+                            state: { type: 'string', example: 'IL' },
+                            zip: { type: 'string', example: '60654' },
+                            companyKey: { type: 'string', example: 'appstoresandbox' },
+                            companyId: { type: 'integer', example: 3 },
+                            companyName: { type: 'string', example: 'App Store Sandbox' },
+                            timeZone: { type: 'string', example: 'Central Standard Time' },
+                            status: { type: 'string', example: 'active' },
+                          },
+                        },
                       },
                     },
                     counts: {
@@ -599,6 +617,10 @@ export const openApiDocument: OpenAPIV3.Document = {
                           example: 'Failed to fetch diagnoses and allergies',
                         },
                         contacts: { type: 'string', example: 'Failed to fetch contacts' },
+                        community: {
+                          type: 'string',
+                          example: 'Community with ID 113 not found',
+                        },
                       },
                     },
                   },
@@ -675,6 +697,18 @@ export const openApiDocument: OpenAPIV3.Document = {
                         ZipCode: '62701',
                       },
                     ],
+                    community: {
+                      communityId: 113,
+                      communityName: 'EyeWatch LIVE',
+                      city: 'Chicago - IL',
+                      state: 'IL',
+                      zip: '60654',
+                      companyKey: 'appstoresandbox',
+                      companyId: 3,
+                      companyName: 'App Store Sandbox',
+                      timeZone: 'Central Standard Time',
+                      status: 'active',
+                    },
                   },
                   counts: {
                     insurance: 2,
@@ -730,8 +764,9 @@ export const openApiDocument: OpenAPIV3.Document = {
         summary: 'Push Resident Data to Caspio',
         description:
           'Fetches complete resident data from ALIS API and pushes it directly to Caspio. ' +
-          'This endpoint retrieves all resident information (basic info, insurance, room assignments, diagnoses/allergies, contacts) ' +
+          'This endpoint retrieves all resident information (basic info, insurance, room assignments, diagnoses/allergies, contacts, community) ' +
           'and synchronizes it with Caspio using the same mapping logic as webhook events. ' +
+          'Community information is fetched when available and mapped to CommunityName and Community_Address fields in Caspio. ' +
           'Useful for testing Caspio integration, manual data synchronization, and verifying Caspio push functionality. ' +
           'Returns the Caspio operation result (insert or update) and the Caspio record ID if available.',
         security: [{ basicAuth: [] }],

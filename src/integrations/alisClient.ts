@@ -89,6 +89,8 @@ export type AlisCommunity = {
   state?: string;
   ZipCode?: string;
   zipCode?: string;
+  Zip?: string;
+  zip?: string;
   Phone?: string;
   phone?: string;
 };
@@ -383,11 +385,13 @@ export type AllResidentData = {
   roomAssignments: AlisRoomAssignment[];
   diagnosesAndAllergies: AlisDiagnosisOrAllergy[];
   contacts: AlisContact[];
+  community?: AlisCommunity | null;
   errors?: {
     insurance?: string;
     roomAssignments?: string;
     diagnosesAndAllergies?: string;
     contacts?: string;
+    community?: string;
   };
 };
 
@@ -420,6 +424,7 @@ export async function resolveAlisCredentials(
 export async function fetchAllResidentData(
   credentials: AlisCredentials,
   residentId: number,
+  communityId?: number | null,
 ): Promise<AllResidentData> {
   const client = createAlisClient(credentials);
 
@@ -432,12 +437,15 @@ export async function fetchAllResidentData(
   // Fetch additional data with graceful error handling
   const errors: AllResidentData['errors'] = {};
 
-  const [insurance, roomAssignments, diagnosesAndAllergies, contacts] = await Promise.allSettled([
-    client.getResidentInsurance(residentId),
-    client.getResidentRoomAssignments(residentId),
-    client.getResidentDiagnosesAndAllergies(residentId),
-    client.getResidentContacts(residentId),
-  ]);
+  const [insurance, roomAssignments, diagnosesAndAllergies, contacts, communitiesResult] =
+    await Promise.allSettled([
+      client.getResidentInsurance(residentId),
+      client.getResidentRoomAssignments(residentId),
+      client.getResidentDiagnosesAndAllergies(residentId),
+      client.getResidentContacts(residentId),
+      // Fetch communities if communityId is provided
+      communityId ? client.getCommunities() : Promise.resolve([]),
+    ]);
 
   const insuranceData = insurance.status === 'fulfilled' ? insurance.value : [];
   if (insurance.status === 'rejected') {
@@ -477,6 +485,29 @@ export async function fetchAllResidentData(
     );
   }
 
+  // Find the matching community if communityId is provided
+  let communityData: AlisCommunity | null = null;
+  if (communityId && communitiesResult.status === 'fulfilled') {
+    const communities = communitiesResult.value;
+    communityData =
+      communities.find(
+        (c) =>
+          (c.CommunityId ?? c.communityId) === communityId ||
+          Number(c.CommunityId ?? c.communityId) === Number(communityId),
+      ) ?? null;
+    if (!communityData) {
+      errors.community = `Community with ID ${communityId} not found`;
+      logger.warn({ residentId, communityId }, 'community_not_found');
+    }
+  } else if (communityId && communitiesResult.status === 'rejected') {
+    errors.community =
+      communitiesResult.reason?.message ?? 'Failed to fetch communities';
+    logger.warn(
+      { residentId, communityId, error: communitiesResult.reason?.message },
+      'failed_to_fetch_communities',
+    );
+  }
+
   return {
     resident,
     basicInfo,
@@ -484,6 +515,7 @@ export async function fetchAllResidentData(
     roomAssignments: roomAssignmentsData,
     diagnosesAndAllergies: diagnosesAndAllergiesData,
     contacts: contactsData,
+    community: communityData,
     ...(Object.keys(errors).length > 0 ? { errors } : {}),
   };
 }

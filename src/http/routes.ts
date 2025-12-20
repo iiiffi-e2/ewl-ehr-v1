@@ -286,7 +286,7 @@ router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res)
       password: env.ALIS_TEST_PASSWORD,
     };
 
-    const allData = await fetchAllResidentData(credentials, residentId);
+    const allData = await fetchAllResidentData(credentials, residentId, undefined);
 
     logger.info(
       {
@@ -295,6 +295,7 @@ router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res)
         roomAssignmentsCount: allData.roomAssignments.length,
         diagnosesAndAllergiesCount: allData.diagnosesAndAllergies.length,
         contactsCount: allData.contacts.length,
+        hasCommunity: !!allData.community,
         hasErrors: !!allData.errors && Object.keys(allData.errors).length > 0,
       },
       'full_resident_data_success',
@@ -312,6 +313,7 @@ router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res)
         roomAssignments: allData.roomAssignments,
         diagnosesAndAllergies: allData.diagnosesAndAllergies,
         contacts: allData.contacts,
+        community: allData.community,
       },
       counts: {
         insurance: allData.insurance.length,
@@ -361,7 +363,7 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
     };
 
     // Fetch all resident data
-    const allData = await fetchAllResidentData(credentials, residentId);
+    const allData = await fetchAllResidentData(credentials, residentId, undefined);
 
     // Construct AlisPayload for Caspio push
     const alisPayload: AlisPayload = {
@@ -376,6 +378,7 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
         roomAssignments: allData.roomAssignments,
         diagnosesAndAllergies: allData.diagnosesAndAllergies,
         contacts: allData.contacts,
+        community: allData.community,
       },
       counts: {
         insurance: allData.insurance.length,

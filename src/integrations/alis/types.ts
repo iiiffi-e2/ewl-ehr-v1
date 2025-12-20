@@ -1,4 +1,5 @@
 import type {
+  AlisCommunity,
   AlisContact,
   AlisDiagnosisOrAllergy,
   AlisInsurance,
@@ -23,6 +24,7 @@ export type AlisPayload = {
     roomAssignments: AlisRoomAssignment[];
     diagnosesAndAllergies: AlisDiagnosisOrAllergy[];
     contacts: AlisContact[];
+    community?: AlisCommunity | null;
   };
   counts: {
     insurance: number;
@@ -31,4 +33,5 @@ export type AlisPayload = {
     contacts: number;
   };
 };
+
 
