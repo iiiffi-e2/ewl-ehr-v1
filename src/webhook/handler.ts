@@ -55,7 +55,7 @@ export async function alisWebhookHandler(req: Request, res: Response): Promise<R
 
   try {
     await processAlisEventQueue.add('process-alis-event', jobData, {
-      jobId: event.EventMessageId,
+      jobId: `event-${event.EventMessageId}`,
       removeOnComplete: true,
       removeOnFail: false,
     });
