@@ -1,0 +1,312 @@
+import axios, { type AxiosError, type AxiosResponse } from 'axios';
+
+import { createHttpClient } from '../../config/axios.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../config/logger.js';
+
+type TokenCache = {
+  token: string;
+  expiresAt: number;
+};
+
+let tokenCache: TokenCache | null = null;
+
+const authClient = createHttpClient({
+  timeout: env.CASPIO_TIMEOUT_MS,
+});
+
+const apiClient = createHttpClient({
+  baseURL: env.CASPIO_BASE_URL,
+  timeout: env.CASPIO_TIMEOUT_MS,
+});
+
+/**
+ * Get OAuth access token, refreshing if needed (refresh if <60s remaining)
+ */
+export async function getAccessToken(): Promise<string> {
+  const now = Date.now();
+  const refreshThreshold = 60000; // 60 seconds
+
+  if (tokenCache && tokenCache.expiresAt - now > refreshThreshold) {
+    return tokenCache.token;
+  }
+
+  // Token expired or doesn't exist, fetch new one
+  if (!env.CASPIO_CLIENT_ID || !env.CASPIO_CLIENT_SECRET) {
+    throw new Error('CASPIO_CLIENT_ID and CASPIO_CLIENT_SECRET must be set');
+  }
+
+  const params = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: env.CASPIO_CLIENT_ID,
+    client_secret: env.CASPIO_CLIENT_SECRET,
+  });
+
+  try {
+    const response = await authClient.post<{
+      access_token: string;
+      expires_in: number;
+      token_type: string;
+    }>(env.CASPIO_TOKEN_URL, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+
+    const expiresIn = response.data.expires_in ?? 3600;
+    tokenCache = {
+      token: response.data.access_token,
+      expiresAt: now + (expiresIn - 60) * 1000, // Subtract 60s buffer
+    };
+
+    logger.debug({ expiresIn }, 'caspio_token_refreshed');
+    return tokenCache.token;
+  } catch (error) {
+    logger.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        status: axios.isAxiosError(error) ? error.response?.status : undefined,
+      },
+      'caspio_token_fetch_failed',
+    );
+    throw new Error(`Failed to get Caspio access token: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Invalidate the token cache (used on 401 errors)
+ */
+function invalidateToken(): void {
+  tokenCache = null;
+}
+
+/**
+ * Build filter for REST v3 API to find records by field value
+ * Uses query parameter format: ?q={filter}
+ */
+function buildEqualsFilter(field: string, value: string | number): string {
+  // REST v3 uses JSON filter format in query parameter
+  const filter = {
+    where: {
+      [field]: { eq: value },
+    },
+  };
+  return encodeURIComponent(JSON.stringify(filter));
+}
+
+/**
+ * Insert a record into a Caspio table
+ */
+export async function insertRecord(
+  tableName: string,
+  record: Record<string, unknown>,
+): Promise<AxiosResponse> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
+
+    return apiClient.post(url, record, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  });
+}
+
+/**
+ * Update a record by Caspio record ID
+ */
+export async function updateRecordById(
+  tableName: string,
+  id: string | number,
+  record: Record<string, unknown>,
+): Promise<AxiosResponse> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(String(id))}`;
+
+    return apiClient.put(url, record, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  });
+}
+
+/**
+ * Find records by Resident_ID field
+ * Returns { found: boolean, id?: string, raw?: any, matches?: number }
+ */
+export async function findByResidentId(
+  tableName: string,
+  residentId: string | number,
+): Promise<{ found: boolean; id?: string; raw?: unknown; matches?: number }> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildEqualsFilter('Resident_ID', String(residentId));
+    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+    // REST v3 response format may vary - handle both array and object responses
+    let records: unknown[] = [];
+    if (Array.isArray(response.data)) {
+      records = response.data;
+    } else if (response.data && typeof response.data === 'object') {
+      // Check for common response wrapper formats
+      const data = response.data as Record<string, unknown>;
+      if (Array.isArray(data.Result)) {
+        records = data.Result;
+      } else if (Array.isArray(data.records)) {
+        records = data.records;
+      } else if (Array.isArray(data.data)) {
+        records = data.data;
+      }
+    }
+
+    if (records.length === 0) {
+      return { found: false };
+    }
+
+    // Get the first record's ID (Caspio typically uses a field like "PK" or "_id" or similar)
+    // We'll need to extract the ID from the record
+    const firstRecord = records[0] as Record<string, unknown>;
+    
+    // Try common ID field names
+    let id: string | undefined;
+    if (firstRecord.PK) {
+      id = String(firstRecord.PK);
+    } else if (firstRecord._id) {
+      id = String(firstRecord._id);
+    } else if (firstRecord.id) {
+      id = String(firstRecord.id);
+    } else if (firstRecord.Id) {
+      id = String(firstRecord.Id);
+    }
+
+    if (records.length > 1) {
+      logger.warn(
+        {
+          residentId: String(residentId),
+          matchCount: records.length,
+        },
+        'caspio_multiple_matches_found',
+      );
+    }
+
+      return {
+        found: true,
+        id,
+        raw: firstRecord,
+        matches: records.length,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return { found: false };
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Upsert a record by Resident_ID
+ * Updates if found, inserts if not found
+ */
+export async function upsertByResidentId(
+  tableName: string,
+  residentId: string | number,
+  record: Record<string, unknown>,
+): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  const searchResult = await findByResidentId(tableName, residentId);
+
+  if (searchResult.found && searchResult.id) {
+    // Update existing record
+    await updateRecordById(tableName, searchResult.id, record);
+    return { action: 'update', id: searchResult.id };
+  } else {
+    // Insert new record
+    const response = await insertRecord(tableName, record);
+    
+    // Extract ID from response if available
+    let id: string | undefined;
+    const responseData = response.data as Record<string, unknown>;
+    if (responseData.PK) {
+      id = String(responseData.PK);
+    } else if (responseData._id) {
+      id = String(responseData._id);
+    } else if (responseData.id) {
+      id = String(responseData.id);
+    } else if (responseData.Id) {
+      id = String(responseData.Id);
+    }
+
+    return { action: 'insert', id };
+  }
+}
+
+/**
+ * Retry wrapper with exponential backoff for 429/5xx/timeouts
+ * Also handles 401 with single token refresh + single retry
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  attempt = 1,
+  maxRetries = env.CASPIO_RETRY_MAX,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const isAxiosError = axios.isAxiosError(error);
+    const status = isAxiosError ? error.response?.status : undefined;
+    const isTimeout = isAxiosError && (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT');
+
+    // Handle 401: refresh token once and retry once
+    if (status === 401 && attempt === 1) {
+      logger.warn({ attempt }, 'caspio_401_refreshing_token');
+      invalidateToken();
+      return withRetry(operation, attempt + 1, 1); // Only one retry for 401
+    }
+
+    // Retry on 429, 5xx, or timeouts
+    const shouldRetry =
+      (status === 429 || (status !== undefined && status >= 500) || isTimeout) &&
+      attempt < maxRetries;
+
+    if (!shouldRetry) {
+      throw error;
+    }
+
+    const delay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff
+    logger.warn(
+      {
+        attempt,
+        maxRetries,
+        delay,
+        status,
+        isTimeout,
+      },
+      'caspio_retry_after_error',
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return withRetry(operation, attempt + 1, maxRetries);
+  }
+}
+
+/**
+ * Wrapper for API calls with retry logic
+ */
+export async function caspioRequestWithRetry<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withRetry(operation);
+}
+

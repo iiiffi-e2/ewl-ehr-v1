@@ -7,8 +7,9 @@ import {
   fetchAllResidentData,
   resolveAlisCredentials,
 } from '../integrations/alisClient.js';
-import { buildCaspioPayload, normalizeResident } from '../integrations/mappers.js';
-import { sendResidentToCaspio } from '../integrations/caspioClient.js';
+import { normalizeResident } from '../integrations/mappers.js';
+import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
+import type { AlisPayload } from '../integrations/alis/types.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
 import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js';
@@ -100,48 +101,44 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       }
     }
 
-    // Fetch additional resident data for move_in events
-    if (eventType === 'residents.move_in') {
-      try {
-        const allResidentData = await fetchAllResidentData(credentials, residentId);
-        logger.info(
-          {
-            eventMessageId,
-            residentId,
-            insuranceCount: allResidentData.insurance.length,
-            roomAssignmentsCount: allResidentData.roomAssignments.length,
-            diagnosesAndAllergiesCount: allResidentData.diagnosesAndAllergies.length,
-            contactsCount: allResidentData.contacts.length,
-            errors: allResidentData.errors,
-          },
-          'move_in_additional_data_fetched',
-        );
-
-        // Log detailed data for inspection
-        logger.info(
-          {
-            eventMessageId,
-            residentId,
-            data: {
-              insurance: allResidentData.insurance,
-              roomAssignments: allResidentData.roomAssignments,
-              diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
-              contacts: allResidentData.contacts,
-            },
-          },
-          'move_in_additional_data_details',
-        );
-      } catch (error) {
-        // Log error but don't fail the entire job
-        logger.error(
-          {
-            eventMessageId,
-            residentId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'failed_to_fetch_additional_resident_data',
-        );
-      }
+    // Fetch all resident data for Caspio push
+    let allResidentData;
+    try {
+      allResidentData = await fetchAllResidentData(credentials, residentId);
+      logger.info(
+        {
+          eventMessageId,
+          residentId,
+          insuranceCount: allResidentData.insurance.length,
+          roomAssignmentsCount: allResidentData.roomAssignments.length,
+          diagnosesAndAllergiesCount: allResidentData.diagnosesAndAllergies.length,
+          contactsCount: allResidentData.contacts.length,
+          errors: allResidentData.errors,
+        },
+        'resident_data_fetched_for_caspio',
+      );
+    } catch (error) {
+      // Log error but don't fail the entire job - construct payload with available data
+      logger.error(
+        {
+          eventMessageId,
+          residentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'failed_to_fetch_all_resident_data_using_partial',
+      );
+      // Construct minimal payload with just resident and basicInfo
+      allResidentData = {
+        resident: residentDetail,
+        basicInfo: residentBasicInfo,
+        insurance: [],
+        roomAssignments: [],
+        diagnosesAndAllergies: [],
+        contacts: [],
+        errors: {
+          insurance: error instanceof Error ? error.message : String(error),
+        },
+      };
     }
 
     const normalized = normalizeResident({
@@ -151,17 +148,42 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
 
     await upsertResident(companyId, normalized);
 
-    const caspioPayload = buildCaspioPayload({
-      resident: normalized,
-      companyKey,
-      communityId,
-      eventType,
-      eventMessageId,
-      eventTimestamp: eventMessageDate,
-      leave: leaveData,
-    });
+    // Construct AlisPayload for Caspio push
+    const alisPayload: AlisPayload = {
+      success: true,
+      residentId,
+      timestamp: new Date().toISOString(),
+      apiBase: env.ALIS_API_BASE,
+      data: {
+        resident: allResidentData.resident,
+        basicInfo: allResidentData.basicInfo,
+        insurance: allResidentData.insurance,
+        roomAssignments: allResidentData.roomAssignments,
+        diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
+        contacts: allResidentData.contacts,
+      },
+      counts: {
+        insurance: allResidentData.insurance.length,
+        roomAssignments: allResidentData.roomAssignments.length,
+        diagnosesAndAllergies: allResidentData.diagnosesAndAllergies.length,
+        contacts: allResidentData.contacts.length,
+      },
+    };
 
-    await sendResidentToCaspio(caspioPayload);
+    // Push to Caspio (handle errors gracefully - log but don't fail job)
+    try {
+      await pushToCaspio(alisPayload);
+    } catch (caspioError) {
+      logger.error(
+        {
+          eventMessageId,
+          residentId,
+          error: caspioError instanceof Error ? caspioError.message : String(caspioError),
+        },
+        'caspio_push_failed_continuing',
+      );
+      // Don't throw - allow job to complete even if Caspio push fails
+    }
 
     await markEventProcessed(eventMessageId);
 
