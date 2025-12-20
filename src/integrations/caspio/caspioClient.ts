@@ -103,7 +103,7 @@ export async function insertRecord(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
 
     return apiClient.post(url, record, {
       headers: {
@@ -124,7 +124,7 @@ export async function updateRecordById(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(String(id))}`;
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(String(id))}`;
 
     return apiClient.put(url, record, {
       headers: {
@@ -146,7 +146,7 @@ export async function findByResidentId(
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const filter = buildEqualsFilter('Resident_ID', String(residentId));
-    const url = `/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
 
     try {
       const response = await apiClient.get(url, {
