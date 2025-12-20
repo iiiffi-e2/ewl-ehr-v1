@@ -215,24 +215,34 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     : undefined;
 
   // Community_Address - format as "City, State Zip"
+  // Normalize city field: if it contains state (e.g., "Chicago - IL"), extract just the city name
   let communityAddress: string | undefined = undefined;
   if (community) {
-    const city = getStringValue(community, ['City', 'city']);
+    let city = getStringValue(community, ['City', 'city']);
     const state = getStringValue(community, ['State', 'state']);
     const zipCode = getStringValue(community, ['ZipCode', 'zipCode', 'Zip', 'zip']);
-    const addressParts: string[] = [];
-    if (city) addressParts.push(city);
-    if (state) addressParts.push(state);
-    if (zipCode) addressParts.push(zipCode);
-    if (addressParts.length > 0) {
-      // Format as "City, State Zip"
-      if (addressParts.length === 3) {
-        communityAddress = `${addressParts[0]}, ${addressParts[1]} ${addressParts[2]}`;
-      } else if (addressParts.length === 2) {
-        communityAddress = addressParts.join(', ');
-      } else {
-        communityAddress = addressParts[0];
-      }
+    
+    // If city contains the state abbreviation, extract just the city name
+    // Handles formats like "Chicago - IL" or "Chicago IL" -> "Chicago"
+    if (city && state && city.toUpperCase().includes(state.toUpperCase())) {
+      // Remove state abbreviation and any separators (dash, space, etc.)
+      const stateUpper = state.toUpperCase();
+      city = city
+        .replace(new RegExp(`\\s*-\\s*${stateUpper}\\s*$`, 'i'), '') // Remove " - IL" or "- IL"
+        .replace(new RegExp(`\\s+${stateUpper}\\s*$`, 'i'), '') // Remove " IL" at end
+        .replace(new RegExp(`^${stateUpper}\\s*-\\s*`, 'i'), '') // Remove "IL - " at start
+        .trim();
+    }
+    
+    // Format as "City, State Zip" or "City, State" or "City Zip" or just "City"
+    if (city && state && zipCode) {
+      communityAddress = `${city}, ${state} ${zipCode}`;
+    } else if (city && state) {
+      communityAddress = `${city}, ${state}`;
+    } else if (city && zipCode) {
+      communityAddress = `${city} ${zipCode}`;
+    } else if (city) {
+      communityAddress = city;
     }
   }
 
