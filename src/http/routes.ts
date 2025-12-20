@@ -12,6 +12,9 @@ import { getRedisConnection } from '../workers/connection.js';
 import { logger } from '../config/logger.js';
 import { alisWebhookHandler } from '../webhook/handler.js';
 import { env } from '../config/env.js';
+import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
+
+import type { AlisPayload } from '../integrations/alis/types.js';
 
 import { authWebhook } from './middleware/authWebhook.js';
 import { authAdmin } from './middleware/authAdmin.js';
@@ -333,6 +336,99 @@ router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res)
       timestamp: new Date().toISOString(),
       apiBase: env.ALIS_API_BASE,
       residentId,
+    });
+  }
+});
+
+// Push resident data to Caspio
+router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req, res) => {
+  try {
+    const residentId = Number(req.params.residentId);
+
+    if (!residentId || isNaN(residentId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid residentId parameter',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ residentId }, 'admin_push_to_caspio_called');
+
+    const credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+
+    // Fetch all resident data
+    const allData = await fetchAllResidentData(credentials, residentId);
+
+    // Construct AlisPayload for Caspio push
+    const alisPayload: AlisPayload = {
+      success: true,
+      residentId,
+      timestamp: new Date().toISOString(),
+      apiBase: env.ALIS_API_BASE,
+      data: {
+        resident: allData.resident,
+        basicInfo: allData.basicInfo,
+        insurance: allData.insurance,
+        roomAssignments: allData.roomAssignments,
+        diagnosesAndAllergies: allData.diagnosesAndAllergies,
+        contacts: allData.contacts,
+      },
+      counts: {
+        insurance: allData.insurance.length,
+        roomAssignments: allData.roomAssignments.length,
+        diagnosesAndAllergies: allData.diagnosesAndAllergies.length,
+        contacts: allData.contacts.length,
+      },
+    };
+
+    // Push to Caspio
+    const result = await pushToCaspio(alisPayload);
+
+    logger.info(
+      {
+        residentId,
+        action: result.action,
+        caspioId: result.id,
+      },
+      'admin_push_to_caspio_success',
+    );
+
+    res.json({
+      success: true,
+      residentId,
+      timestamp: new Date().toISOString(),
+      caspio: {
+        action: result.action,
+        id: result.id,
+      },
+      data: {
+        insuranceCount: allData.insurance.length,
+        roomAssignmentsCount: allData.roomAssignments.length,
+        diagnosesAndAllergiesCount: allData.diagnosesAndAllergies.length,
+        contactsCount: allData.contacts.length,
+      },
+    });
+  } catch (error) {
+    logger.error(
+      { error, residentId: req.params.residentId },
+      'admin_push_to_caspio_failed',
+    );
+
+    const residentId = req.params.residentId;
+    const status = error && typeof error === 'object' && 'response' in error
+      ? (error as { response?: { status?: number } }).response?.status
+      : undefined;
+
+    res.status(status && status >= 400 && status < 500 ? status : 500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+      residentId: Number.isNaN(Number(residentId)) ? residentId : Number(residentId),
+      ...(status ? { caspioStatus: status } : {}),
     });
   }
 });

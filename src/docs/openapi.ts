@@ -725,6 +725,143 @@ export const openApiDocument: OpenAPIV3.Document = {
         },
       },
     },
+    '/admin/residents/{residentId}/push-to-caspio': {
+      post: {
+        summary: 'Push Resident Data to Caspio',
+        description:
+          'Fetches complete resident data from ALIS API and pushes it directly to Caspio. ' +
+          'This endpoint retrieves all resident information (basic info, insurance, room assignments, diagnoses/allergies, contacts) ' +
+          'and synchronizes it with Caspio using the same mapping logic as webhook events. ' +
+          'Useful for testing Caspio integration, manual data synchronization, and verifying Caspio push functionality. ' +
+          'Returns the Caspio operation result (insert or update) and the Caspio record ID if available.',
+        security: [{ basicAuth: [] }],
+        tags: ['Admin'],
+        parameters: [
+          {
+            name: 'residentId',
+            in: 'path',
+            required: true,
+            description: 'The ALIS resident ID to push to Caspio',
+            schema: { type: 'integer', example: 69227 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Successfully pushed resident data to Caspio.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    residentId: { type: 'integer', example: 69227 },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    caspio: {
+                      type: 'object',
+                      properties: {
+                        action: {
+                          type: 'string',
+                          enum: ['insert', 'update'],
+                          example: 'update',
+                          description: 'Whether the record was inserted (new) or updated (existing)',
+                        },
+                        id: {
+                          type: 'string',
+                          nullable: true,
+                          example: '12345',
+                          description: 'Caspio record ID if available',
+                        },
+                      },
+                    },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        insuranceCount: { type: 'integer', example: 2 },
+                        roomAssignmentsCount: { type: 'integer', example: 1 },
+                        diagnosesAndAllergiesCount: { type: 'integer', example: 5 },
+                        contactsCount: { type: 'integer', example: 2 },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  success: true,
+                  residentId: 69227,
+                  timestamp: '2025-12-02T15:30:00.000Z',
+                  caspio: {
+                    action: 'update',
+                    id: '12345',
+                  },
+                  data: {
+                    insuranceCount: 2,
+                    roomAssignmentsCount: 1,
+                    diagnosesAndAllergiesCount: 5,
+                    contactsCount: 2,
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid residentId parameter.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'Invalid residentId parameter' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'Basic authentication failed.' },
+          '404': {
+            description: 'Resident not found in ALIS API.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: { type: 'string', example: 'ALIS API endpoint not found (404)' },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    residentId: { type: 'integer', example: 69227 },
+                  },
+                },
+              },
+            },
+          },
+          '500': {
+            description: 'ALIS API error, Caspio API error, or internal server error.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: {
+                      type: 'string',
+                      example: 'Caspio API error: Invalid record data',
+                    },
+                    timestamp: { type: 'string', format: 'date-time' },
+                    residentId: { type: 'integer', example: 69227 },
+                    caspioStatus: {
+                      type: 'integer',
+                      nullable: true,
+                      example: 400,
+                      description: 'HTTP status code from Caspio API if available',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     '/admin/webhook-events': {
       get: {
         summary: 'View Received Webhook Events',
