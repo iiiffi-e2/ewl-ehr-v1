@@ -378,6 +378,7 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
         insurance: allData.insurance,
         roomAssignments: allData.roomAssignments,
         diagnosesAndAllergies: allData.diagnosesAndAllergies,
+        diagnosesAndAllergiesFull: allData.diagnosesAndAllergiesFull,
         contacts: allData.contacts,
         community: allData.community,
       },

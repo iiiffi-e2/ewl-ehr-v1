@@ -142,6 +142,29 @@ export type AlisDiagnosisOrAllergy = {
   onsetDate?: string;
 };
 
+export type AlisDiagnosesAndAllergies = {
+  residentId?: number;
+  ResidentId?: number;
+  structuredDiagnoses?: unknown[];
+  StructuredDiagnoses?: unknown[];
+  primaryDiagnoses?: string;
+  PrimaryDiagnoses?: string;
+  secondaryDiagnoses?: string;
+  SecondaryDiagnoses?: string;
+  diet?: string;
+  Diet?: string;
+  foodAllergies?: string;
+  FoodAllergies?: string;
+  medicalAllergies?: string;
+  MedicalAllergies?: string;
+  isDiabetic?: boolean;
+  IsDiabetic?: boolean;
+  isIncontinent?: boolean;
+  IsIncontinent?: boolean;
+  incontinenceNotes?: string | null;
+  IncontinenceNotes?: string | null;
+};
+
 export type AlisContact = {
   ContactId?: number;
   contactId?: number;
@@ -348,6 +371,19 @@ export function createAlisClient(credentials: AlisCredentials) {
       }
     },
 
+    async getResidentDiagnosesAndAllergiesFull(
+      residentId: number,
+    ): Promise<AlisDiagnosesAndAllergies> {
+      try {
+        const response = await http.get<AlisDiagnosesAndAllergies>(
+          `/v1/integration/residents/${residentId}/diagnosesAndAllergies`,
+        );
+        return response.data;
+      } catch (error) {
+        throw mapAlisError(error, 'getResidentDiagnosesAndAllergiesFull');
+      }
+    },
+
     async getResidentContacts(residentId: number): Promise<AlisContact[]> {
       try {
         const response = await http.get<{ Contacts?: AlisContact[] }>(
@@ -384,12 +420,14 @@ export type AllResidentData = {
   insurance: AlisInsurance[];
   roomAssignments: AlisRoomAssignment[];
   diagnosesAndAllergies: AlisDiagnosisOrAllergy[];
+  diagnosesAndAllergiesFull?: AlisDiagnosesAndAllergies | null;
   contacts: AlisContact[];
   community?: AlisCommunity | null;
   errors?: {
     insurance?: string;
     roomAssignments?: string;
     diagnosesAndAllergies?: string;
+    diagnosesAndAllergiesFull?: string;
     contacts?: string;
     community?: string;
   };
@@ -456,11 +494,12 @@ export async function fetchAllResidentData(
   // Fetch additional data with graceful error handling
   const errors: AllResidentData['errors'] = {};
 
-  const [insurance, roomAssignments, diagnosesAndAllergies, contacts, communitiesResult] =
+  const [insurance, roomAssignments, diagnosesAndAllergies, diagnosesAndAllergiesFull, contacts, communitiesResult] =
     await Promise.allSettled([
       client.getResidentInsurance(residentId),
       client.getResidentRoomAssignments(residentId),
       client.getResidentDiagnosesAndAllergies(residentId),
+      client.getResidentDiagnosesAndAllergiesFull(residentId),
       client.getResidentContacts(residentId),
       // Fetch communities if communityId is available (from parameter or resident data)
       resolvedCommunityId ? client.getCommunities() : Promise.resolve([]),
@@ -492,6 +531,17 @@ export async function fetchAllResidentData(
     logger.warn(
       { residentId, error: diagnosesAndAllergies.reason?.message },
       'failed_to_fetch_resident_diagnoses_and_allergies',
+    );
+  }
+
+  const diagnosesAndAllergiesFullData =
+    diagnosesAndAllergiesFull.status === 'fulfilled' ? diagnosesAndAllergiesFull.value : null;
+  if (diagnosesAndAllergiesFull.status === 'rejected') {
+    errors.diagnosesAndAllergiesFull =
+      diagnosesAndAllergiesFull.reason?.message ?? 'Failed to fetch diagnoses and allergies full';
+    logger.warn(
+      { residentId, error: diagnosesAndAllergiesFull.reason?.message },
+      'failed_to_fetch_resident_diagnoses_and_allergies_full',
     );
   }
 
@@ -533,6 +583,7 @@ export async function fetchAllResidentData(
     insurance: insuranceData,
     roomAssignments: roomAssignmentsData,
     diagnosesAndAllergies: diagnosesAndAllergiesData,
+    diagnosesAndAllergiesFull: diagnosesAndAllergiesFullData,
     contacts: contactsData,
     community: communityData,
     ...(Object.keys(errors).length > 0 ? { errors } : {}),

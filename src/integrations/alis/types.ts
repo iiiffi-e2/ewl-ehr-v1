@@ -1,6 +1,7 @@
 import type {
   AlisCommunity,
   AlisContact,
+  AlisDiagnosesAndAllergies,
   AlisDiagnosisOrAllergy,
   AlisInsurance,
   AlisResidentBasicInfo,
@@ -23,6 +24,7 @@ export type AlisPayload = {
     insurance: AlisInsurance[];
     roomAssignments: AlisRoomAssignment[];
     diagnosesAndAllergies: AlisDiagnosisOrAllergy[];
+    diagnosesAndAllergiesFull?: AlisDiagnosesAndAllergies | null;
     contacts: AlisContact[];
     community?: AlisCommunity | null;
   };

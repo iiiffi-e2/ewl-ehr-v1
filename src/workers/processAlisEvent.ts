@@ -136,6 +136,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         insurance: [],
         roomAssignments: [],
         diagnosesAndAllergies: [],
+        diagnosesAndAllergiesFull: null,
         contacts: [],
         community: null,
         errors: {
@@ -163,6 +164,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         insurance: allResidentData.insurance,
         roomAssignments: allResidentData.roomAssignments,
         diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
+        diagnosesAndAllergiesFull: allResidentData.diagnosesAndAllergiesFull,
         contacts: allResidentData.contacts,
         community: allResidentData.community,
       },

@@ -336,23 +336,38 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     'insuranceNumber',
   ]);
 
-  // Diagnoses mapping - take first two diagnosis-like strings
+  // Diagnoses mapping - prefer primaryDiagnoses and secondaryDiagnoses from full endpoint
+  // Fallback to processing array format for backward compatibility
+  const diagnosesFull = data.diagnosesAndAllergiesFull as Record<string, unknown> | undefined | null;
+  let diagnosis1: string | undefined = undefined;
+  let diagnosis2: string | undefined = undefined;
+
+  if (diagnosesFull) {
+    // Use primaryDiagnoses and secondaryDiagnoses from full endpoint
+    diagnosis1 = getStringValue(diagnosesFull, ['primaryDiagnoses', 'PrimaryDiagnoses']);
+    diagnosis2 = getStringValue(diagnosesFull, ['secondaryDiagnoses', 'SecondaryDiagnoses']);
+  }
+
+  // Fallback to array format if full endpoint data not available or missing values
   const diagnoses = (data.diagnosesAndAllergies || []) as Array<Record<string, unknown>>;
-  const diagnosisStrings: string[] = [];
-  for (const diag of diagnoses) {
-    const type = getStringValue(diag, ['Type', 'type'])?.toLowerCase();
-    if (type === 'diagnosis' || type === 'dx' || !type) {
-      // Prefer Description, fallback to Code
-      const desc = getStringValue(diag, ['Description', 'description']);
-      const code = getStringValue(diag, ['Code', 'code']);
-      const diagStr = desc || code;
-      if (diagStr && diagnosisStrings.length < 2) {
-        diagnosisStrings.push(diagStr);
+  if (!diagnosis1 || !diagnosis2) {
+    const diagnosisStrings: string[] = [];
+    for (const diag of diagnoses) {
+      const type = getStringValue(diag, ['Type', 'type'])?.toLowerCase();
+      if (type === 'diagnosis' || type === 'dx' || !type) {
+        // Prefer Description, fallback to Code
+        const desc = getStringValue(diag, ['Description', 'description']);
+        const code = getStringValue(diag, ['Code', 'code']);
+        const diagStr = desc || code;
+        if (diagStr && diagnosisStrings.length < 2) {
+          diagnosisStrings.push(diagStr);
+        }
       }
     }
+    // Only use array values if we don't have values from full endpoint
+    if (!diagnosis1) diagnosis1 = diagnosisStrings[0];
+    if (!diagnosis2) diagnosis2 = diagnosisStrings[1];
   }
-  const diagnosis1 = diagnosisStrings[0];
-  const diagnosis2 = diagnosisStrings[1];
 
   // Contacts mapping
   const contacts = (data.contacts || []) as Array<Record<string, unknown>>;
