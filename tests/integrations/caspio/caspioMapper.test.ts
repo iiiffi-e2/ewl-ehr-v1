@@ -234,7 +234,7 @@ describe('caspioMapper', () => {
       expect(result.Off_Prem_Date).toBeUndefined();
     });
 
-    it('maps insurance data correctly', () => {
+    it('maps insurance data correctly - only medical insurance', () => {
       const payload = {
         ...basePayload,
         data: {
@@ -242,13 +242,13 @@ describe('caspioMapper', () => {
           insurance: [
             {
               InsuranceName: 'Medicare',
-              InsuranceType: 'Primary',
+              InsuranceType: 'medical',
               GroupNumber: 'GRP123',
               AccountNumber: 'ACC456',
             },
             {
               InsuranceName: 'Blue Cross',
-              InsuranceType: 'Secondary',
+              InsuranceType: 'medical',
               GroupNumber: 'GRP789',
               AccountNumber: 'ACC012',
             },
@@ -261,13 +261,84 @@ describe('caspioMapper', () => {
       };
       const result = mapAlisPayloadToCaspioRecord(payload);
       expect(result.Insurance_Name).toBe('Medicare');
-      expect(result.Insurance_Type).toBe('Primary');
+      expect(result.Insurance_Type).toBe('medical');
       expect(result.Group_).toBe('GRP123');
       expect(result.Insurance_Number).toBe('ACC456');
       expect(result.Insurance_2_Name).toBe('Blue Cross');
-      expect(result.Insurance_2_Type).toBe('Secondary');
+      expect(result.Insurance_2_Type).toBe('medical');
       expect(result.Group_2_).toBe('GRP789');
       expect(result.Insurance_Number_2).toBe('ACC012');
+    });
+
+    it('filters out non-medical insurance types', () => {
+      const payload = {
+        ...basePayload,
+        data: {
+          ...basePayload.data,
+          insurance: [
+            {
+              InsuranceName: 'Medicare',
+              InsuranceType: 'medical',
+              GroupNumber: 'GRP123',
+              AccountNumber: 'ACC456',
+            },
+            {
+              InsuranceName: 'Dental Plan',
+              InsuranceType: 'dental',
+              GroupNumber: 'GRP456',
+              AccountNumber: 'ACC012',
+            },
+            {
+              InsuranceName: 'Vision Plan',
+              InsuranceType: 'vision',
+              GroupNumber: 'GRP789',
+              AccountNumber: 'ACC345',
+            },
+          ],
+        },
+        counts: {
+          ...basePayload.counts,
+          insurance: 3,
+        },
+      };
+      const result = mapAlisPayloadToCaspioRecord(payload);
+      // Only medical insurance should be included
+      expect(result.Insurance_Name).toBe('Medicare');
+      expect(result.Insurance_Type).toBe('medical');
+      expect(result.Insurance_2_Name).toBeUndefined();
+      expect(result.Insurance_2_Type).toBeUndefined();
+    });
+
+    it('handles case-insensitive insurance type filtering', () => {
+      const payload = {
+        ...basePayload,
+        data: {
+          ...basePayload.data,
+          insurance: [
+            {
+              InsuranceName: 'Medicare',
+              InsuranceType: 'MEDICAL',
+              GroupNumber: 'GRP123',
+              AccountNumber: 'ACC456',
+            },
+            {
+              InsuranceName: 'Blue Cross',
+              InsuranceType: 'Medical',
+              GroupNumber: 'GRP456',
+              AccountNumber: 'ACC012',
+            },
+          ],
+        },
+        counts: {
+          ...basePayload.counts,
+          insurance: 2,
+        },
+      };
+      const result = mapAlisPayloadToCaspioRecord(payload);
+      expect(result.Insurance_Name).toBe('Medicare');
+      expect(result.Insurance_Type).toBe('MEDICAL');
+      expect(result.Insurance_2_Name).toBe('Blue Cross');
+      expect(result.Insurance_2_Type).toBe('Medical');
     });
 
     it('maps diagnoses correctly', () => {

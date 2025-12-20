@@ -311,12 +311,18 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     }
   }
 
-  // Insurance mapping
+  // Insurance mapping - only include medical insurance
   const insurance = (data.insurance || []) as Array<Record<string, unknown>>;
-  const insurance1 = insurance[0];
-  const insurance2 = insurance[1];
+  // Filter to only include insurance with insuranceType === "medical" (case-insensitive)
+  const medicalInsurance = insurance.filter((ins) => {
+    const type = getStringValue(ins, ['InsuranceType', 'insuranceType']);
+    return type?.toLowerCase() === 'medical';
+  });
+  
+  const insurance1 = medicalInsurance[0];
+  const insurance2 = medicalInsurance[1];
 
-  const insuranceName = getStringValue(insurance1, ['InsuranceName', 'insuranceName']);
+  const insuranceName = getStringValue(insurance1, ['InsuranceName', 'insuranceName', 'providerName', 'ProviderName']);
   const insuranceType = getStringValue(insurance1, ['InsuranceType', 'insuranceType']);
   const groupNumber = getStringValue(insurance1, ['GroupNumber', 'groupNumber']);
   const insuranceNumber = getStringValue(insurance1, [
@@ -326,7 +332,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     'insuranceNumber',
   ]);
 
-  const insurance2Name = getStringValue(insurance2, ['InsuranceName', 'insuranceName']);
+  const insurance2Name = getStringValue(insurance2, ['InsuranceName', 'insuranceName', 'providerName', 'ProviderName']);
   const insurance2Type = getStringValue(insurance2, ['InsuranceType', 'insuranceType']);
   const group2Number = getStringValue(insurance2, ['GroupNumber', 'groupNumber']);
   const insurance2Number = getStringValue(insurance2, [
