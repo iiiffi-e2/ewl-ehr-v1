@@ -209,6 +209,16 @@ export async function findByResidentId(
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
+        // 404 could mean "no records found" or "table doesn't exist"
+        // We'll return found: false and let the insert operation determine if table exists
+        logger.debug(
+          {
+            tableName,
+            residentId: String(residentId),
+            url,
+          },
+          'caspio_record_not_found_404',
+        );
         return { found: false };
       }
       throw error;
@@ -225,7 +235,23 @@ export async function upsertByResidentId(
   residentId: string | number,
   record: Record<string, unknown>,
 ): Promise<{ action: 'insert' | 'update'; id?: string }> {
-  const searchResult = await findByResidentId(tableName, residentId);
+  let searchResult: { found: boolean; id?: string; raw?: unknown; matches?: number };
+  
+  try {
+    searchResult = await findByResidentId(tableName, residentId);
+  } catch (error) {
+    // If search fails with 404, it might mean the table doesn't exist
+    // Try insert anyway - if that also fails with 404, we'll get a better error
+    logger.warn(
+      {
+        tableName,
+        residentId: String(residentId),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'caspio_find_failed_proceeding_to_insert',
+    );
+    searchResult = { found: false };
+  }
 
   if (searchResult.found && searchResult.id) {
     // Update existing record
@@ -233,22 +259,39 @@ export async function upsertByResidentId(
     return { action: 'update', id: searchResult.id };
   } else {
     // Insert new record
-    const response = await insertRecord(tableName, record);
-    
-    // Extract ID from response if available
-    let id: string | undefined;
-    const responseData = response.data as Record<string, unknown>;
-    if (responseData.PK) {
-      id = String(responseData.PK);
-    } else if (responseData._id) {
-      id = String(responseData._id);
-    } else if (responseData.id) {
-      id = String(responseData.id);
-    } else if (responseData.Id) {
-      id = String(responseData.Id);
-    }
+    try {
+      const response = await insertRecord(tableName, record);
+      
+      // Extract ID from response if available
+      let id: string | undefined;
+      const responseData = response.data as Record<string, unknown>;
+      if (responseData.PK) {
+        id = String(responseData.PK);
+      } else if (responseData._id) {
+        id = String(responseData._id);
+      } else if (responseData.id) {
+        id = String(responseData.id);
+      } else if (responseData.Id) {
+        id = String(responseData.Id);
+      }
 
-    return { action: 'insert', id };
+      return { action: 'insert', id };
+    } catch (insertError) {
+      // Provide better error message for 404 on insert (likely table doesn't exist)
+      if (axios.isAxiosError(insertError) && insertError.response?.status === 404) {
+        const errorMessage = `Caspio table '${tableName}' not found (404). Please verify: 1) The table name is correct, 2) The table exists in your Caspio account, 3) Your API credentials have access to this table. Base URL: ${env.CASPIO_BASE_URL}`;
+        logger.error(
+          {
+            tableName,
+            baseUrl: env.CASPIO_BASE_URL,
+            url: insertError.config?.url,
+          },
+          'caspio_table_not_found',
+        );
+        throw new Error(errorMessage);
+      }
+      throw insertError;
+    }
   }
 }
 
