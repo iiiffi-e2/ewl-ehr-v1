@@ -18,6 +18,18 @@ let tokenCache: TokenCache | null = null;
 const authClient = createHttpClient();
 const apiClient = createHttpClient();
 
+/**
+ * Get the Caspio table endpoint URL.
+ * Uses CASPIO_TABLE_ENDPOINT if provided, otherwise constructs it from base URL and table name.
+ */
+function getTableEndpoint(): string {
+  if (env.CASPIO_TABLE_ENDPOINT) {
+    return env.CASPIO_TABLE_ENDPOINT;
+  }
+  // Construct endpoint from base URL and table name (legacy v2 format)
+  return `${env.CASPIO_BASE_URL}/rest/v2/tables/${env.CASPIO_TABLE_NAME}/rows`;
+}
+
 export async function sendResidentToCaspio(payload: CaspioResidentPayload): Promise<void> {
   const query = encodeURIComponent(
     JSON.stringify({
@@ -32,7 +44,7 @@ export async function sendResidentToCaspio(payload: CaspioResidentPayload): Prom
     await withRetry(async () => {
       const response = await caspioRequest(
         'put',
-        `${env.CASPIO_TABLE_ENDPOINT}?q=${query}`,
+        `${getTableEndpoint()}?q=${query}`,
         [payload],
       );
 
@@ -50,7 +62,7 @@ export async function sendResidentToCaspio(payload: CaspioResidentPayload): Prom
   }
 
   await withRetry(async () => {
-    const response = await caspioRequest('post', env.CASPIO_TABLE_ENDPOINT, [payload]);
+    const response = await caspioRequest('post', getTableEndpoint(), [payload]);
     logger.info(
       {
         eventMessageId: payload.eventMessageId,
@@ -66,7 +78,7 @@ async function recordExists(query: string): Promise<boolean> {
   try {
     const response = await caspioRequest(
       'get',
-      `${env.CASPIO_TABLE_ENDPOINT}?q=${query}&limit=1`,
+      `${getTableEndpoint()}?q=${query}&limit=1`,
     );
     const data = response.data as { Result?: unknown[] };
     if (Array.isArray(data?.Result)) {
