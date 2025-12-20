@@ -138,6 +138,71 @@ function getActiveRoomNumber(
 }
 
 /**
+ * Get contact phone number with priority: home > mobile > work
+ */
+function getContactPhoneNumber(contact: Record<string, unknown> | undefined): string | undefined {
+  if (!contact) return undefined;
+
+  // Priority order: homePhone > mobilePhone > workPhone
+  // Also check legacy fields for backward compatibility
+  return (
+    getStringValue(contact, ['homePhone', 'HomePhone']) ||
+    getStringValue(contact, ['mobilePhone', 'MobilePhone']) ||
+    getStringValue(contact, ['workPhone', 'WorkPhone']) ||
+    getStringValue(contact, ['PhoneNumber', 'phoneNumber', 'Phone', 'phone'])
+  );
+}
+
+/**
+ * Combine contact address fields into a single string
+ * Format: streetAddress1, streetAddress2, city, state postalCode
+ */
+function getContactAddress(contact: Record<string, unknown> | undefined): string | undefined {
+  if (!contact) return undefined;
+
+  const street1 = getStringValue(contact, ['streetAddress1', 'StreetAddress1', 'Address1', 'address1', 'Address', 'address']);
+  const street2 = getStringValue(contact, ['streetAddress2', 'StreetAddress2', 'Address2', 'address2']);
+  const city = getStringValue(contact, ['city', 'City']);
+  const state = getStringValue(contact, ['state', 'State']);
+  const postalCode = getStringValue(contact, ['postalCode', 'PostalCode', 'zipCode', 'ZipCode', 'zip', 'Zip']);
+
+  // If we have the new format fields, combine them
+  if (street1 || city || state || postalCode) {
+    const addressParts: string[] = [];
+    
+    // Add street address parts
+    if (street1) addressParts.push(street1);
+    if (street2) addressParts.push(street2);
+    
+    // Add city, state, postal code
+    // Format: "City, State PostalCode" or "City, State" or "City PostalCode" or just "City"
+    const cityStateZipParts: string[] = [];
+    if (city) {
+      cityStateZipParts.push(city);
+    }
+    // Add state and postal code together (space-separated)
+    const stateZip = [state, postalCode].filter(Boolean).join(' ');
+    if (stateZip) {
+      cityStateZipParts.push(stateZip);
+    }
+    
+    // Join city and state/zip with comma if both exist, otherwise just join with space
+    const cityStateZip = cityStateZipParts.length > 1 
+      ? cityStateZipParts.join(', ')
+      : cityStateZipParts.join(' ');
+    
+    if (cityStateZip) {
+      addressParts.push(cityStateZip);
+    }
+    
+    return addressParts.length > 0 ? addressParts.join(', ') : undefined;
+  }
+
+  // Fallback to legacy address field
+  return getStringValue(contact, ['Address', 'address']);
+}
+
+/**
  * Map ALIS payload to Caspio record format
  */
 export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord {
@@ -301,11 +366,9 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
       .join(' ')
       .trim() ||
     undefined;
-  const contact1Number =
-    getStringValue(contact1, ['PhoneNumber', 'phoneNumber', 'Phone', 'phone']) || undefined;
+  const contact1Number = getContactPhoneNumber(contact1);
   const contact1Email = getStringValue(contact1, ['Email', 'email']) || undefined;
-  const contact1Address =
-    getStringValue(contact1, ['Address', 'address', 'Address1', 'address1']) || undefined;
+  const contact1Address = getContactAddress(contact1);
 
   const contact2Name =
     getStringValue(contact2, ['Name', 'name']) ||
@@ -314,11 +377,9 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
       .join(' ')
       .trim() ||
     undefined;
-  const contact2Number =
-    getStringValue(contact2, ['PhoneNumber', 'phoneNumber', 'Phone', 'phone']) || undefined;
+  const contact2Number = getContactPhoneNumber(contact2);
   const contact2Email = getStringValue(contact2, ['Email', 'email']) || undefined;
-  const contact2Address =
-    getStringValue(contact2, ['Address', 'address', 'Address1', 'address1']) || undefined;
+  const contact2Address = getContactAddress(contact2);
 
   // Family_Contact_1/2 - optional summary if relationship exists
   const contact1Relationship = getStringValue(contact1, [

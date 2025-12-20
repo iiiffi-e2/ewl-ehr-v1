@@ -342,6 +342,90 @@ describe('caspioMapper', () => {
       expect(result.Family_Contact_2).toBe('Son');
     });
 
+    it('maps contacts with new phone number format (home > mobile > work priority)', () => {
+      const payload = {
+        ...basePayload,
+        data: {
+          ...basePayload.data,
+          contacts: [
+            {
+              firstName: 'Bro',
+              lastName: 'Test',
+              homePhone: '469-555-2222',
+              mobilePhone: '469-555-3333',
+              workPhone: '469-555-1111',
+              email: 'testemail1@test.com',
+              streetAddress1: '123 Main Street',
+              streetAddress2: null,
+              city: 'Dallas',
+              state: 'TX',
+              postalCode: '75204',
+              relationship: 'Brother',
+            },
+            {
+              firstName: 'Ann',
+              lastName: 'Trayson',
+              homePhone: null,
+              mobilePhone: '999-888-5555',
+              workPhone: '999-888-7777',
+              email: 'annt@gmail.com',
+              streetAddress1: '456 Main St',
+              streetAddress2: null,
+              city: 'Allen',
+              state: 'TX',
+              postalCode: '75013',
+              relationship: 'Daughter',
+            },
+          ],
+        },
+        counts: {
+          ...basePayload.counts,
+          contacts: 2,
+        },
+      };
+      const result = mapAlisPayloadToCaspioRecord(payload);
+      expect(result.Contact_1_Name).toBe('Bro Test');
+      // Should prefer homePhone over mobilePhone and workPhone
+      expect(result.Contact_1_Number).toBe('469-555-2222');
+      expect(result.Contact_1_Email).toBe('testemail1@test.com');
+      expect(result.Contact_1_Address).toBe('123 Main Street, Dallas, TX 75204');
+      expect(result.Family_Contact_1).toBe('Brother');
+      
+      expect(result.Contact_2_Name).toBe('Ann Trayson');
+      // Should prefer mobilePhone over workPhone when homePhone is null
+      expect(result.Contact_2_Number).toBe('999-888-5555');
+      expect(result.Contact_2_Email).toBe('annt@gmail.com');
+      expect(result.Contact_2_Address).toBe('456 Main St, Allen, TX 75013');
+      expect(result.Family_Contact_2).toBe('Daughter');
+    });
+
+    it('maps contacts with address including streetAddress2', () => {
+      const payload = {
+        ...basePayload,
+        data: {
+          ...basePayload.data,
+          contacts: [
+            {
+              firstName: 'John',
+              lastName: 'Doe',
+              homePhone: '555-1234',
+              streetAddress1: '123 Main Street',
+              streetAddress2: 'Apt 4B',
+              city: 'Dallas',
+              state: 'TX',
+              postalCode: '75204',
+            },
+          ],
+        },
+        counts: {
+          ...basePayload.counts,
+          contacts: 1,
+        },
+      };
+      const result = mapAlisPayloadToCaspioRecord(payload);
+      expect(result.Contact_1_Address).toBe('123 Main Street, Apt 4B, Dallas, TX 75204');
+    });
+
     it('strips undefined keys from result', () => {
       const payload = {
         ...basePayload,
