@@ -434,6 +434,25 @@ export async function fetchAllResidentData(
     client.getResidentBasicInfo(residentId),
   ]);
 
+  // Extract communityId from resident data if not provided
+  let resolvedCommunityId = communityId;
+  if (!resolvedCommunityId) {
+    const residentRecord = resident as Record<string, unknown>;
+    const idFromResident =
+      residentRecord.communityId ?? residentRecord.CommunityId ?? null;
+    if (idFromResident !== null) {
+      resolvedCommunityId =
+        typeof idFromResident === 'number'
+          ? idFromResident
+          : typeof idFromResident === 'string'
+            ? Number(idFromResident)
+            : null;
+      if (!Number.isFinite(resolvedCommunityId)) {
+        resolvedCommunityId = null;
+      }
+    }
+  }
+
   // Fetch additional data with graceful error handling
   const errors: AllResidentData['errors'] = {};
 
@@ -443,8 +462,8 @@ export async function fetchAllResidentData(
       client.getResidentRoomAssignments(residentId),
       client.getResidentDiagnosesAndAllergies(residentId),
       client.getResidentContacts(residentId),
-      // Fetch communities if communityId is provided
-      communityId ? client.getCommunities() : Promise.resolve([]),
+      // Fetch communities if communityId is available (from parameter or resident data)
+      resolvedCommunityId ? client.getCommunities() : Promise.resolve([]),
     ]);
 
   const insuranceData = insurance.status === 'fulfilled' ? insurance.value : [];
@@ -485,25 +504,25 @@ export async function fetchAllResidentData(
     );
   }
 
-  // Find the matching community if communityId is provided
+  // Find the matching community if communityId is available
   let communityData: AlisCommunity | null = null;
-  if (communityId && communitiesResult.status === 'fulfilled') {
+  if (resolvedCommunityId && communitiesResult.status === 'fulfilled') {
     const communities = communitiesResult.value;
     communityData =
       communities.find(
         (c) =>
-          (c.CommunityId ?? c.communityId) === communityId ||
-          Number(c.CommunityId ?? c.communityId) === Number(communityId),
+          (c.CommunityId ?? c.communityId) === resolvedCommunityId ||
+          Number(c.CommunityId ?? c.communityId) === Number(resolvedCommunityId),
       ) ?? null;
     if (!communityData) {
-      errors.community = `Community with ID ${communityId} not found`;
-      logger.warn({ residentId, communityId }, 'community_not_found');
+      errors.community = `Community with ID ${resolvedCommunityId} not found`;
+      logger.warn({ residentId, communityId: resolvedCommunityId }, 'community_not_found');
     }
-  } else if (communityId && communitiesResult.status === 'rejected') {
+  } else if (resolvedCommunityId && communitiesResult.status === 'rejected') {
     errors.community =
       communitiesResult.reason?.message ?? 'Failed to fetch communities';
     logger.warn(
-      { residentId, communityId, error: communitiesResult.reason?.message },
+      { residentId, communityId: resolvedCommunityId, error: communitiesResult.reason?.message },
       'failed_to_fetch_communities',
     );
   }

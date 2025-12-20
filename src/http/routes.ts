@@ -286,6 +286,7 @@ router.get('/admin/residents/:residentId/full-data', authAdmin, async (req, res)
       password: env.ALIS_TEST_PASSWORD,
     };
 
+    // fetchAllResidentData will automatically extract communityId from resident data if not provided
     const allData = await fetchAllResidentData(credentials, residentId, undefined);
 
     logger.info(
