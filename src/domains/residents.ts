@@ -14,6 +14,10 @@ export type NormalizedResidentData = {
   bed?: string | null;
   room?: string | null;
   updatedAtUtc?: Date | null;
+  onPrem?: boolean | null;
+  onPremDate?: Date | null;
+  offPrem?: boolean | null;
+  offPremDate?: Date | null;
 };
 
 export async function upsertResident(
@@ -38,6 +42,10 @@ export async function upsertResident(
       bed: data.bed ?? null,
       room: data.room ?? null,
       updatedAtUtc: data.updatedAtUtc ?? null,
+      onPrem: data.onPrem ?? null,
+      onPremDate: data.onPremDate ?? null,
+      offPrem: data.offPrem ?? null,
+      offPremDate: data.offPremDate ?? null,
     },
   });
 }

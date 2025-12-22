@@ -43,6 +43,10 @@ model Resident {
   bed            String?
   room           String?
   updatedAtUtc   DateTime?
+  onPrem         Boolean?
+  onPremDate     DateTime?
+  offPrem        Boolean?
+  offPremDate    DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

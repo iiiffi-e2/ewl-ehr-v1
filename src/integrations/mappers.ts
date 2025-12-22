@@ -80,6 +80,42 @@ export function normalizeResident({
     getString(currentRoom, ['Room', 'room']) ??
     formatRoom(roomNumber, bed);
 
+  // Extract isOnLeave and onLeaveStartDateUtc for On_Prem/Off_Prem logic
+  const isOnLeave = getBoolean(detail, ['IsOnLeave', 'isOnLeave', 'OnLeave', 'onLeave']);
+  
+  // On_Prem: true UNLESS isOnLeave=true. If isOnLeave is null or false, On_Prem should be true.
+  const onPrem: boolean = isOnLeave !== true;
+  
+  // Off_Prem: only true if isOnLeave=true
+  const offPrem: boolean = isOnLeave === true;
+  
+  // On_Prem_Date: move-in date (prefer PhysicalMoveInDate, fallback to FinancialMoveInDate)
+  const physicalMoveInDateString = getString(detail, [
+    'PhysicalMoveInDate',
+    'physicalMoveInDate',
+    'PhysicalMoveIn',
+    'physicalMoveIn',
+  ]);
+  const financialMoveInDateString = getString(detail, [
+    'FinancialMoveInDate',
+    'financialMoveInDate',
+    'FinancialMoveIn',
+    'financialMoveIn',
+  ]);
+  const moveInDateString = physicalMoveInDateString || financialMoveInDateString;
+  const onPremDate = moveInDateString ? safeParseDate(moveInDateString) : null;
+  
+  // Off_Prem_Date: set to onLeaveStartDateUtc if isOnLeave=true
+  const onLeaveStartDateString = getString(detail, [
+    'OnLeaveStartDateUtc',
+    'onLeaveStartDateUtc',
+    'OnLeaveStartDate',
+    'onLeaveStartDate',
+    'LeaveStartDate',
+    'leaveStartDate',
+  ]);
+  const offPremDate = isOnLeave === true && onLeaveStartDateString ? safeParseDate(onLeaveStartDateString) : null;
+
   return {
     alisResidentId,
     status: normalizeStatus(statusRaw),
@@ -92,6 +128,10 @@ export function normalizeResident({
     bed,
     room,
     updatedAtUtc,
+    onPrem,
+    onPremDate,
+    offPrem,
+    offPremDate,
   };
 }
 
@@ -208,6 +248,25 @@ function getNumber<T extends Record<string, unknown> | undefined>(
       if (Number.isFinite(parsed)) {
         return parsed;
       }
+    }
+  }
+  return undefined;
+}
+
+function getBoolean<T extends Record<string, unknown> | undefined>(
+  obj: T,
+  keys: string[],
+): boolean | undefined {
+  if (!obj) return undefined;
+  for (const key of keys) {
+    const value = (obj as Record<string, unknown>)[key];
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+      if (lower === 'false' || lower === '0' || lower === 'no') return false;
     }
   }
   return undefined;
