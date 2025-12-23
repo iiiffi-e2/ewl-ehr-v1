@@ -153,6 +153,10 @@ export async function updateRecordById(
     // Caspio PUT endpoint expects the request body to be an array of records
     const recordArray = [recordWithoutPK_ID];
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:154',message:'PUT request body prepared',data:{bodyType:Array.isArray(recordArray)?'array':'not-array',bodyLength:Array.isArray(recordArray)?recordArray.length:0,firstRecordKeys:recordArray[0]?Object.keys(recordArray[0]):[],hasPK_ID:!!record.PK_ID,recordWithoutPK_IDKeys:Object.keys(recordWithoutPK_ID)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+
     logger.info(
       {
         tableName,
@@ -165,12 +169,29 @@ export async function updateRecordById(
       'caspio_updating_record_by_id',
     );
 
-    return apiClient.put(url, recordArray, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:172',message:'About to send PUT request',data:{url,method:'PUT',bodyIsArray:Array.isArray(recordArray),bodyStringified:JSON.stringify(recordArray).substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+
+    try {
+      const response = await apiClient.put(url, recordArray, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:189',message:'PUT request succeeded',data:{status:response.status,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+
+      return response;
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:195',message:'PUT request failed',data:{errorMessage:error instanceof Error?error.message:String(error),isAxiosError:axios.isAxiosError(error),status:axios.isAxiosError(error)?error.response?.status:undefined,responseData:axios.isAxiosError(error)?error.response?.data:undefined,requestBodyType:typeof recordArray,requestBodyIsArray:Array.isArray(recordArray)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      throw error;
+    }
   });
 }
 
