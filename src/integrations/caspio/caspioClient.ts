@@ -97,13 +97,16 @@ function buildEqualsFilter(field: string, value: string | number): string {
 /**
  * Build composite filter for REST v3 API to find records by multiple field values
  * Uses query parameter format: ?q={filter}
+ * Caspio REST v3 expects conditions directly in the where object
  */
 function buildCompositeFilter(filters: Array<{ field: string; value: string | number }>): string {
-  // REST v3 uses JSON filter format with 'and' operator for composite keys
+  // REST v3 uses JSON filter format - combine conditions directly in where object
+  const whereClause: Record<string, { eq: string | number }> = {};
+  for (const f of filters) {
+    whereClause[f.field] = { eq: f.value };
+  }
   const filter = {
-    where: {
-      and: filters.map((f) => ({ [f.field]: { eq: f.value } })),
-    },
+    where: whereClause,
   };
   return encodeURIComponent(JSON.stringify(filter));
 }
@@ -194,19 +197,60 @@ export async function findRecordByResidentIdAndCommunityId(
         return { found: false };
       }
 
-      // Get the first record's ID (Caspio typically uses a field like "PK" or "_id" or similar)
-      const firstRecord = records[0] as Record<string, unknown>;
+      // Filter records to find exact match for both Resident_ID and Community_ID
+      // This handles cases where the API filter might not work correctly
+      const matchingRecord = records.find((rec) => {
+        const record = rec as Record<string, unknown>;
+        const recordResidentId = record.Resident_ID ?? record.resident_ID ?? record.resident_id;
+        const recordCommunityId = record.Community_ID ?? record.community_ID ?? record.community_id;
+        
+        const residentIdMatches = 
+          String(recordResidentId) === String(residentId);
+        const communityIdMatches = 
+          recordCommunityId === communityId || String(recordCommunityId) === String(communityId);
+        
+        return residentIdMatches && communityIdMatches;
+      }) as Record<string, unknown> | undefined;
+
+      if (!matchingRecord) {
+        logger.debug(
+          {
+            residentId: String(residentId),
+            communityId,
+            matchCount: records.length,
+            sampleRecord: records[0] ? {
+              Resident_ID: (records[0] as Record<string, unknown>).Resident_ID,
+              Community_ID: (records[0] as Record<string, unknown>).Community_ID,
+            } : undefined,
+          },
+          'caspio_no_exact_match_for_composite_key',
+        );
+        return { found: false };
+      }
 
       // Try common ID field names
       let id: string | undefined;
-      if (firstRecord.PK) {
-        id = String(firstRecord.PK);
-      } else if (firstRecord._id) {
-        id = String(firstRecord._id);
-      } else if (firstRecord.id) {
-        id = String(firstRecord.id);
-      } else if (firstRecord.Id) {
-        id = String(firstRecord.Id);
+      if (matchingRecord.PK) {
+        id = String(matchingRecord.PK);
+      } else if (matchingRecord._id) {
+        id = String(matchingRecord._id);
+      } else if (matchingRecord.id) {
+        id = String(matchingRecord.id);
+      } else if (matchingRecord.Id) {
+        id = String(matchingRecord.Id);
+      }
+
+      // If no ID was found, we can't update this record
+      if (!id) {
+        logger.warn(
+          {
+            residentId: String(residentId),
+            communityId,
+            recordKeys: Object.keys(matchingRecord),
+          },
+          'caspio_record_found_but_no_id_field',
+        );
+        return { found: false };
       }
 
       if (records.length > 1) {
@@ -214,16 +258,17 @@ export async function findRecordByResidentIdAndCommunityId(
           {
             residentId: String(residentId),
             communityId,
-            matchCount: records.length,
+            totalMatches: records.length,
+            exactMatches: 1,
           },
-          'caspio_multiple_matches_found_composite_key',
+          'caspio_multiple_matches_found_composite_key_filtered',
         );
       }
 
       return {
         found: true,
         id,
-        record: firstRecord,
+        record: matchingRecord,
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
