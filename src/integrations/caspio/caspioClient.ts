@@ -146,19 +146,26 @@ export async function updateRecordById(
     const filter = buildEqualsFilter('PK_ID', typeof id === 'number' ? id : Number(id));
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
 
+    // PK_ID is a system-defined field and cannot be included in the request body
+    // Remove it from the record if present (it's only used in the query filter)
+    const { PK_ID, ...recordWithoutPK_ID } = record;
+
+    // Caspio PUT endpoint expects the request body to be an array of records
+    const recordArray = [recordWithoutPK_ID];
+
     logger.info(
       {
         tableName,
         id,
         url,
         filter,
-        recordKeys: Object.keys(record),
-        recordSample: Object.fromEntries(Object.entries(record).slice(0, 5)), // First 5 fields
+        recordKeys: Object.keys(recordWithoutPK_ID),
+        recordSample: Object.fromEntries(Object.entries(recordWithoutPK_ID).slice(0, 5)), // First 5 fields
       },
       'caspio_updating_record_by_id',
     );
 
-    return apiClient.put(url, record, {
+    return apiClient.put(url, recordArray, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
