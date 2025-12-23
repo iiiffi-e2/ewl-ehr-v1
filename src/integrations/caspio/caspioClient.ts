@@ -143,6 +143,16 @@ export async function updateRecordById(
     const token = await getAccessToken();
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(String(id))}`;
 
+    logger.debug(
+      {
+        tableName,
+        id,
+        url,
+        recordKeys: Object.keys(record),
+      },
+      'caspio_updating_record_by_id',
+    );
+
     return apiClient.put(url, record, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -241,6 +251,19 @@ export async function findRecordByResidentIdAndCommunityId(
       } else if (matchingRecord.Id) {
         id = String(matchingRecord.Id);
       }
+
+      // Add logging to debug PK_ID extraction
+      logger.debug(
+        {
+          residentId: String(residentId),
+          communityId,
+          extractedPK_ID: id,
+          actualPK_ID: matchingRecord.PK_ID,
+          recordResident_ID: matchingRecord.Resident_ID,
+          recordCommunity_ID: matchingRecord.Community_ID,
+        },
+        'caspio_extracted_pk_id_for_update',
+      );
 
       // If no ID was found, we can't update this record
       if (!id) {
