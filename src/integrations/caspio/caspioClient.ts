@@ -141,28 +141,24 @@ export async function updateRecordById(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    // According to Caspio REST API v3 Swagger, PUT endpoint is /v3/tables/{tableName}/records
-    // (without /{id} in the path). The PK_ID must be included in the request body.
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
-
-    // Ensure PK_ID is in the record body for the update (required by Caspio API)
-    const recordWithId = {
-      ...record,
-      PK_ID: typeof id === 'number' ? id : Number(id),
-    };
+    // According to Caspio REST API v3, PUT endpoint requires a query parameter to identify the record
+    // Use PK_ID in a filter query parameter: ?q={"where":{"PK_ID":{"eq":id}}}
+    const filter = buildEqualsFilter('PK_ID', typeof id === 'number' ? id : Number(id));
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
 
     logger.info(
       {
         tableName,
         id,
         url,
+        filter,
         recordKeys: Object.keys(record),
         recordSample: Object.fromEntries(Object.entries(record).slice(0, 5)), // First 5 fields
       },
       'caspio_updating_record_by_id',
     );
 
-    return apiClient.put(url, recordWithId, {
+    return apiClient.put(url, record, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
