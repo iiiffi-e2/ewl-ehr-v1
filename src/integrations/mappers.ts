@@ -90,18 +90,33 @@ export function normalizeResident({
   const offPrem: boolean = isOnLeave === true;
   
   // On_Prem_Date: move-in date (prefer PhysicalMoveInDate, fallback to FinancialMoveInDate)
-  const physicalMoveInDateString = getString(detail, [
-    'PhysicalMoveInDate',
-    'physicalMoveInDate',
-    'PhysicalMoveIn',
-    'physicalMoveIn',
-  ]);
-  const financialMoveInDateString = getString(detail, [
-    'FinancialMoveInDate',
-    'financialMoveInDate',
-    'FinancialMoveIn',
-    'financialMoveIn',
-  ]);
+  // Check both detail and basicInfo for move-in date fields
+  const physicalMoveInDateString =
+    getString(detail, [
+      'PhysicalMoveInDate',
+      'physicalMoveInDate',
+      'PhysicalMoveIn',
+      'physicalMoveIn',
+    ]) ??
+    getString(basicInfo, [
+      'PhysicalMoveInDate',
+      'physicalMoveInDate',
+      'PhysicalMoveIn',
+      'physicalMoveIn',
+    ]);
+  const financialMoveInDateString =
+    getString(detail, [
+      'FinancialMoveInDate',
+      'financialMoveInDate',
+      'FinancialMoveIn',
+      'financialMoveIn',
+    ]) ??
+    getString(basicInfo, [
+      'FinancialMoveInDate',
+      'financialMoveInDate',
+      'FinancialMoveIn',
+      'financialMoveIn',
+    ]);
   const moveInDateString = physicalMoveInDateString || financialMoveInDateString;
   const onPremDate = moveInDateString ? safeParseDate(moveInDateString) : null;
   

@@ -8,11 +8,11 @@ import {
   resolveAlisCredentials,
 } from '../integrations/alisClient.js';
 import { normalizeResident } from '../integrations/mappers.js';
-import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
-import type { AlisPayload } from '../integrations/alis/types.js';
+import { handleAlisEvent } from '../integrations/caspio/eventOrchestrator.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
 import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js';
+import type { AlisEvent } from '../webhook/schemas.js';
 
 import { getRedisConnection } from './connection.js';
 import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
@@ -152,33 +152,19 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
 
     await upsertResident(companyId, normalized);
 
-    // Construct AlisPayload for Caspio push
-    const alisPayload: AlisPayload = {
-      success: true,
-      residentId,
-      timestamp: new Date().toISOString(),
-      apiBase: env.ALIS_API_BASE,
-      data: {
-        resident: allResidentData.resident,
-        basicInfo: allResidentData.basicInfo,
-        insurance: allResidentData.insurance,
-        roomAssignments: allResidentData.roomAssignments,
-        diagnosesAndAllergies: allResidentData.diagnosesAndAllergies,
-        diagnosesAndAllergiesFull: allResidentData.diagnosesAndAllergiesFull,
-        contacts: allResidentData.contacts,
-        community: allResidentData.community,
-      },
-      counts: {
-        insurance: allResidentData.insurance.length,
-        roomAssignments: allResidentData.roomAssignments.length,
-        diagnosesAndAllergies: allResidentData.diagnosesAndAllergies.length,
-        contacts: allResidentData.contacts.length,
-      },
+    // Construct AlisEvent for Caspio event orchestrator
+    const event: AlisEvent = {
+      EventType: eventType,
+      CompanyKey: companyKey,
+      CommunityId: communityId ?? null,
+      EventMessageId: eventMessageId,
+      EventMessageDate: eventMessageDate,
+      NotificationData: notificationData,
     };
 
-    // Push to Caspio (handle errors gracefully - log but don't fail job)
+    // Handle event via orchestrator (handle errors gracefully - log but don't fail job)
     try {
-      await pushToCaspio(alisPayload);
+      await handleAlisEvent(event, companyId, companyKey);
     } catch (caspioError) {
       logger.error(
         {
@@ -186,9 +172,9 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           residentId,
           error: caspioError instanceof Error ? caspioError.message : String(caspioError),
         },
-        'caspio_push_failed_continuing',
+        'caspio_event_processing_failed_continuing',
       );
-      // Don't throw - allow job to complete even if Caspio push fails
+      // Don't throw - allow job to complete even if Caspio processing fails
     }
 
     await markEventProcessed(eventMessageId);

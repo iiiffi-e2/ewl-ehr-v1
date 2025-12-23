@@ -44,6 +44,24 @@ export type AlisResidentDetail = {
   rooms?: AlisRoom[];
   UpdatedAtUtc?: string;
   updatedAtUtc?: string;
+  PhysicalMoveInDate?: string;
+  physicalMoveInDate?: string;
+  PhysicalMoveIn?: string;
+  physicalMoveIn?: string;
+  FinancialMoveInDate?: string;
+  financialMoveInDate?: string;
+  FinancialMoveIn?: string;
+  financialMoveIn?: string;
+  IsOnLeave?: boolean;
+  isOnLeave?: boolean;
+  OnLeave?: boolean;
+  onLeave?: boolean;
+  OnLeaveStartDateUtc?: string;
+  onLeaveStartDateUtc?: string;
+  OnLeaveStartDate?: string;
+  onLeaveStartDate?: string;
+  LeaveStartDate?: string;
+  leaveStartDate?: string;
 };
 
 export type AlisResidentBasicInfo = {
@@ -55,6 +73,14 @@ export type AlisResidentBasicInfo = {
   productType?: string;
   Rooms?: AlisRoom[];
   rooms?: AlisRoom[];
+  PhysicalMoveInDate?: string;
+  physicalMoveInDate?: string;
+  PhysicalMoveIn?: string;
+  physicalMoveIn?: string;
+  FinancialMoveInDate?: string;
+  financialMoveInDate?: string;
+  FinancialMoveIn?: string;
+  financialMoveIn?: string;
 };
 
 export type AlisLeave = {

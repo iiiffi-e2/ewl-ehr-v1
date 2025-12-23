@@ -95,6 +95,20 @@ function buildEqualsFilter(field: string, value: string | number): string {
 }
 
 /**
+ * Build composite filter for REST v3 API to find records by multiple field values
+ * Uses query parameter format: ?q={filter}
+ */
+function buildCompositeFilter(filters: Array<{ field: string; value: string | number }>): string {
+  // REST v3 uses JSON filter format with 'and' operator for composite keys
+  const filter = {
+    where: {
+      and: filters.map((f) => ({ [f.field]: { eq: f.value } })),
+    },
+  };
+  return encodeURIComponent(JSON.stringify(filter));
+}
+
+/**
  * Insert a record into a Caspio table
  */
 export async function insertRecord(
@@ -132,6 +146,101 @@ export async function updateRecordById(
         'Content-Type': 'application/json',
       },
     });
+  });
+}
+
+/**
+ * Find record by Resident_ID and Community_ID (composite key)
+ * Returns { found: boolean, id?: string, record?: unknown }
+ * This is the centralized helper for composite key lookups aligned to Caspio REST v3 Swagger format
+ */
+export async function findRecordByResidentIdAndCommunityId(
+  tableName: string,
+  residentId: string | number,
+  communityId: number,
+): Promise<{ found: boolean; id?: string; record?: unknown }> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildCompositeFilter([
+      { field: 'Resident_ID', value: String(residentId) },
+      { field: 'Community_ID', value: communityId },
+    ]);
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // REST v3 response format may vary - handle both array and object responses
+      let records: unknown[] = [];
+      if (Array.isArray(response.data)) {
+        records = response.data;
+      } else if (response.data && typeof response.data === 'object') {
+        // Check for common response wrapper formats
+        const data = response.data as Record<string, unknown>;
+        if (Array.isArray(data.Result)) {
+          records = data.Result;
+        } else if (Array.isArray(data.records)) {
+          records = data.records;
+        } else if (Array.isArray(data.data)) {
+          records = data.data;
+        }
+      }
+
+      if (records.length === 0) {
+        return { found: false };
+      }
+
+      // Get the first record's ID (Caspio typically uses a field like "PK" or "_id" or similar)
+      const firstRecord = records[0] as Record<string, unknown>;
+
+      // Try common ID field names
+      let id: string | undefined;
+      if (firstRecord.PK) {
+        id = String(firstRecord.PK);
+      } else if (firstRecord._id) {
+        id = String(firstRecord._id);
+      } else if (firstRecord.id) {
+        id = String(firstRecord.id);
+      } else if (firstRecord.Id) {
+        id = String(firstRecord.Id);
+      }
+
+      if (records.length > 1) {
+        logger.warn(
+          {
+            residentId: String(residentId),
+            communityId,
+            matchCount: records.length,
+          },
+          'caspio_multiple_matches_found_composite_key',
+        );
+      }
+
+      return {
+        found: true,
+        id,
+        record: firstRecord,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        // 404 could mean "no records found" or "table doesn't exist"
+        logger.debug(
+          {
+            tableName,
+            residentId: String(residentId),
+            communityId,
+            url,
+          },
+          'caspio_record_not_found_404_composite_key',
+        );
+        return { found: false };
+      }
+      throw error;
+    }
   });
 }
 

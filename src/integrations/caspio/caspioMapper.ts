@@ -1,5 +1,7 @@
-import { parseISO, format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
+import type { AlisEvent } from '../../webhook/schemas.js';
+import type { AllResidentData } from '../alisClient.js';
 import type { AlisPayload } from '../alis/types.js';
 
 /**
@@ -22,7 +24,10 @@ export type CaspioRecord = {
   Community_Address?: string;
   Room_number?: string;
   Move_in_Date?: string;
+  Move_Out_Date?: string;
   Service_Type?: string;
+  Service_Start_Date?: string;
+  Service_End_Date?: string;
   Fall_Baseline?: string;
   On_Prem?: boolean;
   On_Prem_Date?: string;
@@ -42,6 +47,7 @@ export type CaspioRecord = {
   Contact_1_Address?: string;
   Contact_2_Address?: string;
   CommunityName?: string;
+  Community_ID?: number;
 };
 
 /**
@@ -477,6 +483,332 @@ export function redactForLogs(obj: unknown): unknown {
   }
 
   return redacted;
+}
+
+/**
+ * Get numeric value from object with fallback keys
+ */
+function getNumericValue(
+  obj: Record<string, unknown> | undefined,
+  keys: string[],
+): number | undefined {
+  if (!obj) return undefined;
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Get today's date in YYYY-MM-DD format
+ */
+function getTodayDateString(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
+
+/**
+ * Map move-in event to full Caspio resident record
+ * Sets Resident_ID, Move_in_Date, Community_ID, On_Prem/Off_Prem, Service_Type, etc.
+ */
+export function mapMoveInEventToResidentRecord(
+  event: AlisEvent,
+  fullResidentData?: AllResidentData,
+): CaspioRecord {
+  const notificationData = event.NotificationData || {};
+  const residentId = getNumericValue(notificationData, ['ResidentId', 'residentId']);
+  
+  if (!residentId) {
+    throw new Error('ResidentId is required in NotificationData for move-in event');
+  }
+
+  if (!event.CommunityId) {
+    throw new Error('CommunityId is required in event for move-in');
+  }
+
+  // Use existing mapper if we have full resident data, otherwise build from event
+  let baseRecord: CaspioRecord;
+  
+  if (fullResidentData) {
+    // Construct AlisPayload-like structure for reuse of existing mapper
+    const alisPayload: AlisPayload = {
+      success: true,
+      residentId,
+      timestamp: event.EventMessageDate,
+      apiBase: '',
+      data: {
+        resident: fullResidentData.resident,
+        basicInfo: fullResidentData.basicInfo,
+        insurance: fullResidentData.insurance,
+        roomAssignments: fullResidentData.roomAssignments,
+        diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies,
+        diagnosesAndAllergiesFull: fullResidentData.diagnosesAndAllergiesFull ?? null,
+        contacts: fullResidentData.contacts,
+        community: fullResidentData.community ?? null,
+      },
+      counts: {
+        insurance: fullResidentData.insurance.length,
+        roomAssignments: fullResidentData.roomAssignments.length,
+        diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies.length,
+        contacts: fullResidentData.contacts.length,
+      },
+    };
+    baseRecord = mapAlisPayloadToCaspioRecord(alisPayload);
+  } else {
+    // Minimal record from event data only
+    baseRecord = {
+      Resident_ID: String(residentId),
+      Community_ID: event.CommunityId,
+    };
+  }
+
+  // Override/enhance with event-specific data
+  const resident = fullResidentData?.resident as Record<string, unknown> | undefined;
+  
+  // Resident_ID - always set from NotificationData.ResidentId
+  baseRecord.Resident_ID = String(residentId);
+  
+  // Community_ID - always set from event
+  baseRecord.Community_ID = event.CommunityId;
+  
+  // CommunityName - from event or fullResidentData
+  if (fullResidentData?.community) {
+    const communityName = getStringValue(
+      fullResidentData.community as Record<string, unknown>,
+      ['CommunityName', 'communityName'],
+    );
+    if (communityName) {
+      baseRecord.CommunityName = communityName;
+    }
+  }
+
+  // Move_in_Date - prefer PhysicalMoveInDate, fallback to FinancialMoveInDate
+  // Get from NotificationData first, then from resident data
+  const physicalMoveIn = 
+    getStringValue(notificationData, ['PhysicalMoveInDate', 'physicalMoveInDate']) ||
+    (resident ? getStringValue(resident, ['PhysicalMoveInDate', 'physicalMoveInDate']) : undefined);
+  const financialMoveIn = 
+    getStringValue(notificationData, ['FinancialMoveInDate', 'financialMoveInDate']) ||
+    (resident ? getStringValue(resident, ['FinancialMoveInDate', 'financialMoveInDate']) : undefined);
+  const moveInDate = extractDatePart(physicalMoveIn || financialMoveIn);
+  if (moveInDate) {
+    baseRecord.Move_in_Date = moveInDate;
+    // On_Prem_Date should be Move_in_Date
+    baseRecord.On_Prem_Date = moveInDate;
+  }
+
+  // Service_Type - from classification (prefer) or productType
+  const classification = resident ? getStringValue(resident, ['Classification', 'classification']) : undefined;
+  const productType = resident ? getStringValue(resident, ['ProductType', 'productType']) : undefined;
+  if (classification) {
+    baseRecord.Service_Type = classification;
+  } else if (productType) {
+    baseRecord.Service_Type = productType;
+  }
+
+  // On_Prem / Off_Prem - derived from isOnLeave
+  if (resident) {
+    const isOnLeave = getBooleanValue(resident, ['IsOnLeave', 'isOnLeave', 'OnLeave', 'onLeave']);
+    if (isOnLeave !== undefined) {
+      baseRecord.On_Prem = !isOnLeave;
+      baseRecord.Off_Prem = isOnLeave;
+      
+      // Off_Prem_Date - from onLeaveStartDateUtc if isOnLeave is true
+      if (isOnLeave === true) {
+        const offPremDate = extractDatePart(
+          getStringValue(resident, [
+            'OnLeaveStartDateUtc',
+            'onLeaveStartDateUtc',
+            'OnLeaveStartDate',
+            'onLeaveStartDate',
+            'LeaveStartDate',
+            'leaveStartDate',
+          ]),
+        );
+        if (offPremDate) {
+          baseRecord.Off_Prem_Date = offPremDate;
+        }
+      }
+    }
+  }
+
+  // Room_number - from NotificationData.RoomsAssigned if available
+  const roomsAssigned = notificationData.RoomsAssigned;
+  if (Array.isArray(roomsAssigned) && roomsAssigned.length > 0) {
+    const firstRoom = roomsAssigned[0] as Record<string, unknown>;
+    const roomNumber = getStringValue(firstRoom, ['RoomNumber', 'roomNumber']);
+    if (roomNumber) {
+      baseRecord.Room_number = roomNumber;
+    }
+  }
+
+  return baseRecord;
+}
+
+/**
+ * Map move-out event to vacant record
+ * Creates a vacancy row with synthetic Resident_ID
+ */
+export function mapMoveOutEventToVacantRecord(event: AlisEvent): CaspioRecord {
+  const notificationData = event.NotificationData || {};
+  const residentId = getNumericValue(notificationData, ['ResidentId', 'residentId']);
+  
+  if (!residentId) {
+    throw new Error('ResidentId is required in NotificationData for move-out event');
+  }
+
+  if (!event.CommunityId) {
+    throw new Error('CommunityId is required in event for move-out');
+  }
+
+  // Get room number from RoomsUnassigned
+  const roomNumber = getStringValue(notificationData, ['RoomsUnassigned', 'roomsUnassigned']);
+  
+  // Synthetic Resident_ID to avoid collisions
+  const vacantResidentId = `${residentId}_VACANT_${event.EventMessageId}`;
+  
+  // Get community name if available from event or will be set later
+  const record: CaspioRecord = {
+    Resident_ID: vacantResidentId,
+    Room_number: roomNumber,
+    Community_ID: event.CommunityId,
+    Service_Type: 'Vacant',
+    Resident_Name: 'Vacant',
+    Move_Out_Date: getTodayDateString(),
+  };
+
+  return record;
+}
+
+/**
+ * Map update event to resident patch (partial update)
+ * Excludes Move_in_Date (never overwrite), includes Service_Start_Date/Service_End_Date logic
+ */
+export function mapUpdateEventToResidentPatch(
+  event: AlisEvent,
+  fullResidentData?: AllResidentData,
+  existingRecord?: CaspioRecord,
+): Partial<CaspioRecord> {
+  const notificationData = event.NotificationData || {};
+  const residentId = getNumericValue(notificationData, ['ResidentId', 'residentId']);
+  
+  if (!residentId) {
+    throw new Error('ResidentId is required in NotificationData for update event');
+  }
+
+  if (!event.CommunityId) {
+    throw new Error('CommunityId is required in event for update');
+  }
+
+  // Use existing mapper if we have full resident data
+  let updateRecord: Partial<CaspioRecord> = {};
+  
+  if (fullResidentData) {
+    // Construct AlisPayload-like structure for reuse of existing mapper
+    const alisPayload: AlisPayload = {
+      success: true,
+      residentId,
+      timestamp: event.EventMessageDate,
+      apiBase: '',
+      data: {
+        resident: fullResidentData.resident,
+        basicInfo: fullResidentData.basicInfo,
+        insurance: fullResidentData.insurance,
+        roomAssignments: fullResidentData.roomAssignments,
+        diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies,
+        diagnosesAndAllergiesFull: fullResidentData.diagnosesAndAllergiesFull ?? null,
+        contacts: fullResidentData.contacts,
+        community: fullResidentData.community ?? null,
+      },
+      counts: {
+        insurance: fullResidentData.insurance.length,
+        roomAssignments: fullResidentData.roomAssignments.length,
+        diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies.length,
+        contacts: fullResidentData.contacts.length,
+      },
+    };
+    const fullRecord = mapAlisPayloadToCaspioRecord(alisPayload);
+    
+    // Remove Move_in_Date from update (never overwrite)
+    const { Move_in_Date, ...recordWithoutMoveIn } = fullRecord;
+    updateRecord = recordWithoutMoveIn;
+  }
+
+  // Always ensure Resident_ID and Community_ID are set
+  updateRecord.Resident_ID = String(residentId);
+  updateRecord.Community_ID = event.CommunityId;
+
+  // Apply Service_Start_Date and Service_End_Date logic
+  const resident = fullResidentData?.resident as Record<string, unknown> | undefined;
+  const classification = resident ? getStringValue(resident, ['Classification', 'classification']) : undefined;
+  const productType = resident ? getStringValue(resident, ['ProductType', 'productType']) : undefined;
+  const serviceType = classification || productType || updateRecord.Service_Type;
+
+  // Service_Start_Date logic
+  if (serviceType && existingRecord) {
+    const serviceTypeLower = serviceType.toLowerCase();
+    if ((serviceTypeLower.includes('detect') || serviceTypeLower.includes('intervene'))) {
+      // Only set if Service_Start_Date is empty
+      if (!existingRecord.Service_Start_Date) {
+        updateRecord.Service_Start_Date = getTodayDateString();
+      }
+    }
+  }
+
+  // Service_End_Date logic - only set on transition to "Declined" or move-out
+  if (serviceType && existingRecord) {
+    const serviceTypeLower = serviceType.toLowerCase();
+    if (serviceTypeLower.includes('declined') && existingRecord.Service_Start_Date) {
+      // Only set if Service_End_Date is empty
+      if (!existingRecord.Service_End_Date) {
+        updateRecord.Service_End_Date = getTodayDateString();
+      }
+    }
+  }
+
+  // Update Service_Type if we have new data
+  if (serviceType) {
+    updateRecord.Service_Type = serviceType;
+  }
+
+  // Update On_Prem / Off_Prem if we have resident data
+  if (resident) {
+    const isOnLeave = getBooleanValue(resident, ['IsOnLeave', 'isOnLeave', 'OnLeave', 'onLeave']);
+    if (isOnLeave !== undefined) {
+      updateRecord.On_Prem = !isOnLeave;
+      updateRecord.Off_Prem = isOnLeave;
+      
+      // Off_Prem_Date - from onLeaveStartDateUtc if isOnLeave is true
+      if (isOnLeave === true) {
+        const offPremDate = extractDatePart(
+          getStringValue(resident, [
+            'OnLeaveStartDateUtc',
+            'onLeaveStartDateUtc',
+            'OnLeaveStartDate',
+            'onLeaveStartDate',
+            'LeaveStartDate',
+            'leaveStartDate',
+          ]),
+        );
+        if (offPremDate) {
+          updateRecord.Off_Prem_Date = offPremDate;
+        }
+      }
+    }
+  }
+
+  // Strip undefined keys
+  return Object.fromEntries(
+    Object.entries(updateRecord).filter(([, value]) => value !== undefined),
+  ) as Partial<CaspioRecord>;
 }
 
 
