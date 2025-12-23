@@ -10,6 +10,7 @@ import type { AlisEvent } from '../../webhook/schemas.js';
 
 import {
   findRecordByResidentIdAndCommunityId,
+  findByResidentId,
   insertRecord,
   updateRecordById,
 } from './caspioClient.js';
@@ -69,6 +70,7 @@ async function fetchFullResidentDataIfNeeded(
 
 /**
  * Check if resident record exists in Caspio
+ * Tries composite key lookup first, falls back to Resident_ID only for legacy records
  */
 async function ensureResidentExists(
   residentId: number,
@@ -79,20 +81,57 @@ async function ensureResidentExists(
     if (required) {
       throw new Error('CommunityId is required for resident lookup');
     }
-    return { found: false };
+    // Try Resident_ID only lookup as fallback
+    const result = await findByResidentId(env.CASPIO_TABLE_NAME, residentId);
+    return {
+      found: result.found,
+      id: result.id,
+      record: result.raw as CaspioRecord | undefined,
+    };
   }
 
+  // First try composite key lookup (Resident_ID + Community_ID)
   const result = await findRecordByResidentIdAndCommunityId(
     env.CASPIO_TABLE_NAME,
     residentId,
     communityId,
   );
 
-  return {
-    found: result.found,
-    id: result.id,
-    record: result.record as CaspioRecord | undefined,
-  };
+  if (result.found) {
+    return {
+      found: true,
+      id: result.id,
+      record: result.record as CaspioRecord | undefined,
+    };
+  }
+
+  // Fallback: try Resident_ID only (for legacy records without Community_ID)
+  // Only do this for update operations, not for move-in (new records should have Community_ID)
+  logger.debug(
+    { residentId, communityId },
+    'composite_key_not_found_trying_resident_id_only',
+  );
+  const fallbackResult = await findByResidentId(env.CASPIO_TABLE_NAME, residentId);
+  
+  if (fallbackResult.found && fallbackResult.raw) {
+    const record = fallbackResult.raw as CaspioRecord;
+    // Only use fallback if the record doesn't have a Community_ID set (legacy record)
+    // or if it matches the requested Community_ID
+    const recordCommunityId = record.Community_ID;
+    if (!recordCommunityId || recordCommunityId === communityId) {
+      logger.info(
+        { residentId, communityId, foundCommunityId: recordCommunityId },
+        'using_resident_id_only_fallback_for_legacy_record',
+      );
+      return {
+        found: true,
+        id: fallbackResult.id,
+        record: record,
+      };
+    }
+  }
+
+  return { found: false };
 }
 
 /**
@@ -131,6 +170,11 @@ async function handleMoveInEvent(
     
     // Ensure we don't include Move_in_Date in patch
     const { Move_in_Date, ...patchWithoutMoveIn } = patch;
+    
+    // Ensure Community_ID is set if it was missing (for legacy records)
+    if (!existing.record?.Community_ID && communityId) {
+      patchWithoutMoveIn.Community_ID = communityId;
+    }
     
     await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
     
@@ -301,6 +345,11 @@ async function handleUpdateEvent(
 
   // Ensure we don't include Move_in_Date in patch
   const { Move_in_Date, ...patchWithoutMoveIn } = patch;
+
+  // Ensure Community_ID is set if it was missing (for legacy records)
+  if (!existing.record?.Community_ID && communityId) {
+    patchWithoutMoveIn.Community_ID = communityId;
+  }
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
 
