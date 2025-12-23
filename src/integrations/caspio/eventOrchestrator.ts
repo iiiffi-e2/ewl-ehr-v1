@@ -355,7 +355,7 @@ async function handleUpdateEvent(
     patchWithoutMoveIn.Community_ID = communityId;
   }
 
-  logger.debug(
+  logger.info(
     {
       eventMessageId: event.EventMessageId,
       residentId,
@@ -363,6 +363,7 @@ async function handleUpdateEvent(
       caspioId: existing.id,
       patchKeys: Object.keys(patchWithoutMoveIn),
       existingRecordCommunity_ID: existing.record?.Community_ID,
+      existingRecordPK_ID: (existing.record as Record<string, unknown>)?.PK_ID,
     },
     'about_to_update_record',
   );

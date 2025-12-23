@@ -143,12 +143,13 @@ export async function updateRecordById(
     const token = await getAccessToken();
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(String(id))}`;
 
-    logger.debug(
+    logger.info(
       {
         tableName,
         id,
         url,
         recordKeys: Object.keys(record),
+        recordSample: Object.fromEntries(Object.entries(record).slice(0, 5)), // First 5 fields
       },
       'caspio_updating_record_by_id',
     );
@@ -252,15 +253,18 @@ export async function findRecordByResidentIdAndCommunityId(
         id = String(matchingRecord.Id);
       }
 
-      // Add logging to debug PK_ID extraction
-      logger.debug(
+      // Add detailed logging to debug PK_ID extraction (using info level so it shows up)
+      logger.info(
         {
           residentId: String(residentId),
           communityId,
           extractedPK_ID: id,
           actualPK_ID: matchingRecord.PK_ID,
+          actualPK: matchingRecord.PK,
+          actual_id: matchingRecord.id,
           recordResident_ID: matchingRecord.Resident_ID,
           recordCommunity_ID: matchingRecord.Community_ID,
+          allKeys: Object.keys(matchingRecord).slice(0, 10), // First 10 keys for debugging
         },
         'caspio_extracted_pk_id_for_update',
       );
