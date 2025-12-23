@@ -192,10 +192,12 @@ async function handleMoveInEvent(
     const record = mapMoveInEventToResidentRecord(event, fullResidentData);
     const response = await insertRecord(env.CASPIO_TABLE_NAME, record);
     
-    // Extract ID from response
+    // Extract ID from response (Caspio uses PK_ID as primary key)
     const responseData = response.data as Record<string, unknown>;
     let id: string | undefined;
-    if (responseData.PK) {
+    if (responseData.PK_ID) {
+      id = String(responseData.PK_ID);
+    } else if (responseData.PK) {
       id = String(responseData.PK);
     } else if (responseData._id) {
       id = String(responseData._id);
@@ -277,10 +279,12 @@ async function handleMoveOutEvent(
   const vacantRecord = mapMoveOutEventToVacantRecord(event);
   const response = await insertRecord(env.CASPIO_TABLE_NAME, vacantRecord);
 
-  // Extract ID from response
+  // Extract ID from response (Caspio uses PK_ID as primary key)
   const responseData = response.data as Record<string, unknown>;
   let id: string | undefined;
-  if (responseData.PK) {
+  if (responseData.PK_ID) {
+    id = String(responseData.PK_ID);
+  } else if (responseData.PK) {
     id = String(responseData.PK);
   } else if (responseData._id) {
     id = String(responseData._id);

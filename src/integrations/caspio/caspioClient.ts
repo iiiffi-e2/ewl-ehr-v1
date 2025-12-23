@@ -228,9 +228,11 @@ export async function findRecordByResidentIdAndCommunityId(
         return { found: false };
       }
 
-      // Try common ID field names
+      // Try common ID field names (Caspio uses PK_ID as primary key)
       let id: string | undefined;
-      if (matchingRecord.PK) {
+      if (matchingRecord.PK_ID) {
+        id = String(matchingRecord.PK_ID);
+      } else if (matchingRecord.PK) {
         id = String(matchingRecord.PK);
       } else if (matchingRecord._id) {
         id = String(matchingRecord._id);
@@ -333,9 +335,11 @@ export async function findByResidentId(
     // We'll need to extract the ID from the record
     const firstRecord = records[0] as Record<string, unknown>;
     
-    // Try common ID field names
+    // Try common ID field names (Caspio uses PK_ID as primary key)
     let id: string | undefined;
-    if (firstRecord.PK) {
+    if (firstRecord.PK_ID) {
+      id = String(firstRecord.PK_ID);
+    } else if (firstRecord.PK) {
       id = String(firstRecord.PK);
     } else if (firstRecord._id) {
       id = String(firstRecord._id);
@@ -416,10 +420,12 @@ export async function upsertByResidentId(
     try {
       const response = await insertRecord(tableName, record);
       
-      // Extract ID from response if available
+      // Extract ID from response if available (Caspio uses PK_ID as primary key)
       let id: string | undefined;
       const responseData = response.data as Record<string, unknown>;
-      if (responseData.PK) {
+      if (responseData.PK_ID) {
+        id = String(responseData.PK_ID);
+      } else if (responseData.PK) {
         id = String(responseData.PK);
       } else if (responseData._id) {
         id = String(responseData._id);
