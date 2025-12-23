@@ -134,26 +134,6 @@ export async function insertRecord(
 /**
  * Update a record by Caspio record ID
  */
-/**
- * Get a single record by PK_ID to verify it exists
- */
-async function getRecordById(
-  tableName: string,
-  id: string | number,
-): Promise<AxiosResponse> {
-  return caspioRequestWithRetry(async () => {
-    const token = await getAccessToken();
-    // Try without encoding the ID first (numbers typically don't need encoding)
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${id}`;
-
-    return apiClient.get(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  });
-}
-
 export async function updateRecordById(
   tableName: string,
   id: string | number,
@@ -161,8 +141,15 @@ export async function updateRecordById(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    // Try without encoding the ID (numbers typically don't need encoding in URL path)
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${id}`;
+    // According to Caspio REST API v3 Swagger, PUT endpoint is /v3/tables/{tableName}/records
+    // (without /{id} in the path). The PK_ID must be included in the request body.
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
+
+    // Ensure PK_ID is in the record body for the update (required by Caspio API)
+    const recordWithId = {
+      ...record,
+      PK_ID: typeof id === 'number' ? id : Number(id),
+    };
 
     logger.info(
       {
@@ -175,23 +162,7 @@ export async function updateRecordById(
       'caspio_updating_record_by_id',
     );
 
-    // First verify the record exists
-    try {
-      await getRecordById(tableName, id);
-    } catch (error) {
-      logger.warn(
-        {
-          tableName,
-          id,
-          error: error instanceof Error ? error.message : String(error),
-          status: axios.isAxiosError(error) ? error.response?.status : undefined,
-        },
-        'caspio_record_not_found_before_update',
-      );
-      // Continue anyway - maybe the GET endpoint format is different
-    }
-
-    return apiClient.put(url, record, {
+    return apiClient.put(url, recordWithId, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
