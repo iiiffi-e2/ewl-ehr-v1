@@ -141,9 +141,11 @@ export async function updateRecordById(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    // Try simpler query format like old v2 API: {"PK_ID":21} instead of {"where":{"PK_ID":{"eq":21}}}
-    const simpleFilter = encodeURIComponent(JSON.stringify({ PK_ID: typeof id === 'number' ? id : Number(id) }));
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${simpleFilter}`;
+    // Caspio REST API v3 PUT uses q.where parameter (not q) with a WHERE clause string
+    // Format: q.where=PK_ID=21 (SQL-like WHERE clause)
+    const pkId = typeof id === 'number' ? id : Number(id);
+    const whereClause = encodeURIComponent(`PK_ID=${pkId}`);
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q.where=${whereClause}`;
 
     // PK_ID is a system-defined field and cannot be included in the request body
     // Remove it from the record if present (it's only used in the query filter)
@@ -163,7 +165,7 @@ export async function updateRecordById(
         tableName,
         id,
         url,
-        filter: simpleFilter,
+        whereClause,
         recordKeys: Object.keys(recordWithoutPK_ID),
         recordSample: Object.fromEntries(Object.entries(recordWithoutPK_ID).slice(0, 5)), // First 5 fields
       },
