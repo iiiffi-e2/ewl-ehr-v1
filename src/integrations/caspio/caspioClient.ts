@@ -134,6 +134,22 @@ export async function insertRecord(
 /**
  * Update a record by Caspio record ID
  */
+/**
+ * Update a record by Caspio PK_ID
+ *
+ * IMPORTANT: Caspio REST API v3 PUT endpoint requirements:
+ * - Parameter: q.where (NOT q) with SQL-like WHERE clause string
+ * - Format: q.where=PK_ID=21 (not JSON format like {"PK_ID":21})
+ * - Request body: Single object (NOT array like v2 API)
+ * - PK_ID cannot be in request body (system-defined, read-only)
+ *
+ * This differs from v2 API which used:
+ * - Endpoint: /rest/v2/tables/{table}/rows
+ * - Parameter: q with JSON format {"field":"value"}
+ * - Request body: Array of records [payload]
+ *
+ * @see https://howto.caspio.com/integrate-your-apps/web-services-api/
+ */
 export async function updateRecordById(
   tableName: string,
   id: string | number,
@@ -141,60 +157,30 @@ export async function updateRecordById(
 ): Promise<AxiosResponse> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    // Caspio REST API v3 PUT uses q.where parameter (not q) with a WHERE clause string
-    // Format: q.where=PK_ID=21 (SQL-like WHERE clause)
+
+    // Build WHERE clause for q.where parameter (SQL-like format, not JSON)
     const pkId = typeof id === 'number' ? id : Number(id);
     const whereClause = encodeURIComponent(`PK_ID=${pkId}`);
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q.where=${whereClause}`;
 
-    // PK_ID is a system-defined field and cannot be included in the request body
-    // Remove it from the record if present (it's only used in the query filter)
+    // Remove PK_ID from body - it's system-defined and cannot be modified
     const { PK_ID, ...recordWithoutPK_ID } = record;
 
-    // Caspio REST API v3 PUT expects a single record object (not an array like v2)
-    // v2 used /rest/v2/tables/.../rows with [payload] array format
-    // v3 uses /rest/v3/tables/.../records with single object format
-    const requestBody = recordWithoutPK_ID;
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:154',message:'PUT request body prepared',data:{bodyType:Array.isArray(requestBody)?'array':'object',bodyKeys:Object.keys(requestBody),hasPK_ID:!!record.PK_ID,recordWithoutPK_IDKeys:Object.keys(recordWithoutPK_ID)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-
-    logger.info(
+    logger.debug(
       {
         tableName,
         id,
-        url,
-        whereClause,
         recordKeys: Object.keys(recordWithoutPK_ID),
-        recordSample: Object.fromEntries(Object.entries(recordWithoutPK_ID).slice(0, 5)), // First 5 fields
       },
       'caspio_updating_record_by_id',
     );
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:172',message:'About to send PUT request',data:{url,method:'PUT',bodyIsArray:Array.isArray(requestBody),bodyStringified:JSON.stringify(requestBody).substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-
-    try {
-      const response = await apiClient.put(url, requestBody, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:189',message:'PUT request succeeded',data:{status:response.status,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
-
-      return response;
-    } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7df5109d-5886-4233-a87a-08c97e004dda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'caspioClient.ts:195',message:'PUT request failed',data:{errorMessage:error instanceof Error?error.message:String(error),isAxiosError:axios.isAxiosError(error),status:axios.isAxiosError(error)?error.response?.status:undefined,responseData:axios.isAxiosError(error)?error.response?.data:undefined,requestBodyType:typeof requestBody,requestBodyIsArray:Array.isArray(requestBody)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      throw error;
-    }
+    return apiClient.put(url, recordWithoutPK_ID, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
   });
 }
 
@@ -288,20 +274,13 @@ export async function findRecordByResidentIdAndCommunityId(
         id = String(matchingRecord.Id);
       }
 
-      // Add detailed logging to debug PK_ID extraction (using info level so it shows up)
-      logger.info(
+      logger.debug(
         {
           residentId: String(residentId),
           communityId,
           extractedPK_ID: id,
-          actualPK_ID: matchingRecord.PK_ID,
-          actualPK: matchingRecord.PK,
-          actual_id: matchingRecord.id,
-          recordResident_ID: matchingRecord.Resident_ID,
-          recordCommunity_ID: matchingRecord.Community_ID,
-          allKeys: Object.keys(matchingRecord).slice(0, 10), // First 10 keys for debugging
         },
-        'caspio_extracted_pk_id_for_update',
+        'caspio_found_record_for_composite_key',
       );
 
       // If no ID was found, we can't update this record
