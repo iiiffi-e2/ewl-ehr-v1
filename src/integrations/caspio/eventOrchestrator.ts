@@ -136,6 +136,9 @@ async function applyCommunityEnrichment(
 ): Promise<void> {
   try {
     const enrichment = await getCommunityEnrichment(communityId, roomNumber);
+    if (enrichment.CommunityName) {
+      record.CommunityName = enrichment.CommunityName;
+    }
     if (enrichment.CommunityGroup) {
       record.CommunityGroup = enrichment.CommunityGroup;
     }
@@ -155,6 +158,14 @@ async function applyCommunityEnrichment(
       'caspio_community_enrichment_failed',
     );
   }
+}
+
+function appendCommunityNameSuffix(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.endsWith(' 1')) return trimmed;
+  return `${trimmed} 1`;
 }
 
 /**
@@ -376,6 +387,12 @@ async function handleMoveOutEvent(
 
   const roomNumber = existing.record?.Room_number;
   await applyCommunityEnrichment(communityId, roomNumber, updateData);
+
+  const baseCommunityName = updateData.CommunityName ?? existing.record?.CommunityName;
+  const suffixedCommunityName = appendCommunityNameSuffix(baseCommunityName);
+  if (suffixedCommunityName) {
+    updateData.CommunityName = suffixedCommunityName;
+  }
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, updateData);
 
