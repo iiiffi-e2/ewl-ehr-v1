@@ -164,8 +164,9 @@ function appendCommunityNameSuffix(name: string | undefined): string | undefined
   if (!name) return undefined;
   const trimmed = name.trim();
   if (trimmed.length === 0) return undefined;
-  if (trimmed.endsWith(' 1')) return trimmed;
-  return `${trimmed} 1`;
+  if (trimmed.endsWith('_1')) return trimmed;
+  if (trimmed.endsWith(' 1')) return `${trimmed.slice(0, -2)}_1`;
+  return `${trimmed}_1`;
 }
 
 /**
