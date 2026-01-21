@@ -48,6 +48,9 @@ export type CaspioRecord = {
   Contact_2_Address?: string;
   CommunityName?: string;
   Community_ID?: number;
+  CommunityGroup?: string;
+  Neighborhood?: string;
+  SerialNumber?: string;
 };
 
 /**

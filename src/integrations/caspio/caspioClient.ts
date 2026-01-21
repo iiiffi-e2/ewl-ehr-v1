@@ -9,6 +9,17 @@ type TokenCache = {
   expiresAt: number;
 };
 
+export type CommunityTableRecord = {
+  CommunityName?: string;
+  CommunityID?: number | string;
+  Neighborhood?: string;
+  Address?: string;
+  CommunityGroup?: string;
+  RoomNumber?: string;
+  SerialNumber?: string;
+  [key: string]: unknown;
+};
+
 let tokenCache: TokenCache | null = null;
 
 const authClient = createHttpClient({
@@ -109,6 +120,25 @@ function buildCompositeFilter(filters: Array<{ field: string; value: string | nu
     where: whereClause,
   };
   return encodeURIComponent(JSON.stringify(filter));
+}
+
+function extractRecordsFromResponse(data: unknown): unknown[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  if (data && typeof data === 'object') {
+    const recordData = data as Record<string, unknown>;
+    if (Array.isArray(recordData.Result)) {
+      return recordData.Result;
+    }
+    if (Array.isArray(recordData.records)) {
+      return recordData.records;
+    }
+    if (Array.isArray(recordData.data)) {
+      return recordData.data;
+    }
+  }
+  return [];
 }
 
 /**
@@ -324,6 +354,104 @@ export async function findRecordByResidentIdAndCommunityId(
             url,
           },
           'caspio_record_not_found_404_composite_key',
+        );
+        return { found: false };
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Find community lookup record by CommunityID (CommunityTable1)
+ */
+export async function findCommunityById(
+  communityId: number,
+): Promise<{ found: boolean; record?: CommunityTableRecord }> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildEqualsFilter('CommunityID', communityId);
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent('CommunityTable1')}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const records = extractRecordsFromResponse(response.data);
+      if (records.length === 0) {
+        return { found: false };
+      }
+
+      if (records.length > 1) {
+        logger.warn(
+          { communityId, matchCount: records.length },
+          'caspio_multiple_community_matches_found',
+        );
+      }
+
+      return {
+        found: true,
+        record: records[0] as CommunityTableRecord,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        logger.debug(
+          { communityId, url },
+          'caspio_community_record_not_found_404',
+        );
+        return { found: false };
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Find community lookup record by CommunityID + RoomNumber (CommunityTable1)
+ */
+export async function findCommunityByIdAndRoomNumber(
+  communityId: number,
+  roomNumber: string,
+): Promise<{ found: boolean; record?: CommunityTableRecord }> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildCompositeFilter([
+      { field: 'CommunityID', value: communityId },
+      { field: 'RoomNumber', value: roomNumber },
+    ]);
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent('CommunityTable1')}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const records = extractRecordsFromResponse(response.data);
+      if (records.length === 0) {
+        return { found: false };
+      }
+
+      if (records.length > 1) {
+        logger.warn(
+          { communityId, roomNumber, matchCount: records.length },
+          'caspio_multiple_community_room_matches_found',
+        );
+      }
+
+      return {
+        found: true,
+        record: records[0] as CommunityTableRecord,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        logger.debug(
+          { communityId, roomNumber, url },
+          'caspio_community_room_record_not_found_404',
         );
         return { found: false };
       }

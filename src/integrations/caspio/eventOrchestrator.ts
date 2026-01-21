@@ -14,6 +14,7 @@ import {
   insertRecord,
   updateRecordById,
 } from './caspioClient.js';
+import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
 import type { CaspioRecord } from './caspioMapper.js';
 import {
   mapMoveInEventToResidentRecord,
@@ -48,6 +49,34 @@ function extractResidentId(event: AlisEvent): number {
 function getTodayDateString(): string {
   const now = new Date();
   return now.toISOString().split('T')[0];
+}
+
+async function applyCommunityEnrichment(
+  communityId: number,
+  roomNumber: string | undefined,
+  record: Partial<CaspioRecord>,
+): Promise<void> {
+  try {
+    const enrichment = await getCommunityEnrichment(communityId, roomNumber);
+    if (enrichment.CommunityGroup) {
+      record.CommunityGroup = enrichment.CommunityGroup;
+    }
+    if (enrichment.Neighborhood) {
+      record.Neighborhood = enrichment.Neighborhood;
+    }
+    if (enrichment.SerialNumber) {
+      record.SerialNumber = enrichment.SerialNumber;
+    }
+  } catch (error) {
+    logger.warn(
+      {
+        communityId,
+        hasRoomNumber: Boolean(roomNumber),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'caspio_community_enrichment_failed',
+    );
+  }
 }
 
 /**
@@ -175,6 +204,9 @@ async function handleMoveInEvent(
     if (!existing.record?.Community_ID && communityId) {
       patchWithoutMoveIn.Community_ID = communityId;
     }
+
+    const roomNumber = patchWithoutMoveIn.Room_number ?? existing.record?.Room_number;
+    await applyCommunityEnrichment(communityId, roomNumber, patchWithoutMoveIn);
     
     await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
     
@@ -190,6 +222,7 @@ async function handleMoveInEvent(
   } else {
     // Insert new record
     const record = mapMoveInEventToResidentRecord(event, fullResidentData);
+    await applyCommunityEnrichment(communityId, record.Room_number, record);
     const response = await insertRecord(env.CASPIO_TABLE_NAME, record);
     
     // Extract ID from response (Caspio uses PK_ID as primary key)
@@ -263,6 +296,9 @@ async function handleMoveOutEvent(
     updateData.Service_End_Date = getTodayDateString();
   }
 
+  const roomNumber = existing.record?.Room_number;
+  await applyCommunityEnrichment(communityId, roomNumber, updateData);
+
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, updateData);
 
   logger.info(
@@ -277,6 +313,7 @@ async function handleMoveOutEvent(
 
   // Insert vacancy row
   const vacantRecord = mapMoveOutEventToVacantRecord(event);
+  await applyCommunityEnrichment(communityId, vacantRecord.Room_number, vacantRecord);
   const response = await insertRecord(env.CASPIO_TABLE_NAME, vacantRecord);
 
   // Extract ID from response (Caspio uses PK_ID as primary key)
@@ -354,6 +391,9 @@ async function handleUpdateEvent(
   if (!existing.record?.Community_ID && communityId) {
     patchWithoutMoveIn.Community_ID = communityId;
   }
+
+  const roomNumber = patchWithoutMoveIn.Room_number ?? existing.record?.Room_number;
+  await applyCommunityEnrichment(communityId, roomNumber, patchWithoutMoveIn);
 
   logger.debug(
     {
