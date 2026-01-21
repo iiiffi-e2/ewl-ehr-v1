@@ -305,8 +305,8 @@ describe('caspioMapper', () => {
       // Only medical insurance should be included
       expect(result.Insurance_Name).toBe('Medicare');
       expect(result.Insurance_Type).toBe('medical');
-      expect(result.Insurance_2_Name).toBeUndefined();
-      expect(result.Insurance_2_Type).toBeUndefined();
+      expect(result.Insurance_2_Name).toBeNull();
+      expect(result.Insurance_2_Type).toBeNull();
     });
 
     it('handles case-insensitive insurance type filtering', () => {

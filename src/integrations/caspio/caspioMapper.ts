@@ -3,6 +3,7 @@ import { format, parseISO } from 'date-fns';
 import type { AlisEvent } from '../../webhook/schemas.js';
 import type { AllResidentData } from '../alisClient.js';
 import type { AlisPayload } from '../alis/types.js';
+import { normalizeMedicalInsurances } from './insuranceNormalization.js';
 
 /**
  * Caspio record type matching exact column names
@@ -13,14 +14,14 @@ export type CaspioRecord = {
   DOB?: string;
   SSN?: string;
   Consent?: string;
-  Insurance_Name?: string;
-  Insurance_Type?: string;
-  Group_?: string;
-  Insurance_Number?: string;
-  Insurance_2_Name?: string;
-  Insurance_2_Type?: string;
-  Group_2_?: string;
-  Insurance_Number_2?: string;
+  Insurance_Name?: string | null;
+  Insurance_Type?: string | null;
+  Group_?: string | null;
+  Insurance_Number?: string | null;
+  Insurance_2_Name?: string | null;
+  Insurance_2_Type?: string | null;
+  Group_2_?: string | null;
+  Insurance_Number_2?: string | null;
   Community_Address?: string;
   Room_number?: string;
   Move_in_Date?: string;
@@ -320,36 +321,18 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     }
   }
 
-  // Insurance mapping - only include medical insurance
-  const insurance = (data.insurance || []) as Array<Record<string, unknown>>;
-  // Filter to only include insurance with insuranceType === "medical" (case-insensitive)
-  const medicalInsurance = insurance.filter((ins) => {
-    const type = getStringValue(ins, ['InsuranceType', 'insuranceType']);
-    return type?.toLowerCase() === 'medical';
-  });
-  
-  const insurance1 = medicalInsurance[0];
-  const insurance2 = medicalInsurance[1];
+  // Insurance mapping - normalize medical insurances with Medicare-first ordering
+  const { slot1, slot2 } = normalizeMedicalInsurances(data.insurance ?? []);
 
-  const insuranceName = getStringValue(insurance1, ['InsuranceName', 'insuranceName', 'providerName', 'ProviderName']);
-  const insuranceType = getStringValue(insurance1, ['InsuranceType', 'insuranceType']);
-  const groupNumber = getStringValue(insurance1, ['GroupNumber', 'groupNumber']);
-  const insuranceNumber = getStringValue(insurance1, [
-    'AccountNumber',
-    'accountNumber',
-    'InsuranceNumber',
-    'insuranceNumber',
-  ]);
+  const insuranceName = slot1?.name ?? null;
+  const insuranceType = slot1?.type ?? null;
+  const groupNumber = slot1?.group ?? null;
+  const insuranceNumber = slot1?.number ?? null;
 
-  const insurance2Name = getStringValue(insurance2, ['InsuranceName', 'insuranceName', 'providerName', 'ProviderName']);
-  const insurance2Type = getStringValue(insurance2, ['InsuranceType', 'insuranceType']);
-  const group2Number = getStringValue(insurance2, ['GroupNumber', 'groupNumber']);
-  const insurance2Number = getStringValue(insurance2, [
-    'AccountNumber',
-    'accountNumber',
-    'InsuranceNumber',
-    'insuranceNumber',
-  ]);
+  const insurance2Name = slot2?.name ?? null;
+  const insurance2Type = slot2?.type ?? null;
+  const group2Number = slot2?.group ?? null;
+  const insurance2Number = slot2?.number ?? null;
 
   // Diagnoses mapping - prefer primaryDiagnoses and secondaryDiagnoses from full endpoint
   // Fallback to processing array format for backward compatibility
