@@ -12,7 +12,6 @@ import {
   findRecordByResidentIdAndCommunityId,
   findByResidentId,
   insertRecord,
-  patchRecordById,
   updateRecordById,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
@@ -559,7 +558,7 @@ async function handleLeaveStartEvent(
     On_Prem: false,
   };
 
-  await patchRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+  await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
 
   logger.info(
     {
@@ -635,7 +634,7 @@ async function handleLeaveEndEvent(
     Off_Prem: false,
   };
 
-  await patchRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+  await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
 
   logger.info(
     {

@@ -215,43 +215,6 @@ export async function updateRecordById(
 }
 
 /**
- * Patch a record by Caspio PK_ID
- * Uses REST v3 PATCH endpoint with record ID in path
- */
-export async function patchRecordById(
-  tableName: string,
-  id: string | number,
-  record: Record<string, unknown>,
-): Promise<AxiosResponse> {
-  return caspioRequestWithRetry(async () => {
-    const token = await getAccessToken();
-    const pkId = typeof id === 'number' ? id : Number(id);
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records/${encodeURIComponent(
-      String(pkId),
-    )}`;
-
-    // Remove PK_ID from body - it's system-defined and cannot be modified
-    const { PK_ID, ...recordWithoutPK_ID } = record;
-
-    logger.debug(
-      {
-        tableName,
-        id,
-        recordKeys: Object.keys(recordWithoutPK_ID),
-      },
-      'caspio_patching_record_by_id',
-    );
-
-    return apiClient.patch(url, recordWithoutPK_ID, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-  });
-}
-
-/**
  * Find record by Resident_ID and Community_ID (composite key)
  * Returns { found: boolean, id?: string, record?: unknown }
  * This is the centralized helper for composite key lookups aligned to Caspio REST v3 Swagger format

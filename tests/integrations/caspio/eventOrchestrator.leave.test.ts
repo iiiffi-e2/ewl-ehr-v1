@@ -1,13 +1,12 @@
 const findRecordByResidentIdAndCommunityIdMock = jest.fn();
 const findByResidentIdMock = jest.fn();
-const patchRecordByIdMock = jest.fn();
+const updateRecordByIdMock = jest.fn();
 
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findRecordByResidentIdAndCommunityId: findRecordByResidentIdAndCommunityIdMock,
   findByResidentId: findByResidentIdMock,
   insertRecord: jest.fn(),
-  updateRecordById: jest.fn(),
-  patchRecordById: patchRecordByIdMock,
+  updateRecordById: updateRecordByIdMock,
 }));
 
 jest.mock('../../../src/config/env.js', () => ({
@@ -62,7 +61,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(patchRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '101', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '101', {
       Off_Prem: true,
       Off_Prem_Date: '2026-01-19T13:00:00',
       On_Prem: false,
@@ -87,7 +86,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(patchRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '102', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '102', {
       Off_Prem: true,
       Off_Prem_Date: '2026-01-19T19:23:35.2101857',
       On_Prem: false,
@@ -113,7 +112,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(patchRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '103', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '103', {
       On_Prem: true,
       On_Prem_Date: '2026-01-19T13:00:00',
       Off_Prem: false,
@@ -138,7 +137,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(patchRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '104', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '104', {
       On_Prem: true,
       On_Prem_Date: '2026-01-19T19:23:35.2101857',
       Off_Prem: false,
@@ -160,6 +159,6 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(patchRecordByIdMock).not.toHaveBeenCalled();
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
   });
 });

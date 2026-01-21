@@ -306,6 +306,7 @@ describe('caspioClient', () => {
     });
   });
 
+
   describe('retry logic', () => {
     it('retries on 429 status', async () => {
       const mockOperation = jest
