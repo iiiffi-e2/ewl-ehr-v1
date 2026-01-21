@@ -12,6 +12,7 @@ import {
   findRecordByResidentIdAndCommunityId,
   findByResidentId,
   insertRecord,
+  patchRecordById,
   updateRecordById,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
@@ -24,23 +25,101 @@ import {
 } from './caspioMapper.js';
 
 /**
+ * Extract numeric value from object with fallback keys
+ */
+function extractNumericValue(
+  payload: Record<string, unknown> | undefined,
+  keys: string[],
+): number | undefined {
+  if (!payload) return undefined;
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Extract residentId from event NotificationData
  */
 function extractResidentId(event: AlisEvent): number {
-  const notificationData = event.NotificationData || {};
-  const residentId = notificationData.ResidentId || notificationData.residentId;
-  
-  if (typeof residentId === 'number' && Number.isFinite(residentId)) {
+  const residentId = extractNumericValue(event.NotificationData, ['ResidentId', 'residentId']);
+
+  if (residentId !== undefined) {
     return residentId;
   }
-  if (typeof residentId === 'string' && residentId.trim().length > 0) {
-    const parsed = Number(residentId);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  
+
   throw new Error('ResidentId is required in NotificationData');
+}
+
+function selectValidDateString(params: {
+  primary: unknown;
+  fallback: string | undefined;
+  eventType: string;
+  eventMessageId: string | number;
+  residentId: number;
+  communityId: number;
+  leaveId?: number;
+  fieldName: string;
+}): string | undefined {
+  const {
+    primary,
+    fallback,
+    eventType,
+    eventMessageId,
+    residentId,
+    communityId,
+    leaveId,
+    fieldName,
+  } = params;
+
+  const primaryString =
+    typeof primary === 'string' && primary.trim().length > 0 ? primary : undefined;
+  const fallbackString =
+    typeof fallback === 'string' && fallback.trim().length > 0 ? fallback : undefined;
+  const selected = primaryString ?? fallbackString;
+
+  if (!selected) {
+    logger.warn(
+      {
+        eventMessageId,
+        eventType,
+        residentId,
+        communityId,
+        leaveId,
+        fieldName,
+      },
+      'leave_event_missing_date',
+    );
+    return undefined;
+  }
+
+  const parsed = new Date(selected);
+  if (Number.isNaN(parsed.getTime())) {
+    logger.warn(
+      {
+        eventMessageId,
+        eventType,
+        residentId,
+        communityId,
+        leaveId,
+        fieldName,
+        dateValue: selected,
+      },
+      'leave_event_invalid_date',
+    );
+    return undefined;
+  }
+
+  return selected;
 }
 
 /**
@@ -421,6 +500,158 @@ async function handleUpdateEvent(
 }
 
 /**
+ * Handle leave start event
+ */
+async function handleLeaveStartEvent(
+  event: AlisEvent,
+  communityId: number,
+): Promise<void> {
+  const notificationData = event.NotificationData || {};
+  const residentId = extractNumericValue(notificationData, ['ResidentId', 'residentId']);
+  const leaveId = extractNumericValue(notificationData, ['LeaveId', 'leaveId']);
+
+  if (!residentId) {
+    logger.warn(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        communityId,
+        leaveId,
+      },
+      'leave_event_missing_resident_id',
+    );
+    return;
+  }
+
+  const leaveStartDate = selectValidDateString({
+    primary: (notificationData as Record<string, unknown>).StartDateTime,
+    fallback: event.EventMessageDate,
+    eventType: event.EventType,
+    eventMessageId: event.EventMessageId,
+    residentId,
+    communityId,
+    leaveId,
+    fieldName: 'StartDateTime',
+  });
+
+  if (!leaveStartDate) {
+    return;
+  }
+
+  const existing = await ensureResidentExists(residentId, communityId, false);
+  if (!existing.found || !existing.id) {
+    logger.info(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+        leaveId,
+      },
+      'leave_event_resident_not_found_ignoring',
+    );
+    return;
+  }
+
+  const patch: Partial<CaspioRecord> = {
+    Off_Prem: true,
+    Off_Prem_Date: leaveStartDate,
+    On_Prem: false,
+  };
+
+  await patchRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+
+  logger.info(
+    {
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      leaveId,
+      caspioId: existing.id,
+      patchKeys: Object.keys(patch),
+    },
+    'leave_start_event_applied_patch',
+  );
+}
+
+/**
+ * Handle leave end event
+ */
+async function handleLeaveEndEvent(
+  event: AlisEvent,
+  communityId: number,
+): Promise<void> {
+  const notificationData = event.NotificationData || {};
+  const residentId = extractNumericValue(notificationData, ['ResidentId', 'residentId']);
+  const leaveId = extractNumericValue(notificationData, ['LeaveId', 'leaveId']);
+
+  if (!residentId) {
+    logger.warn(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        communityId,
+        leaveId,
+      },
+      'leave_event_missing_resident_id',
+    );
+    return;
+  }
+
+  const leaveEndDate = selectValidDateString({
+    primary: (notificationData as Record<string, unknown>).EndDateTime,
+    fallback: event.EventMessageDate,
+    eventType: event.EventType,
+    eventMessageId: event.EventMessageId,
+    residentId,
+    communityId,
+    leaveId,
+    fieldName: 'EndDateTime',
+  });
+
+  if (!leaveEndDate) {
+    return;
+  }
+
+  const existing = await ensureResidentExists(residentId, communityId, false);
+  if (!existing.found || !existing.id) {
+    logger.info(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+        leaveId,
+      },
+      'leave_event_resident_not_found_ignoring',
+    );
+    return;
+  }
+
+  const patch: Partial<CaspioRecord> = {
+    On_Prem: true,
+    On_Prem_Date: leaveEndDate,
+    Off_Prem: false,
+  };
+
+  await patchRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+
+  logger.info(
+    {
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      leaveId,
+      caspioId: existing.id,
+      patchKeys: Object.keys(patch),
+    },
+    'leave_end_event_applied_patch',
+  );
+}
+
+/**
  * Main event handler - routes events by EventType
  */
 export async function handleAlisEvent(
@@ -437,13 +668,11 @@ export async function handleAlisEvent(
   );
 
   try {
-    // Extract residentId and communityId
-    const residentId = extractResidentId(event);
     const communityId = event.CommunityId;
 
     if (!communityId) {
       logger.warn(
-        { eventMessageId, eventType, residentId },
+        { eventMessageId, eventType },
         'event_missing_community_id_skipping',
       );
       return;
@@ -452,16 +681,33 @@ export async function handleAlisEvent(
     // Route by event type
     switch (eventType) {
       case 'residents.move_in':
-        await handleMoveInEvent(event, companyId, companyKey, residentId, communityId);
+        {
+          const residentId = extractResidentId(event);
+          await handleMoveInEvent(event, companyId, companyKey, residentId, communityId);
+        }
+        break;
+
+      case 'residents.leave_start':
+        await handleLeaveStartEvent(event, communityId);
+        break;
+
+      case 'residents.leave_end':
+        await handleLeaveEndEvent(event, communityId);
         break;
 
       case 'residents.move_out':
-        await handleMoveOutEvent(event, companyId, companyKey, residentId, communityId);
+        {
+          const residentId = extractResidentId(event);
+          await handleMoveOutEvent(event, companyId, companyKey, residentId, communityId);
+        }
         break;
 
       default:
-        // All other event types (basic_info_updated, created, contact.updated, etc.)
-        await handleUpdateEvent(event, companyId, companyKey, residentId, communityId);
+        {
+          const residentId = extractResidentId(event);
+          // All other event types (basic_info_updated, created, contact.updated, etc.)
+          await handleUpdateEvent(event, companyId, companyKey, residentId, communityId);
+        }
         break;
     }
 
