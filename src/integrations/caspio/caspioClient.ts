@@ -371,7 +371,7 @@ export async function findCommunityById(
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const filter = buildEqualsFilter('CommunityID', communityId);
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent('CommunityTable1')}/records?q=${filter}`;
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
 
     try {
       const response = await apiClient.get(url, {
@@ -422,7 +422,7 @@ export async function findCommunityByIdAndRoomNumber(
       { field: 'CommunityID', value: communityId },
       { field: 'RoomNumber', value: roomNumber },
     ]);
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent('CommunityTable1')}/records?q=${filter}`;
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
 
     try {
       const response = await apiClient.get(url, {

@@ -27,6 +27,7 @@ const EnvSchema = z
     CASPIO_CLIENT_ID: z.string(),
     CASPIO_CLIENT_SECRET: z.string(),
     CASPIO_TABLE_NAME: z.string().default('AlisAPITestTable'),
+    CASPIO_COMMUNITY_TABLE_NAME: z.string().default('CommunityTable1'),
     CASPIO_TIMEOUT_MS: z.coerce.number().default(10000),
     CASPIO_RETRY_MAX: z.coerce.number().default(3),
     // Legacy vars (deprecated, kept for backward compatibility)
