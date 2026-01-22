@@ -413,6 +413,33 @@ describe('caspioMapper', () => {
       expect(result.Family_Contact_2).toBe('Son');
     });
 
+    it('defaults Hospice to false when no hospice contact', () => {
+      const result = mapAlisPayloadToCaspioRecord(basePayload);
+      expect(result.Hospice).toBe(false);
+    });
+
+    it('sets Hospice to true when hospice contact is present', () => {
+      const payload = {
+        ...basePayload,
+        data: {
+          ...basePayload.data,
+          contacts: [
+            {
+              FirstName: 'Hope',
+              LastName: 'Care',
+              RelationshipType: 'Hospice',
+            },
+          ],
+        },
+        counts: {
+          ...basePayload.counts,
+          contacts: 1,
+        },
+      };
+      const result = mapAlisPayloadToCaspioRecord(payload);
+      expect(result.Hospice).toBe(true);
+    });
+
     it('maps contacts with new phone number format (home > mobile > work priority)', () => {
       const payload = {
         ...basePayload,

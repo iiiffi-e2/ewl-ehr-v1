@@ -34,7 +34,7 @@ export type CaspioRecord = {
   On_Prem_Date?: string;
   Off_Prem?: boolean;
   Off_Prem_Date?: string;
-  Hospice?: string;
+  Hospice?: boolean;
   Diagnosis1?: string;
   Diagnosis2?: string;
   Family_Contact_1?: string;
@@ -212,6 +212,21 @@ function getContactAddress(contact: Record<string, unknown> | undefined): string
   return getStringValue(contact, ['Address', 'address']);
 }
 
+function isHospiceContact(contact: Record<string, unknown> | undefined): boolean {
+  if (!contact) return false;
+  const contactType = getStringValue(contact, [
+    'RelationshipType',
+    'relationshipType',
+    'Relationship',
+    'relationship',
+    'Type',
+    'type',
+    'ContactType',
+    'contactType',
+  ]);
+  return contactType ? contactType.toLowerCase().includes('hospice') : false;
+}
+
 /**
  * Map ALIS payload to Caspio record format
  */
@@ -371,6 +386,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
   const contacts = (data.contacts || []) as Array<Record<string, unknown>>;
   const contact1 = contacts[0];
   const contact2 = contacts[1];
+  const hospice = contacts.some((contact) => isHospiceContact(contact));
 
   const contact1Name =
     getStringValue(contact1, ['Name', 'name']) ||
@@ -440,6 +456,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     Contact_2_Address: contact2Address,
     Family_Contact_1: contact1Relationship,
     Family_Contact_2: contact2Relationship,
+    Hospice: hospice,
   };
 
   // Strip undefined keys before returning
@@ -553,6 +570,7 @@ export function mapMoveInEventToResidentRecord(
     baseRecord = {
       Resident_ID: String(residentId),
       Community_ID: event.CommunityId,
+      Hospice: false,
     };
   }
 
@@ -788,6 +806,21 @@ export function mapUpdateEventToResidentPatch(
           updateRecord.Off_Prem_Date = offPremDate;
         }
       }
+    }
+  }
+
+  const contactFetchFailed = Boolean(fullResidentData?.errors?.contacts);
+  if (contactFetchFailed && updateRecord.Hospice === false) {
+    delete updateRecord.Hospice;
+  }
+
+  if (
+    event.EventType === 'resident.contact.created' ||
+    event.EventType === 'resident.contact.updated'
+  ) {
+    const contactType = getStringValue(notificationData, ['ContactType', 'contactType']);
+    if (contactType && contactType.toLowerCase().includes('hospice')) {
+      updateRecord.Hospice = true;
     }
   }
 

@@ -18,6 +18,8 @@ export const RESIDENT_EVENT_TYPES = new Set([
   'residents.leave_end',
   'residents.leave_cancelled',
   'residents.basic_info_updated',
+  'resident.contact.created',
+  'resident.contact.updated',
 ]);
 
 export const LEAVE_EVENT_TYPES = new Set([
