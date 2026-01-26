@@ -87,7 +87,6 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       eventType === 'resident.contact.created' ||
       eventType === 'resident.contact.updated' ||
       eventType === 'resident.contact.deleted';
-    const shouldRefreshContacts = eventType === 'resident.contact.deleted';
     let shouldProcessCaspio = true;
 
     if (isContactEvent) {
@@ -141,7 +140,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       }
     }
 
-    if (!isContactEvent || shouldRefreshContacts) {
+    if (!isContactEvent || shouldProcessCaspio) {
       // Fetch all resident data for Caspio push
       try {
         const allResidentData = await fetchAllResidentData(
