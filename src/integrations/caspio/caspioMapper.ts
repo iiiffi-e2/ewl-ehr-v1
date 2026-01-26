@@ -37,16 +37,16 @@ export type CaspioRecord = {
   Hospice?: boolean;
   Diagnosis1?: string;
   Diagnosis2?: string;
-  Family_Contact_1?: string;
-  Family_Contact_2?: string;
-  Contact_1_Name?: string;
-  Contact_2_Name?: string;
-  Contact_1_Number?: string;
-  Contact_2_Number?: string;
-  Contact_1_Email?: string;
-  Contact_2_Email?: string;
-  Contact_1_Address?: string;
-  Contact_2_Address?: string;
+  Family_Contact_1?: string | null;
+  Family_Contact_2?: string | null;
+  Contact_1_Name?: string | null;
+  Contact_2_Name?: string | null;
+  Contact_1_Number?: string | null;
+  Contact_2_Number?: string | null;
+  Contact_1_Email?: string | null;
+  Contact_2_Email?: string | null;
+  Contact_1_Address?: string | null;
+  Contact_2_Address?: string | null;
   CommunityName?: string;
   Community_ID?: number;
   CommunityGroup?: string;
@@ -744,6 +744,22 @@ export function mapUpdateEventToResidentPatch(
     // Remove Move_in_Date from update (never overwrite)
     const { Move_in_Date, ...recordWithoutMoveIn } = fullRecord;
     updateRecord = recordWithoutMoveIn;
+
+    const contacts = fullResidentData.contacts ?? [];
+    if (contacts.length < 2) {
+      updateRecord.Contact_2_Name = null;
+      updateRecord.Contact_2_Number = null;
+      updateRecord.Contact_2_Email = null;
+      updateRecord.Contact_2_Address = null;
+      updateRecord.Family_Contact_2 = null;
+    }
+    if (contacts.length < 1) {
+      updateRecord.Contact_1_Name = null;
+      updateRecord.Contact_1_Number = null;
+      updateRecord.Contact_1_Email = null;
+      updateRecord.Contact_1_Address = null;
+      updateRecord.Family_Contact_1 = null;
+    }
   }
 
   // Always ensure Resident_ID and Community_ID are set
