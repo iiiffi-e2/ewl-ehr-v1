@@ -20,6 +20,7 @@ export const RESIDENT_EVENT_TYPES = new Set([
   'residents.basic_info_updated',
   'resident.contact.created',
   'resident.contact.updated',
+  'resident.contact.deleted',
 ]);
 
 export const LEAVE_EVENT_TYPES = new Set([
