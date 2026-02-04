@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma.js';
 import { createHttpClient } from '../config/axios.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { decryptSecret } from '../security/credentials.js';
 
 export type AlisCredentials = {
   username: string;
@@ -463,12 +464,30 @@ export async function resolveAlisCredentials(
   companyId: number,
   companyKey: string,
 ): Promise<AlisCredentials> {
-  const credential = await prisma.credential.findUnique({
+  const alisCredential = await prisma.alisCredential.findUnique({
     where: { companyId },
   });
 
-  if (!credential) {
-    logger.debug(
+  if (alisCredential) {
+    try {
+      return {
+        username: alisCredential.username,
+        password: decryptSecret(
+          alisCredential.passwordCiphertext,
+          alisCredential.passwordIv,
+        ),
+      };
+    } catch (error) {
+      logger.error(
+        { companyKey, error: error instanceof Error ? error.message : String(error) },
+        'alis_credential_decryption_failed',
+      );
+      throw new Error('Failed to decrypt ALIS credentials.');
+    }
+  }
+
+  if (!alisCredential) {
+    logger.warn(
       { companyKey },
       'no_custom_credentials_found_using_sandbox_defaults',
     );
@@ -478,11 +497,7 @@ export async function resolveAlisCredentials(
     };
   }
 
-  logger.warn(
-    { companyKey, username: credential.username },
-    'credential_record_found_but_password_hash_unusable_for_api_call',
-  );
-  throw new Error('Stored credentials are hashed; configure runtime secrets for ALIS access.');
+  throw new Error('ALIS credential resolution failed unexpectedly.');
 }
 
 export async function fetchAllResidentData(

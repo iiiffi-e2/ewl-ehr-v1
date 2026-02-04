@@ -20,6 +20,7 @@ const EnvSchema = z
     ALIS_API_BASE: z.string().url(),
     ALIS_TEST_USERNAME: z.string(),
     ALIS_TEST_PASSWORD: z.string(),
+    ALIS_CREDENTIALS_MASTER_KEY: z.string(),
     WEBHOOK_BASIC_USER: z.string(),
     WEBHOOK_BASIC_PASS: z.string(),
     CASPIO_BASE_URL: z.string().url().default('https://c3aca270.caspio.com'),

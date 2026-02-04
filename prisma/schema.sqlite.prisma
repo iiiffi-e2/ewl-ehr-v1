@@ -28,6 +28,17 @@ model Credential {
   company      Company  @relation(fields: [companyId], references: [id])
 }
 
+model AlisCredential {
+  id                 Int      @id @default(autoincrement())
+  companyId          Int      @unique
+  username           String
+  passwordCiphertext String
+  passwordIv         String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  company            Company  @relation(fields: [companyId], references: [id])
+}
+
 model Resident {
   id             Int       @id @default(autoincrement())
   companyId      Int

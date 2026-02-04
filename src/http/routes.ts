@@ -13,6 +13,7 @@ import { logger } from '../config/logger.js';
 import { alisWebhookHandler } from '../webhook/handler.js';
 import { env } from '../config/env.js';
 import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
+import { upsertAlisCredential } from '../admin/credentials.js';
 
 import type { AlisPayload } from '../integrations/alis/types.js';
 
@@ -94,6 +95,53 @@ router.get('/admin/test-communities', authAdmin, async (_req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
       apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/communities`,
+    });
+  }
+});
+
+// Admin endpoint to upsert ALIS credentials by company
+router.post('/admin/alis-credentials', authAdmin, async (req, res) => {
+  try {
+    const { companyKey, username, password } = req.body ?? {};
+
+    if (
+      typeof companyKey !== 'string' ||
+      typeof username !== 'string' ||
+      typeof password !== 'string' ||
+      !companyKey.trim() ||
+      !username.trim() ||
+      !password.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'companyKey, username, and password are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const result = await upsertAlisCredential({
+      companyKey: companyKey.trim(),
+      username: username.trim(),
+      password,
+    });
+
+    logger.info(
+      { companyKey: companyKey.trim(), companyId: result.companyId },
+      'admin_alis_credentials_upserted',
+    );
+
+    return res.json({
+      success: true,
+      companyId: result.companyId,
+      username: result.username,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_alis_credentials_upsert_failed');
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
     });
   }
 });
