@@ -17,6 +17,7 @@ model Company {
   residents   Resident[]
   events      EventLog[]
   credential  Credential?
+  alisCredential AlisCredential?
 }
 
 model Credential {
