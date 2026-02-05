@@ -740,10 +740,14 @@ export function mapUpdateEventToResidentPatch(
       },
     };
     const fullRecord = mapAlisPayloadToCaspioRecord(alisPayload);
-    
-    // Remove Move_in_Date from update (never overwrite)
-    const { Move_in_Date, ...recordWithoutMoveIn } = fullRecord;
-    updateRecord = recordWithoutMoveIn;
+
+    // Remove Move_in_Date from update unless explicitly requested
+    if (event.EventType === 'residents.move_in_out_info_updated') {
+      updateRecord = fullRecord;
+    } else {
+      const { Move_in_Date, ...recordWithoutMoveIn } = fullRecord;
+      updateRecord = recordWithoutMoveIn;
+    }
 
     const contacts = fullResidentData.contacts ?? [];
     if (contacts.length < 2) {

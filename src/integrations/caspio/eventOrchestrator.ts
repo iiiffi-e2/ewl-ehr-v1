@@ -477,11 +477,14 @@ async function handleUpdateEvent(
     communityId,
   );
 
-  // Create patch (excluding Move_in_Date)
+  // Create patch (excluding Move_in_Date unless explicitly requested)
   const patch = mapUpdateEventToResidentPatch(event, fullResidentData, existing.record);
 
-  // Ensure we don't include Move_in_Date in patch
-  const { Move_in_Date, ...patchWithoutMoveIn } = patch;
+  // Ensure we don't include Move_in_Date in patch for most events
+  const patchWithoutMoveIn =
+    event.EventType === 'residents.move_in_out_info_updated'
+      ? patch
+      : (({ Move_in_Date, ...rest }) => rest)(patch);
 
   // Ensure Community_ID is set if it was missing (for legacy records)
   if (!existing.record?.Community_ID && communityId) {
