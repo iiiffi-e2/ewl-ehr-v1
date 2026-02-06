@@ -315,11 +315,11 @@ export function createAlisClient(credentials: AlisCredentials) {
       try {
         const response = await http.get('/v1/integration/residents', {
           params: {
-            CompanyKey: params.companyKey,
-            CommunityId: params.communityId,
-            Page: params.page,
-            PageSize: params.pageSize,
-            Status: params.status,
+            companyKey: params.companyKey,
+            communityId: params.communityId,
+            page: params.page,
+            pageSize: params.pageSize,
+            status: params.status,
           },
         });
 

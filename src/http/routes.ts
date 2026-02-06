@@ -263,13 +263,27 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       : undefined;
     const page = req.query.page ? Number(req.query.page) : undefined;
     const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+    const status = req.query.status as string | undefined;
 
-    logger.info({ companyKey, communityId, page, pageSize }, 'admin_list_residents_called');
+    logger.info(
+      { companyKey, communityId, page, pageSize, status },
+      'admin_list_residents_called',
+    );
 
-    const credentials = {
+    let credentials = {
       username: env.ALIS_TEST_USERNAME,
       password: env.ALIS_TEST_PASSWORD,
     };
+
+    if (companyKey) {
+      const company = await prisma.company.findUnique({
+        where: { companyKey },
+      });
+
+      if (company) {
+        credentials = await resolveAlisCredentials(company.id, companyKey);
+      }
+    }
 
     const client = createAlisClient(credentials);
     const result = await client.listResidents({
@@ -277,6 +291,7 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       communityId,
       page,
       pageSize,
+      status,
     });
 
     logger.info(
@@ -301,6 +316,7 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
         communityId,
         page,
         pageSize,
+        status,
       },
       residents: result.residents.map((r) => ({
         residentId: r.ResidentId ?? r.residentId,
@@ -316,7 +332,12 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
   } catch (error) {
     logger.error({ error }, 'list_residents_failed');
 
-    res.status(500).json({
+    const status =
+      error instanceof AlisApiError && error.status && error.status >= 400 && error.status < 500
+        ? error.status
+        : 500;
+
+    res.status(status).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
