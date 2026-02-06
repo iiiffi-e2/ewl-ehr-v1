@@ -462,6 +462,15 @@
             renderEvents();
         }
 
+        function formatTimestamp(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return 'Invalid date';
+
+            const datePart = date.toLocaleDateString();
+            const timePart = date.toLocaleTimeString();
+            return `${datePart} ${timePart}`;
+        }
+
         function updateStats() {
             document.getElementById('totalEvents').textContent = stats.total;
             document.getElementById('processedCount').textContent = stats.processed;
@@ -469,8 +478,7 @@
             document.getElementById('eventCount').textContent = `${events.length} events`;
             
             if (events.length > 0) {
-                const lastEvent = new Date(events[0].receivedAt);
-                document.getElementById('lastEventTime').textContent = lastEvent.toLocaleTimeString();
+                document.getElementById('lastEventTime').textContent = formatTimestamp(events[0].receivedAt);
             }
         }
 
@@ -491,7 +499,7 @@
             }
 
             container.innerHTML = events.map(event => {
-                const time = new Date(event.receivedAt).toLocaleTimeString();
+                const time = formatTimestamp(event.receivedAt);
                 const payload = JSON.stringify(event.payload, null, 2);
                 
                 return `
