@@ -7,3 +7,10 @@ export type ProcessAlisEventJobData = {
   notificationData?: Record<string, unknown>;
   eventMessageDate: string;
 };
+
+export type ResidentBackfillJobData = {
+  companyKey: string;
+  communityId: number;
+  status: string;
+  pageSize?: number;
+};

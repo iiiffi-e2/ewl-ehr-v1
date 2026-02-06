@@ -6,9 +6,15 @@ import {
   verifyAlisConnectivity,
   createAlisClient,
   fetchAllResidentData,
+  resolveAlisCredentials,
+  AlisApiError,
 } from '../integrations/alisClient.js';
 import { prisma } from '../db/prisma.js';
 import { getRedisConnection } from '../workers/connection.js';
+import {
+  RESIDENT_BACKFILL_QUEUE,
+  residentBackfillQueue,
+} from '../workers/queue.js';
 import { logger } from '../config/logger.js';
 import { alisWebhookHandler } from '../webhook/handler.js';
 import { env } from '../config/env.js';
@@ -29,6 +35,11 @@ router.get('/health', (_req, res) => {
 // Redirect to webhook monitor
 router.get('/monitor', (_req, res) => {
   res.redirect('/public/webhook-monitor.html');
+});
+
+// Admin page: Resident backfill
+router.get('/admin/backfill-residents', authAdmin, (_req, res) => {
+  res.redirect('/public/resident-backfill.html');
 });
 
 router.get('/health/deps', async (_req, res) => {
@@ -310,6 +321,144 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),
       apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents`,
+    });
+  }
+});
+
+// Admin endpoint: Queue resident backfill for a community
+router.post('/admin/backfill-residents/run', authAdmin, async (req, res) => {
+  try {
+    const { companyKey } = req.body ?? {};
+    const communityIdInput = req.body?.communityId;
+    const communityId =
+      typeof communityIdInput === 'string' ? Number(communityIdInput) : communityIdInput;
+
+    if (
+      typeof companyKey !== 'string' ||
+      !companyKey.trim() ||
+      typeof communityId !== 'number' ||
+      !Number.isFinite(communityId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'companyKey (string) and communityId (number) are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const normalizedCompanyKey = companyKey.trim();
+    const normalizedCommunityId = Number(communityId);
+
+    const company = await prisma.company.findUnique({
+      where: { companyKey: normalizedCompanyKey },
+      include: { alisCredential: true },
+    });
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: `Company not found for key '${normalizedCompanyKey}'.`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!company.alisCredential) {
+      return res.status(400).json({
+        success: false,
+        error: `No ALIS credentials found for '${normalizedCompanyKey}'. Use /admin/alis-credentials first.`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const credentials = await resolveAlisCredentials(company.id, normalizedCompanyKey);
+    const client = createAlisClient(credentials);
+
+    await client.listResidents({
+      companyKey: normalizedCompanyKey,
+      communityId: normalizedCommunityId,
+      status: 'CurrentResident',
+      page: 1,
+      pageSize: 1,
+    });
+
+    const jobId = `backfill-${normalizedCompanyKey}-${normalizedCommunityId}-${Date.now()}`;
+    const job = await residentBackfillQueue.add(
+      'resident-backfill',
+      {
+        companyKey: normalizedCompanyKey,
+        communityId: normalizedCommunityId,
+        status: 'CurrentResident',
+      },
+      {
+        jobId,
+      },
+    );
+
+    logger.info(
+      {
+        jobId: job.id,
+        companyKey: normalizedCompanyKey,
+        communityId: normalizedCommunityId,
+      },
+      'admin_backfill_residents_queued',
+    );
+
+    return res.json({
+      success: true,
+      jobId: job.id,
+      queue: RESIDENT_BACKFILL_QUEUE,
+      status: 'CurrentResident',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_backfill_residents_failed');
+
+    const status =
+      error instanceof AlisApiError && error.status && error.status >= 400 && error.status < 500
+        ? error.status
+        : 500;
+
+    return res.status(status).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Admin endpoint: Check backfill job status
+router.get('/admin/backfill-residents/jobs/:jobId', authAdmin, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = await residentBackfillQueue.getJob(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found',
+        jobId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const state = await job.getState();
+
+    return res.json({
+      success: true,
+      jobId: job.id,
+      state,
+      progress: job.progress ?? null,
+      returnValue: job.returnvalue ?? null,
+      failedReason: job.failedReason ?? null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_backfill_residents_status_failed');
+
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
     });
   }
 });

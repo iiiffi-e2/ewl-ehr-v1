@@ -319,6 +319,7 @@ export function createAlisClient(credentials: AlisCredentials) {
             CommunityId: params.communityId,
             Page: params.page,
             PageSize: params.pageSize,
+            Status: params.status,
           },
         });
 
@@ -433,6 +434,7 @@ export type ListResidentsParams = {
   communityId?: number;
   page?: number;
   pageSize?: number;
+  status?: string;
 };
 
 export type ListResidentsResponse = {

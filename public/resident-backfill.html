@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resident Backfill</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header {
+      background: #161b22;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      color: #58a6ff;
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #8b949e;
+      font-size: 14px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #2ea043;
+    }
+
+    button.secondary {
+      background: #21262d;
+      border: 1px solid #30363d;
+      margin-left: 8px;
+    }
+
+    button.secondary:hover {
+      background: #30363d;
+    }
+
+    .output {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 13px;
+      white-space: pre-wrap;
+      min-height: 80px;
+    }
+
+    .muted {
+      color: #8b949e;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Resident Backfill</h1>
+      <div class="subtitle">Backfill CurrentResident data for a community and push to Caspio.</div>
+    </header>
+
+    <div class="card">
+      <form id="backfill-form">
+        <div class="row">
+          <div>
+            <label for="companyKey">Company Key</label>
+            <input id="companyKey" name="companyKey" placeholder="e.g. ACME" required>
+          </div>
+          <div>
+            <label for="communityId">Community ID</label>
+            <input id="communityId" name="communityId" placeholder="e.g. 934" required>
+          </div>
+        </div>
+        <button type="submit">Start Backfill</button>
+        <button type="button" class="secondary" id="checkStatusButton" disabled>Check Status</button>
+        <div class="muted">Status is fixed to CurrentResident.</div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="output" id="output">Ready.</div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('backfill-form');
+    const output = document.getElementById('output');
+    const checkStatusButton = document.getElementById('checkStatusButton');
+    let lastJobId = null;
+    let pollTimer = null;
+
+    const render = (message, data) => {
+      const payload = data ? JSON.stringify(data, null, 2) : '';
+      output.textContent = payload ? `${message}\n\n${payload}` : message;
+    };
+
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const fetchStatus = async (silent = false) => {
+      if (!lastJobId) return;
+      if (!silent) {
+        render(`Checking job ${lastJobId}...`);
+      }
+      const response = await fetch(`/admin/backfill-residents/jobs/${lastJobId}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      render(response.ok ? 'Job status:' : 'Failed to fetch job status:', data);
+      const state = data && data.state;
+      if (state === 'completed' || state === 'failed') {
+        stopPolling();
+      }
+    };
+
+    const startPolling = () => {
+      stopPolling();
+      pollTimer = setInterval(() => {
+        fetchStatus(true).catch((error) => render('Status check failed:', { error: error.message }));
+      }, 5000);
+    };
+
+    checkStatusButton.addEventListener('click', () => {
+      fetchStatus().catch((error) => render('Status check failed:', { error: error.message }));
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const companyKey = document.getElementById('companyKey').value.trim();
+      const communityIdValue = document.getElementById('communityId').value.trim();
+      const communityId = Number(communityIdValue);
+
+      if (!companyKey || !communityIdValue || Number.isNaN(communityId)) {
+        render('Please provide a valid companyKey and numeric communityId.');
+        return;
+      }
+
+      render('Starting backfill...');
+
+      const response = await fetch('/admin/backfill-residents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ companyKey, communityId }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      render(response.ok ? 'Backfill queued:' : 'Failed to start backfill:', data);
+
+      if (response.ok && data.jobId) {
+        lastJobId = data.jobId;
+        checkStatusButton.disabled = false;
+        startPolling();
+      }
+    });
+  </script>
+</body>
+</html>
