@@ -97,7 +97,7 @@ async function processJob(job: Job<ResidentBackfillJobData>): Promise<BackfillSu
 
   while (hasMore) {
     const { residents, hasMore: nextPage } = await client.listResidents({
-      companyKey,
+      companyKey: undefined,
       communityId,
       status,
       page,

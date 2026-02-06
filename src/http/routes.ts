@@ -287,7 +287,7 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
 
     const client = createAlisClient(credentials);
     const result = await client.listResidents({
-      companyKey,
+      companyKey: undefined,
       communityId,
       page,
       pageSize,
@@ -395,7 +395,7 @@ router.post('/admin/backfill-residents/run', authAdmin, async (req, res) => {
     const client = createAlisClient(credentials);
 
     await client.listResidents({
-      companyKey: normalizedCompanyKey,
+      companyKey: undefined,
       communityId: normalizedCommunityId,
       status: 'CurrentResident',
       page: 1,
