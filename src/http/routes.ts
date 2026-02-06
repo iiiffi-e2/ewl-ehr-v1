@@ -346,6 +346,81 @@ router.get('/admin/list-residents', authAdmin, async (req, res) => {
   }
 });
 
+// Debug endpoint: Inspect raw ALIS residents response
+router.get('/admin/debug-residents', authAdmin, async (req, res) => {
+  try {
+    const companyKey = req.query.companyKey as string | undefined;
+    const communityId = req.query.communityId
+      ? Number(req.query.communityId)
+      : undefined;
+    const page = req.query.page ? Number(req.query.page) : undefined;
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+    const status = req.query.status as string | undefined;
+    const useTestCreds = req.query.useTestCreds === 'true';
+
+    let credentials = {
+      username: env.ALIS_TEST_USERNAME,
+      password: env.ALIS_TEST_PASSWORD,
+    };
+    let credentialSource: 'test' | 'company' = 'test';
+
+    if (!useTestCreds && companyKey) {
+      const company = await prisma.company.findUnique({
+        where: { companyKey },
+      });
+
+      if (company) {
+        credentials = await resolveAlisCredentials(company.id, companyKey);
+        credentialSource = 'company';
+      }
+    }
+
+    const client = createAlisClient(credentials);
+    const result = await client.listResidents({
+      companyKey: undefined,
+      communityId,
+      page,
+      pageSize,
+      status,
+    });
+
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      apiEndpoint: `${env.ALIS_API_BASE}/v1/integration/residents`,
+      credentials: {
+        source: credentialSource,
+        username: credentials.username,
+      },
+      filters: {
+        companyKey,
+        communityId,
+        page,
+        pageSize,
+        status,
+        useTestCreds,
+      },
+      count: result.residents.length,
+      hasMore: result.hasMore,
+      residents: result.residents,
+      raw: result.raw,
+    });
+  } catch (error) {
+    logger.error({ error }, 'debug_residents_failed');
+
+    const status =
+      error instanceof AlisApiError && error.status && error.status >= 400 && error.status < 500
+        ? error.status
+        : 500;
+
+    return res.status(status).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 // Admin endpoint: Queue resident backfill for a community
 router.post('/admin/backfill-residents/run', authAdmin, async (req, res) => {
   try {
