@@ -304,6 +304,11 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     ? getStringValue(community, ['CommunityName', 'communityName'])
     : undefined;
 
+  const communityId =
+    getNumericValue(resident, ['CommunityId', 'communityId']) ??
+    getNumericValue(basicInfo, ['CommunityId', 'communityId']) ??
+    getNumericValue(community ?? undefined, ['CommunityId', 'communityId']);
+
   // Community_Address - format as "City, State Zip"
   // Normalize city field: if it contains state (e.g., "Chicago - IL"), extract just the city name
   let communityAddress: string | undefined = undefined;
@@ -434,6 +439,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     On_Prem: onPrem,
     Off_Prem: offPrem,
     Off_Prem_Date: offPremDate,
+    Community_ID: communityId,
     CommunityName: communityName,
     Community_Address: communityAddress,
     Insurance_Name: insuranceName,

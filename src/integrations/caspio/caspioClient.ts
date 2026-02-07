@@ -625,6 +625,61 @@ export async function upsertByResidentId(
 }
 
 /**
+ * Upsert a record by Resident_ID + Community_ID
+ * Updates if found, inserts if not found
+ */
+export async function upsertByResidentIdAndCommunityId(
+  tableName: string,
+  residentId: string | number,
+  communityId: number,
+  record: Record<string, unknown>,
+): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  let searchResult: { found: boolean; id?: string; record?: unknown };
+
+  try {
+    searchResult = await findRecordByResidentIdAndCommunityId(
+      tableName,
+      residentId,
+      communityId,
+    );
+  } catch (error) {
+    logger.warn(
+      {
+        tableName,
+        residentId: String(residentId),
+        communityId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'caspio_find_composite_failed_proceeding_to_insert',
+    );
+    searchResult = { found: false };
+  }
+
+  if (searchResult.found && searchResult.id) {
+    await updateRecordById(tableName, searchResult.id, record);
+    return { action: 'update', id: searchResult.id };
+  }
+
+  const response = await insertRecord(tableName, record);
+
+  let id: string | undefined;
+  const responseData = response.data as Record<string, unknown>;
+  if (responseData.PK_ID) {
+    id = String(responseData.PK_ID);
+  } else if (responseData.PK) {
+    id = String(responseData.PK);
+  } else if (responseData._id) {
+    id = String(responseData._id);
+  } else if (responseData.id) {
+    id = String(responseData.id);
+  } else if (responseData.Id) {
+    id = String(responseData.Id);
+  }
+
+  return { action: 'insert', id };
+}
+
+/**
  * Retry wrapper with exponential backoff for 429/5xx/timeouts
  * Also handles 401 with single token refresh + single retry
  */

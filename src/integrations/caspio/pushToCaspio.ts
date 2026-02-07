@@ -1,6 +1,11 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
-import { caspioRequestWithRetry, upsertByResidentId } from './caspioClient.js';
+import {
+  caspioRequestWithRetry,
+  upsertByResidentId,
+  upsertByResidentIdAndCommunityId,
+} from './caspioClient.js';
+import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
 import { mapAlisPayloadToCaspioRecord, redactForLogs } from './caspioMapper.js';
 
 import type { AlisPayload } from '../alis/types.js';
@@ -34,9 +39,33 @@ export async function pushToCaspio(
       record.Resident_ID = residentId;
     }
 
-    // Upsert record by Resident_ID
+    // Enrich with community details if we have Community_ID
+    if (record.Community_ID && !record.CommunityGroup && !record.Neighborhood) {
+      const enrichment = await getCommunityEnrichment(record.Community_ID, record.Room_number);
+      if (enrichment.CommunityGroup) {
+        record.CommunityGroup = enrichment.CommunityGroup;
+      }
+      if (enrichment.Neighborhood) {
+        record.Neighborhood = enrichment.Neighborhood;
+      }
+      if (enrichment.SerialNumber) {
+        record.SerialNumber = enrichment.SerialNumber;
+      }
+      if (enrichment.CommunityName && !record.CommunityName) {
+        record.CommunityName = enrichment.CommunityName;
+      }
+    }
+
+    // Upsert record (prefer composite key if Community_ID is present)
     const result = await caspioRequestWithRetry(() =>
-      upsertByResidentId(env.CASPIO_TABLE_NAME, record.Resident_ID!, record),
+      record.Community_ID
+        ? upsertByResidentIdAndCommunityId(
+            env.CASPIO_TABLE_NAME,
+            record.Resident_ID!,
+            record.Community_ID,
+            record,
+          )
+        : upsertByResidentId(env.CASPIO_TABLE_NAME, record.Resident_ID!, record),
     );
 
     logger.info(
