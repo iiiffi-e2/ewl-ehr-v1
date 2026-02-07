@@ -21,6 +21,7 @@ type BackfillSummary = {
   failed: number;
   skipped: number;
   pageSize: number;
+  failedResidents: Array<{ residentId: number; error: string }>;
 };
 
 export function startResidentBackfillWorker(): Worker<ResidentBackfillJobData> {
@@ -90,6 +91,7 @@ async function processJob(job: Job<ResidentBackfillJobData>): Promise<BackfillSu
     failed: 0,
     skipped: 0,
     pageSize: Number.isFinite(pageSize) && pageSize ? pageSize : 100,
+    failedResidents: [],
   };
 
   let page = 1;
@@ -152,15 +154,19 @@ async function processJob(job: Job<ResidentBackfillJobData>): Promise<BackfillSu
         summary.succeeded += 1;
       } catch (error) {
         summary.failed += 1;
+        const message = error instanceof Error ? error.message : String(error);
         logger.error(
           {
             companyKey,
             communityId,
             residentId,
-            error: error instanceof Error ? error.message : String(error),
+            error: message,
           },
           'resident_backfill_resident_failed',
         );
+        if (summary.failedResidents.length < 50) {
+          summary.failedResidents.push({ residentId, error: message });
+        }
       }
 
       await job.updateProgress(summary);
