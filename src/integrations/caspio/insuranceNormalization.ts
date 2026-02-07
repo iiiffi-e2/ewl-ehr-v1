@@ -27,6 +27,8 @@ function mapInsurance(insurance: InsuranceRecord): NormalizedInsurance {
   const name = getStringValue(insurance, [
     'payerName',
     'PayerName',
+    'providerName',
+    'ProviderName',
     'insuranceName',
     'InsuranceName',
     'name',
@@ -53,6 +55,8 @@ function mapInsurance(insurance: InsuranceRecord): NormalizedInsurance {
     'PolicyNumber',
     'memberId',
     'MemberId',
+    'accountNumber',
+    'AccountNumber',
     'insuranceNumber',
     'InsuranceNumber',
   ]);
