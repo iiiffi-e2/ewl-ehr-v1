@@ -53,6 +53,9 @@ export async function pushToCaspio(
     const status = error && typeof error === 'object' && 'response' in error
       ? (error as { response?: { status?: number } }).response?.status
       : undefined;
+    const responseData = error && typeof error === 'object' && 'response' in error
+      ? (error as { response?: { data?: unknown } }).response?.data
+      : undefined;
     const message = error instanceof Error ? error.message : String(error);
 
     logger.error(
@@ -60,6 +63,11 @@ export async function pushToCaspio(
         residentId,
         status,
         message,
+        caspio: {
+          baseUrl: env.CASPIO_BASE_URL,
+          tableName: env.CASPIO_TABLE_NAME,
+        },
+        responseData,
         payload: redactForLogs(payload),
       },
       'caspio_push_error',
