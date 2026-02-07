@@ -323,19 +323,24 @@ export function createAlisClient(credentials: AlisCredentials) {
           },
         });
 
-        const data = response.data as {
-          Residents?: AlisResidentDetail[];
-          residents?: AlisResidentDetail[];
-          Page?: number;
-          TotalPages?: number;
-          HasMore?: boolean;
-        };
+        const data = response.data as
+          | {
+              Residents?: AlisResidentDetail[];
+              residents?: AlisResidentDetail[];
+              Page?: number;
+              TotalPages?: number;
+              HasMore?: boolean;
+            }
+          | AlisResidentDetail[];
 
-        const residents = data.Residents ?? data.residents ?? [];
-        const page = data.Page ?? params.page ?? 1;
-        const totalPages = data.TotalPages ?? page;
-        const hasMore =
-          typeof data.HasMore === 'boolean'
+        const residents = Array.isArray(data)
+          ? data
+          : data.Residents ?? data.residents ?? [];
+        const page = Array.isArray(data) ? params.page ?? 1 : data.Page ?? params.page ?? 1;
+        const totalPages = Array.isArray(data) ? page : data.TotalPages ?? page;
+        const hasMore = Array.isArray(data)
+          ? residents.length === (params.pageSize ?? residents.length)
+          : typeof data.HasMore === 'boolean'
             ? data.HasMore
             : page < totalPages || residents.length === (params.pageSize ?? residents.length);
 
