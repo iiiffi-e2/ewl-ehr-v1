@@ -374,7 +374,7 @@
             if (savedPassword) document.getElementById('password').value = savedPassword;
         });
 
-        function connect() {
+        async function connect() {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
 
@@ -392,15 +392,30 @@
                 eventSource.close();
             }
 
-            // Create auth header
             const auth = btoa(`${username}:${password}`);
-            const url = `/admin/webhook-events-stream`;
+            const authHeader = { 'Authorization': `Basic ${auth}` };
 
-            // Create EventSource with auth
-            eventSource = new EventSource(url, {
-                headers: {
-                    'Authorization': `Basic ${auth}`
+            // Load last 50 events for immediate context (stream only sends new events after connect)
+            try {
+                const res = await fetch('/admin/webhook-events?limit=50', { headers: authHeader });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.events && data.events.length > 0) {
+                        events = data.events;
+                        stats.total = events.length;
+                        stats.processed = events.filter(e => e.status === 'processed').length;
+                        stats.failed = events.filter(e => e.status === 'failed').length;
+                        updateStats();
+                        renderEvents();
+                    }
                 }
+            } catch (e) {
+                console.warn('Could not load recent events:', e);
+            }
+
+            const url = `/admin/webhook-events-stream`;
+            eventSource = new EventSource(url, {
+                headers: { 'Authorization': `Basic ${auth}` }
             });
 
             eventSource.onopen = () => {

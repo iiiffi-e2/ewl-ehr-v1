@@ -733,10 +733,14 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
 
 // Webhook Testing Endpoints
 
-// View all received webhook events
+// View all received webhook events (default: last 50, max 500)
+const DEFAULT_WEBHOOK_EVENTS_LIMIT = 50;
+const MAX_WEBHOOK_EVENTS_LIMIT = 500;
+
 router.get('/admin/webhook-events', authAdmin, async (req, res) => {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const requestedLimit = req.query.limit ? Number(req.query.limit) : DEFAULT_WEBHOOK_EVENTS_LIMIT;
+    const limit = Math.min(Math.max(1, Math.floor(requestedLimit)), MAX_WEBHOOK_EVENTS_LIMIT);
     const status = req.query.status as string | undefined;
     const eventType = req.query.eventType as string | undefined;
 
@@ -939,6 +943,7 @@ router.get('/admin/webhook-events/:eventMessageId', authAdmin, async (req, res) 
 });
 
 // Real-time webhook event stream (Server-Sent Events)
+// Only sends events that arrive after the client connects (no history dump).
 router.get('/admin/webhook-events-stream', authAdmin, async (req, res) => {
   logger.info('admin_webhook_events_stream_connected');
 
@@ -951,9 +956,13 @@ router.get('/admin/webhook-events-stream', authAdmin, async (req, res) => {
   // Send initial connection message
   res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Webhook event stream connected', timestamp: new Date().toISOString() })}\n\n`);
 
-  // Poll database for new events
-  let lastEventId = 0;
-  
+  // Start from current latest event so we only stream new events (no history)
+  const latest = await prisma.eventLog.findFirst({
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  });
+  let lastEventId = latest?.id ?? 0;
+
   const pollInterval = setInterval(async () => {
     try {
       const newEvents = await prisma.eventLog.findMany({
