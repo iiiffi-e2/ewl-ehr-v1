@@ -227,6 +227,25 @@ function isHospiceContact(contact: Record<string, unknown> | undefined): boolean
   return contactType ? contactType.toLowerCase().includes('hospice') : false;
 }
 
+function isFinanciallyResponsibleContact(
+  contact: Record<string, unknown> | undefined,
+): boolean {
+  if (!contact) return false;
+  const tags =
+    getStringValue(contact, ['additionalInfoTags', 'AdditionalInfoTags']) ?? '';
+  const normalized = tags.toLowerCase();
+  return (
+    normalized.includes('financial_power_of_attorney') ||
+    normalized.includes('emergency')
+  );
+}
+
+function filterFinancialContacts(
+  contacts: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return contacts.filter((contact) => isFinanciallyResponsibleContact(contact));
+}
+
 /**
  * Map ALIS payload to Caspio record format
  */
@@ -387,8 +406,10 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     if (!diagnosis2) diagnosis2 = diagnosisStrings[1];
   }
 
-  // Contacts mapping
-  const contacts = (data.contacts || []) as Array<Record<string, unknown>>;
+  // Contacts mapping (financially responsible only)
+  const contacts = filterFinancialContacts(
+    (data.contacts || []) as Array<Record<string, unknown>>,
+  );
   const contact1 = contacts[0];
   const contact2 = contacts[1];
   const hospice = contacts.some((contact) => isHospiceContact(contact));
@@ -755,7 +776,9 @@ export function mapUpdateEventToResidentPatch(
       updateRecord = recordWithoutMoveIn;
     }
 
-    const contacts = fullResidentData.contacts ?? [];
+    const contacts = filterFinancialContacts(
+      (fullResidentData.contacts ?? []) as Array<Record<string, unknown>>,
+    );
     if (contacts.length < 2) {
       updateRecord.Contact_2_Name = null;
       updateRecord.Contact_2_Number = null;
