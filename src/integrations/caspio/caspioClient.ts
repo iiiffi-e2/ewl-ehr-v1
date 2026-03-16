@@ -10,13 +10,18 @@ type TokenCache = {
 };
 
 export type CommunityTableRecord = {
+  CUID?: string;
   CommunityName?: string;
   CommunityID?: number | string;
   Neighborhood?: string;
   Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
   CommunityGroup?: string;
   RoomNumber?: string;
   SerialNumber?: string;
+  Sector?: string;
   [key: string]: unknown;
 };
 
@@ -219,17 +224,13 @@ export async function updateRecordById(
  * Returns { found: boolean, id?: string, record?: unknown }
  * This is the centralized helper for composite key lookups aligned to Caspio REST v3 Swagger format
  */
-export async function findRecordByResidentIdAndCommunityId(
+export async function findRecordByFields(
   tableName: string,
-  residentId: string | number,
-  communityId: number,
+  filters: Array<{ field: string; value: string | number }>,
 ): Promise<{ found: boolean; id?: string; record?: unknown }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const filter = buildCompositeFilter([
-      { field: 'Resident_ID', value: String(residentId) },
-      { field: 'Community_ID', value: communityId },
-    ]);
+    const filter = buildCompositeFilter(filters);
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
 
     try {
@@ -259,33 +260,24 @@ export async function findRecordByResidentIdAndCommunityId(
         return { found: false };
       }
 
-      // Filter records to find exact match for both Resident_ID and Community_ID
-      // This handles cases where the API filter might not work correctly
+      // Filter records to find exact match for all requested fields.
+      // This handles cases where API-side filtering can be permissive.
       const matchingRecord = records.find((rec) => {
         const record = rec as Record<string, unknown>;
-        const recordResidentId = record.Resident_ID ?? record.resident_ID ?? record.resident_id;
-        const recordCommunityId = record.Community_ID ?? record.community_ID ?? record.community_id;
-        
-        const residentIdMatches = 
-          String(recordResidentId) === String(residentId);
-        const communityIdMatches = 
-          recordCommunityId === communityId || String(recordCommunityId) === String(communityId);
-        
-        return residentIdMatches && communityIdMatches;
+        return filters.every(({ field, value }) => {
+          const recordValue = record[field];
+          return String(recordValue) === String(value);
+        });
       }) as Record<string, unknown> | undefined;
 
       if (!matchingRecord) {
         logger.debug(
           {
-            residentId: String(residentId),
-            communityId,
+            filters,
             matchCount: records.length,
-            sampleRecord: records[0] ? {
-              Resident_ID: (records[0] as Record<string, unknown>).Resident_ID,
-              Community_ID: (records[0] as Record<string, unknown>).Community_ID,
-            } : undefined,
+            sampleRecord: records[0] ?? undefined,
           },
-          'caspio_no_exact_match_for_composite_key',
+          'caspio_no_exact_match_for_filter_set',
         );
         return { found: false };
       }
@@ -306,19 +298,17 @@ export async function findRecordByResidentIdAndCommunityId(
 
       logger.debug(
         {
-          residentId: String(residentId),
-          communityId,
+            filters,
           extractedPK_ID: id,
         },
-        'caspio_found_record_for_composite_key',
+        'caspio_found_record_for_filters',
       );
 
       // If no ID was found, we can't update this record
       if (!id) {
         logger.warn(
           {
-            residentId: String(residentId),
-            communityId,
+            filters,
             recordKeys: Object.keys(matchingRecord),
           },
           'caspio_record_found_but_no_id_field',
@@ -329,12 +319,11 @@ export async function findRecordByResidentIdAndCommunityId(
       if (records.length > 1) {
         logger.warn(
           {
-            residentId: String(residentId),
-            communityId,
+            filters,
             totalMatches: records.length,
             exactMatches: 1,
           },
-          'caspio_multiple_matches_found_composite_key_filtered',
+          'caspio_multiple_matches_found_filters_filtered',
         );
       }
 
@@ -349,11 +338,10 @@ export async function findRecordByResidentIdAndCommunityId(
         logger.debug(
           {
             tableName,
-            residentId: String(residentId),
-            communityId,
+            filters,
             url,
           },
-          'caspio_record_not_found_404_composite_key',
+          'caspio_record_not_found_404_filters',
         );
         return { found: false };
       }
@@ -363,7 +351,21 @@ export async function findRecordByResidentIdAndCommunityId(
 }
 
 /**
- * Find community lookup record by CommunityID (CommunityTable1)
+ * Backward-compatible helper for Resident_ID + Community_ID composite lookup.
+ */
+export async function findRecordByResidentIdAndCommunityId(
+  tableName: string,
+  residentId: string | number,
+  communityId: number,
+): Promise<{ found: boolean; id?: string; record?: unknown }> {
+  return findRecordByFields(tableName, [
+    { field: 'Resident_ID', value: String(residentId) },
+    { field: 'Community_ID', value: communityId },
+  ]);
+}
+
+/**
+ * Find community lookup record by CommunityID (CommunityTable_API)
  */
 export async function findCommunityById(
   communityId: number,
@@ -410,7 +412,7 @@ export async function findCommunityById(
 }
 
 /**
- * Find community lookup record by CommunityID + RoomNumber (CommunityTable1)
+ * Find community lookup record by CommunityID + RoomNumber (CommunityTable_API)
  */
 export async function findCommunityByIdAndRoomNumber(
   communityId: number,
@@ -554,6 +556,68 @@ export async function findByResidentId(
 }
 
 /**
+ * Find records by PatientNumber field.
+ */
+export async function findByPatientNumber(
+  tableName: string,
+  patientNumber: string | number,
+): Promise<{ found: boolean; id?: string; raw?: unknown; matches?: number }> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildEqualsFilter('PatientNumber', String(patientNumber));
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const records = extractRecordsFromResponse(response.data);
+      if (records.length === 0) {
+        return { found: false };
+      }
+
+      const firstRecord = records[0] as Record<string, unknown>;
+      const id =
+        firstRecord.PK_ID !== undefined
+          ? String(firstRecord.PK_ID)
+          : firstRecord.PK !== undefined
+            ? String(firstRecord.PK)
+            : firstRecord._id !== undefined
+              ? String(firstRecord._id)
+              : firstRecord.id !== undefined
+                ? String(firstRecord.id)
+                : firstRecord.Id !== undefined
+                  ? String(firstRecord.Id)
+                  : undefined;
+
+      if (records.length > 1) {
+        logger.warn(
+          { patientNumber: String(patientNumber), matchCount: records.length },
+          'caspio_multiple_matches_found_patient_number',
+        );
+      }
+
+      return {
+        found: true,
+        id,
+        raw: firstRecord,
+        matches: records.length,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        logger.debug(
+          { tableName, patientNumber: String(patientNumber), url },
+          'caspio_patient_record_not_found_404',
+        );
+        return { found: false };
+      }
+      throw error;
+    }
+  });
+}
+
+/**
  * Upsert a record by Resident_ID
  * Updates if found, inserts if not found
  */
@@ -675,6 +739,53 @@ export async function upsertByResidentIdAndCommunityId(
   } else if (responseData.Id) {
     id = String(responseData.Id);
   }
+
+  return { action: 'insert', id };
+}
+
+/**
+ * Upsert by arbitrary exact-match filters.
+ */
+export async function upsertByFields(
+  tableName: string,
+  filters: Array<{ field: string; value: string | number }>,
+  record: Record<string, unknown>,
+): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  let searchResult: { found: boolean; id?: string; record?: unknown };
+
+  try {
+    searchResult = await findRecordByFields(tableName, filters);
+  } catch (error) {
+    logger.warn(
+      {
+        tableName,
+        filters,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'caspio_find_filters_failed_proceeding_to_insert',
+    );
+    searchResult = { found: false };
+  }
+
+  if (searchResult.found && searchResult.id) {
+    await updateRecordById(tableName, searchResult.id, record);
+    return { action: 'update', id: searchResult.id };
+  }
+
+  const response = await insertRecord(tableName, record);
+  const responseData = response.data as Record<string, unknown>;
+  const id =
+    responseData.PK_ID !== undefined
+      ? String(responseData.PK_ID)
+      : responseData.PK !== undefined
+        ? String(responseData.PK)
+        : responseData._id !== undefined
+          ? String(responseData._id)
+          : responseData.id !== undefined
+            ? String(responseData.id)
+            : responseData.Id !== undefined
+              ? String(responseData.Id)
+              : undefined;
 
   return { action: 'insert', id };
 }
