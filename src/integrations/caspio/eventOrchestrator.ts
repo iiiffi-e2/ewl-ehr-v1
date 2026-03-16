@@ -210,6 +210,7 @@ async function findExistingPatient(
     if (match.found) {
       return { found: true, id: match.id, record: match.record as CarePatientTableApiRecord };
     }
+    return { found: false };
   }
 
   const fallback = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
@@ -348,6 +349,18 @@ async function handleMoveOutEvent(
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, updateData);
 
+  const fullResidentData = await fetchFullResidentDataIfNeeded(
+    companyId,
+    companyKey,
+    residentId,
+    communityId,
+  );
+  const resident = fullResidentData.resident as Record<string, unknown>;
+  const serviceType =
+    (typeof resident.Classification === 'string' && resident.Classification) ||
+    (typeof resident.ProductType === 'string' && resident.ProductType) ||
+    undefined;
+
   logger.info(
     {
       eventMessageId: event.EventMessageId,
@@ -363,6 +376,7 @@ async function handleMoveOutEvent(
       ...existing.record,
       ...updateData,
     },
+    serviceType,
   });
 }
 
