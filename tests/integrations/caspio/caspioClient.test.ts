@@ -27,7 +27,7 @@ jest.mock('../../../src/config/env.js', () => ({
     CASPIO_TOKEN_URL: 'https://c3aca270.caspio.com/oauth/token',
     CASPIO_CLIENT_ID: 'test-client-id',
     CASPIO_CLIENT_SECRET: 'test-client-secret',
-    CASPIO_TABLE_NAME: 'AlisAPITestTable',
+    CASPIO_TABLE_NAME: 'CarePatientTable_API',
     CASPIO_TIMEOUT_MS: 10000,
     CASPIO_RETRY_MAX: 3,
   },
@@ -174,7 +174,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(false);
     });
 
@@ -198,7 +198,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(true);
       expect(result.id).toBe('caspio-record-id-123');
       expect(result.matches).toBe(1);
@@ -222,7 +222,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(true);
       expect(result.matches).toBe(2);
       expect(logger.warn).toHaveBeenCalledWith(
@@ -250,7 +250,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(false);
     });
   });
@@ -273,7 +273,7 @@ describe('caspioClient', () => {
       const { upsertByResidentId: upsert } = await import('../../../src/integrations/caspio/caspioClient.js');
 
       const record = { Resident_ID: '12345', Resident_Name: 'John Doe' };
-      const result = await upsert('AlisAPITestTable', '12345', record);
+      const result = await upsert('CarePatientTable_API', '12345', record);
 
       expect(result.action).toBe('update');
       expect(result.id).toBe('caspio-id-123');
@@ -298,7 +298,7 @@ describe('caspioClient', () => {
       const { upsertByResidentId: upsert } = await import('../../../src/integrations/caspio/caspioClient.js');
 
       const record = { Resident_ID: '12345', Resident_Name: 'John Doe' };
-      const result = await upsert('AlisAPITestTable', '12345', record);
+      const result = await upsert('CarePatientTable_API', '12345', record);
 
       expect(result.action).toBe('insert');
       expect(result.id).toBe('new-caspio-id-456');

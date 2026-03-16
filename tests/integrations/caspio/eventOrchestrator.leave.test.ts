@@ -1,17 +1,21 @@
-const findRecordByResidentIdAndCommunityIdMock = jest.fn();
-const findByResidentIdMock = jest.fn();
+const findRecordByFieldsMock = jest.fn();
+const findByPatientNumberMock = jest.fn();
 const updateRecordByIdMock = jest.fn();
 
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
-  findRecordByResidentIdAndCommunityId: findRecordByResidentIdAndCommunityIdMock,
-  findByResidentId: findByResidentIdMock,
-  insertRecord: jest.fn(),
+  findRecordByFields: findRecordByFieldsMock,
+  findByPatientNumber: findByPatientNumberMock,
+  upsertByFields: jest.fn(),
   updateRecordById: updateRecordByIdMock,
+}));
+jest.mock('../../../src/integrations/caspio/caspioCommunityEnrichment.js', () => ({
+  getCommunityEnrichment: jest.fn().mockResolvedValue({ CUID: 'C-113', CommunityName: 'Test Community' }),
 }));
 
 jest.mock('../../../src/config/env.js', () => ({
   env: {
-    CASPIO_TABLE_NAME: 'AlisAPITestTable',
+    CASPIO_TABLE_NAME: 'CarePatientTable_API',
+    CASPIO_SERVICE_TABLE_NAME: 'Service_Table_API',
   },
 }));
 
@@ -43,12 +47,12 @@ describe('eventOrchestrator leave events', () => {
   };
 
   it('leave_start uses StartDateTime', async () => {
-    findRecordByResidentIdAndCommunityIdMock.mockResolvedValueOnce({
+    findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: '101',
       record: {},
     });
-    findByResidentIdMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
 
     const event = {
       ...baseEvent,
@@ -61,7 +65,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '101', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', '101', {
       Off_Prem: true,
       Off_Prem_Date: '2026-01-19T13:00:00',
       On_Prem: false,
@@ -69,12 +73,12 @@ describe('eventOrchestrator leave events', () => {
   });
 
   it('leave_start falls back to EventMessageDate when StartDateTime missing', async () => {
-    findRecordByResidentIdAndCommunityIdMock.mockResolvedValueOnce({
+    findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: '102',
       record: {},
     });
-    findByResidentIdMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
 
     const event = {
       ...baseEvent,
@@ -86,7 +90,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '102', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', '102', {
       Off_Prem: true,
       Off_Prem_Date: '2026-01-19T19:23:35.2101857',
       On_Prem: false,
@@ -94,12 +98,12 @@ describe('eventOrchestrator leave events', () => {
   });
 
   it('leave_end uses EndDateTime', async () => {
-    findRecordByResidentIdAndCommunityIdMock.mockResolvedValueOnce({
+    findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: '103',
       record: {},
     });
-    findByResidentIdMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
 
     const event = {
       ...baseEvent,
@@ -112,7 +116,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '103', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', '103', {
       On_Prem: true,
       On_Prem_Date: '2026-01-19T13:00:00',
       Off_Prem: false,
@@ -120,12 +124,12 @@ describe('eventOrchestrator leave events', () => {
   });
 
   it('leave_end falls back to EventMessageDate when EndDateTime missing', async () => {
-    findRecordByResidentIdAndCommunityIdMock.mockResolvedValueOnce({
+    findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: '104',
       record: {},
     });
-    findByResidentIdMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
 
     const event = {
       ...baseEvent,
@@ -137,7 +141,7 @@ describe('eventOrchestrator leave events', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('AlisAPITestTable', '104', {
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', '104', {
       On_Prem: true,
       On_Prem_Date: '2026-01-19T19:23:35.2101857',
       Off_Prem: false,
@@ -145,8 +149,8 @@ describe('eventOrchestrator leave events', () => {
   });
 
   it('does not patch when resident does not exist', async () => {
-    findRecordByResidentIdAndCommunityIdMock.mockResolvedValueOnce({ found: false });
-    findByResidentIdMock.mockResolvedValueOnce({ found: false });
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
 
     const event = {
       ...baseEvent,
