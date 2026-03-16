@@ -1,11 +1,12 @@
 const findRecordByFieldsMock = jest.fn();
 const findByPatientNumberMock = jest.fn();
+const upsertByFieldsMock = jest.fn();
 const updateRecordByIdMock = jest.fn();
 
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findRecordByFields: findRecordByFieldsMock,
   findByPatientNumber: findByPatientNumberMock,
-  upsertByFields: jest.fn(),
+  upsertByFields: upsertByFieldsMock,
   updateRecordById: updateRecordByIdMock,
 }));
 jest.mock('../../../src/integrations/caspio/caspioCommunityEnrichment.js', () => ({
@@ -33,6 +34,7 @@ import { handleAlisEvent } from '../../../src/integrations/caspio/eventOrchestra
 describe('eventOrchestrator leave events', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    upsertByFieldsMock.mockResolvedValue({ action: 'update', id: 'svc-1' });
   });
 
   const baseEvent = {
@@ -164,5 +166,50 @@ describe('eventOrchestrator leave events', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).not.toHaveBeenCalled();
+  });
+
+  it('move_out closes service and does not create vacancy row', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: '201',
+      record: {
+        PatientNumber: '70508',
+        CUID: 'C-113',
+        CommunityName: 'Test Community',
+        Move_in_Date: '2025-01-01',
+        Service_Start_Date: '2025-01-01',
+      },
+    });
+
+    const event = {
+      ...baseEvent,
+      EventType: 'residents.move_out',
+      NotificationData: {
+        ...baseEvent.NotificationData,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      '201',
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: 'C-113',
+        Move_Out_Date: expect.any(String),
+        Service_End_Date: expect.any(String),
+      }),
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      [{ field: 'Service_ID', value: expect.any(String) }],
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: 'C-113',
+        EndDate: expect.any(String),
+      }),
+    );
   });
 });
