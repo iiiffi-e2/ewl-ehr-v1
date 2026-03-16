@@ -342,10 +342,16 @@ export function mapCommunityRecord(payload: AlisPayload): CommunityTableApiRecor
   const resident = getResidentRecord(payload);
   const basicInfo = getBasicInfoRecord(payload);
   const community = getCommunityRecord(payload);
-  const communityId =
+  const communityIdString =
     getStringValue(community, ['CommunityID', 'CommunityId', 'communityId']) ??
     getStringValue(resident, ['CommunityId', 'communityId']) ??
     getStringValue(basicInfo, ['CommunityId', 'communityId']);
+  const communityIdNumeric =
+    getNumericValue(community, ['CommunityID', 'CommunityId', 'communityId']) ??
+    getNumericValue(resident, ['CommunityId', 'communityId']) ??
+    getNumericValue(basicInfo, ['CommunityId', 'communityId']);
+  const communityId =
+    communityIdString ?? (communityIdNumeric !== undefined ? String(communityIdNumeric) : undefined);
 
   const record: CommunityTableApiRecord = {
     CUID:

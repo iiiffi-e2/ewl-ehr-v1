@@ -44,7 +44,7 @@ export async function pushToCaspio(
 
     const communityRecord = {
       ...mappedCommunity,
-      CUID: mappedCommunity.CUID ?? enrichment.CUID,
+      CUID: enrichment.CUID ?? mappedCommunity.CUID,
       CommunityName: mappedCommunity.CommunityName ?? enrichment.CommunityName,
       CommunityGroup: mappedCommunity.CommunityGroup ?? enrichment.CommunityGroup,
       Neighborhood: mappedCommunity.Neighborhood ?? enrichment.Neighborhood,
