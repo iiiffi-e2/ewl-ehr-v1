@@ -128,6 +128,25 @@ export type ServiceTableApiRecord = {
   CommunityName?: string;
 };
 
+export type OffPremHistoryTableRecord = {
+  Episode_ID: string;
+  PatientNumber: string;
+  CUID?: string;
+  CommunityName?: string;
+  Leave_ID?: string;
+  OffPremStart: string;
+  OffPremEnd?: string;
+  DurationMinutes?: number | null;
+  DurationHours?: number | null;
+  IsOpen: boolean;
+  StartEventMessageId: string;
+  EndEventMessageId?: string;
+  SourceSystem: string;
+  CloseReason?: string;
+  CreatedAtUtc: string;
+  UpdatedAtUtc: string;
+};
+
 /**
  * Extract date part (YYYY-MM-DD) from ISO date string
  */
@@ -538,6 +557,97 @@ export function mapServiceRecord(params: {
     StartDate: params.startDate,
     EndDate: params.endDate,
     CommunityName: params.communityName,
+  });
+}
+
+function getUtcTimestampNow(): string {
+  return new Date().toISOString();
+}
+
+function toFiniteDurationMinutes(
+  offPremStart: string,
+  offPremEnd: string,
+): number | null {
+  const startMs = Date.parse(offPremStart);
+  const endMs = Date.parse(offPremEnd);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    return null;
+  }
+  const delta = endMs - startMs;
+  if (delta < 0) {
+    return null;
+  }
+  return Math.floor(delta / 60000);
+}
+
+export function buildOffPremEpisodeId(params: {
+  patientNumber: string | number;
+  cuid?: string;
+  leaveId?: string | number;
+  offPremStart: string;
+}): string {
+  const patientNumber = String(params.patientNumber);
+  if (params.leaveId !== undefined && params.leaveId !== null && String(params.leaveId).trim().length > 0) {
+    return `leave:${patientNumber}:${params.cuid ?? 'na'}:${String(params.leaveId)}`;
+  }
+  const stableInput = [patientNumber, params.cuid ?? '', params.offPremStart].join('|');
+  const hash = createHash('sha1').update(stableInput).digest('hex').slice(0, 24);
+  return `leave:${patientNumber}:${params.cuid ?? 'na'}:${hash}`;
+}
+
+export function mapOffPremStartEpisode(params: {
+  patientNumber: string | number;
+  cuid?: string;
+  communityName?: string;
+  leaveId?: string | number;
+  offPremStart: string;
+  startEventMessageId: string | number;
+  episodeId?: string;
+  sourceSystem?: string;
+}): OffPremHistoryTableRecord {
+  const now = getUtcTimestampNow();
+  const episodeId =
+    params.episodeId ??
+    buildOffPremEpisodeId({
+      patientNumber: params.patientNumber,
+      cuid: params.cuid,
+      leaveId: params.leaveId,
+      offPremStart: params.offPremStart,
+    });
+  return stripUndefined({
+    Episode_ID: episodeId,
+    PatientNumber: String(params.patientNumber),
+    CUID: params.cuid,
+    CommunityName: params.communityName,
+    Leave_ID:
+      params.leaveId === undefined || params.leaveId === null
+        ? undefined
+        : String(params.leaveId),
+    OffPremStart: params.offPremStart,
+    IsOpen: true,
+    StartEventMessageId: String(params.startEventMessageId),
+    SourceSystem: params.sourceSystem ?? 'ALIS',
+    CreatedAtUtc: now,
+    UpdatedAtUtc: now,
+  });
+}
+
+export function mapOffPremEndPatch(params: {
+  offPremStart: string;
+  offPremEnd: string;
+  endEventMessageId: string | number;
+  closeReason?: string;
+}): Partial<OffPremHistoryTableRecord> {
+  const durationMinutes = toFiniteDurationMinutes(params.offPremStart, params.offPremEnd);
+  return stripUndefined({
+    OffPremEnd: params.offPremEnd,
+    DurationMinutes: durationMinutes,
+    DurationHours:
+      durationMinutes === null ? null : Number((durationMinutes / 60).toFixed(2)),
+    IsOpen: false,
+    EndEventMessageId: String(params.endEventMessageId),
+    CloseReason: params.closeReason ?? 'leave_end',
+    UpdatedAtUtc: getUtcTimestampNow(),
   });
 }
 

@@ -30,6 +30,7 @@ const EnvSchema = z
     CASPIO_TABLE_NAME: z.string().default('CarePatientTable_API'),
     CASPIO_COMMUNITY_TABLE_NAME: z.string().default('CommunityTable_API'),
     CASPIO_SERVICE_TABLE_NAME: z.string().default('Service_Table_API'),
+    CASPIO_OFF_PREM_HISTORY_TABLE_NAME: z.string().default('PatientOffPremHistory_API'),
     CASPIO_TIMEOUT_MS: z.coerce.number().default(10000),
     CASPIO_RETRY_MAX: z.coerce.number().default(3),
     // Legacy vars (deprecated, kept for backward compatibility)

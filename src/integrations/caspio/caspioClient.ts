@@ -115,9 +115,9 @@ function buildEqualsFilter(field: string, value: string | number): string {
  * Uses query parameter format: ?q={filter}
  * Caspio REST v3 expects conditions directly in the where object
  */
-function buildCompositeFilter(filters: Array<{ field: string; value: string | number }>): string {
+function buildCompositeFilter(filters: Array<{ field: string; value: string | number | boolean }>): string {
   // REST v3 uses JSON filter format - combine conditions directly in where object
-  const whereClause: Record<string, { eq: string | number }> = {};
+  const whereClause: Record<string, { eq: string | number | boolean }> = {};
   for (const f of filters) {
     whereClause[f.field] = { eq: f.value };
   }
@@ -226,7 +226,7 @@ export async function updateRecordById(
  */
 export async function findRecordByFields(
   tableName: string,
-  filters: Array<{ field: string; value: string | number }>,
+  filters: Array<{ field: string; value: string | number | boolean }>,
 ): Promise<{ found: boolean; id?: string; record?: unknown }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
@@ -748,7 +748,7 @@ export async function upsertByResidentIdAndCommunityId(
  */
 export async function upsertByFields(
   tableName: string,
-  filters: Array<{ field: string; value: string | number }>,
+  filters: Array<{ field: string; value: string | number | boolean }>,
   record: Record<string, unknown>,
 ): Promise<{ action: 'insert' | 'update'; id?: string }> {
   let searchResult: { found: boolean; id?: string; record?: unknown };
@@ -788,6 +788,72 @@ export async function upsertByFields(
               : undefined;
 
   return { action: 'insert', id };
+}
+
+export type OffPremHistoryRecord = {
+  Episode_ID?: string;
+  PatientNumber?: string;
+  CUID?: string;
+  Leave_ID?: string;
+  OffPremStart?: string;
+  OffPremEnd?: string;
+  DurationMinutes?: number | null;
+  DurationHours?: number | null;
+  IsOpen?: boolean;
+  StartEventMessageId?: string;
+  EndEventMessageId?: string;
+  SourceSystem?: string;
+  CloseReason?: string;
+  CreatedAtUtc?: string;
+  UpdatedAtUtc?: string;
+  [key: string]: unknown;
+};
+
+export async function upsertOffPremEpisodeByEpisodeId(
+  record: OffPremHistoryRecord,
+): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  if (!record.Episode_ID) {
+    throw new Error('Episode_ID is required to upsert off-prem episode');
+  }
+  return upsertByFields(
+    env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME,
+    [{ field: 'Episode_ID', value: String(record.Episode_ID) }],
+    record,
+  );
+}
+
+export async function findOpenOffPremEpisode(params: {
+  patientNumber: string;
+  cuid?: string;
+  leaveId?: string | number;
+}): Promise<{ found: boolean; id?: string; record?: OffPremHistoryRecord }> {
+  const baseFilters: Array<{ field: string; value: string | number | boolean }> = [
+    { field: 'PatientNumber', value: params.patientNumber },
+    { field: 'IsOpen', value: true },
+  ];
+  if (params.cuid) {
+    baseFilters.push({ field: 'CUID', value: params.cuid });
+  }
+
+  // Prefer exact leave match when Leave_ID is present.
+  if (params.leaveId !== undefined && params.leaveId !== null) {
+    const leaveFilters = [
+      ...baseFilters,
+      { field: 'Leave_ID', value: String(params.leaveId) },
+    ];
+    const exact = await findRecordByFields(env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME, leaveFilters);
+    if (exact.found) {
+      return { found: true, id: exact.id, record: exact.record as OffPremHistoryRecord };
+    }
+  }
+
+  // Fallback: latest open episode by patient/community key.
+  const fallback = await findRecordByFields(env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME, baseFilters);
+  return {
+    found: fallback.found,
+    id: fallback.id,
+    record: fallback.record as OffPremHistoryRecord | undefined,
+  };
 }
 
 /**

@@ -1,5 +1,8 @@
 import {
+  buildOffPremEpisodeId,
   mapCommunityRecord,
+  mapOffPremEndPatch,
+  mapOffPremStartEpisode,
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
@@ -150,6 +153,71 @@ describe('caspioMapper new table mappings', () => {
       serviceType: 'Assisted Living',
     });
     expect(record.Service_ID).toBe('SVC-100');
+  });
+
+  it('builds deterministic off-prem Episode_ID without Leave_ID', () => {
+    const idA = buildOffPremEpisodeId({
+      patientNumber: '12345',
+      cuid: 'C-113',
+      offPremStart: '2026-01-19T13:00:00',
+    });
+    const idB = buildOffPremEpisodeId({
+      patientNumber: '12345',
+      cuid: 'C-113',
+      offPremStart: '2026-01-19T13:00:00',
+    });
+    expect(idA).toBe(idB);
+  });
+
+  it('uses leave-based Episode_ID when Leave_ID exists', () => {
+    const id = buildOffPremEpisodeId({
+      patientNumber: '12345',
+      cuid: 'C-113',
+      leaveId: 285,
+      offPremStart: '2026-01-19T13:00:00',
+    });
+    expect(id).toBe('leave:12345:C-113:285');
+  });
+
+  it('maps off-prem start episode with patient and community linkage', () => {
+    const episode = mapOffPremStartEpisode({
+      patientNumber: '12345',
+      cuid: 'C-113',
+      communityName: 'Sunset Manor',
+      leaveId: 285,
+      offPremStart: '2026-01-19T13:00:00',
+      startEventMessageId: 'evt-1',
+    });
+    expect(episode).toEqual(
+      expect.objectContaining({
+        Episode_ID: 'leave:12345:C-113:285',
+        PatientNumber: '12345',
+        CUID: 'C-113',
+        Leave_ID: '285',
+        OffPremStart: '2026-01-19T13:00:00',
+        IsOpen: true,
+        StartEventMessageId: 'evt-1',
+      }),
+    );
+  });
+
+  it('maps off-prem end patch with duration fields', () => {
+    const patch = mapOffPremEndPatch({
+      offPremStart: '2026-01-19T13:00:00',
+      offPremEnd: '2026-01-19T15:30:00',
+      endEventMessageId: 'evt-2',
+      closeReason: 'leave_end',
+    });
+    expect(patch).toEqual(
+      expect.objectContaining({
+        OffPremEnd: '2026-01-19T15:30:00',
+        DurationMinutes: 150,
+        DurationHours: 2.5,
+        IsOpen: false,
+        EndEventMessageId: 'evt-2',
+        CloseReason: 'leave_end',
+      }),
+    );
   });
 });
 

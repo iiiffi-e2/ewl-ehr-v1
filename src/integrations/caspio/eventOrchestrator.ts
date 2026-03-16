@@ -9,14 +9,18 @@ import type { AlisEvent } from '../../webhook/schemas.js';
 import type { AlisPayload } from '../alis/types.js';
 
 import {
+  findOpenOffPremEpisode,
   findByPatientNumber,
   findRecordByFields,
+  upsertOffPremEpisodeByEpisodeId,
   upsertByFields,
   updateRecordById,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
 import type { CarePatientTableApiRecord } from './caspioMapper.js';
 import {
+  mapOffPremEndPatch,
+  mapOffPremStartEpisode,
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
@@ -242,6 +246,41 @@ async function upsertServiceFromPatient(params: {
   );
 }
 
+async function closeOpenOffPremEpisode(params: {
+  patientNumber: string;
+  cuid?: string;
+  leaveId?: number;
+  offPremEnd: string;
+  endEventMessageId: string | number;
+  closeReason: 'leave_end' | 'move_out';
+}): Promise<void> {
+  const openEpisode = await findOpenOffPremEpisode({
+    patientNumber: params.patientNumber,
+    cuid: params.cuid,
+    leaveId: params.leaveId,
+  });
+
+  if (!openEpisode.found || !openEpisode.id || !openEpisode.record?.OffPremStart) {
+    logger.warn(
+      {
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+        leaveId: params.leaveId,
+      },
+      'off_prem_open_episode_not_found',
+    );
+    return;
+  }
+
+  const closePatch = mapOffPremEndPatch({
+    offPremStart: String(openEpisode.record.OffPremStart),
+    offPremEnd: params.offPremEnd,
+    endEventMessageId: params.endEventMessageId,
+    closeReason: params.closeReason,
+  });
+  await updateRecordById(env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME, openEpisode.id, closePatch);
+}
+
 /**
  * Handle move-in event
  */
@@ -376,6 +415,15 @@ async function handleMoveOutEvent(
       ...updateData,
     },
     serviceType,
+  });
+
+  const moveOutDate = updateData.Move_Out_Date ?? event.EventMessageDate ?? getTodayDateString();
+  await closeOpenOffPremEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    offPremEnd: moveOutDate,
+    endEventMessageId: event.EventMessageId,
+    closeReason: 'move_out',
   });
 }
 
@@ -520,6 +568,16 @@ async function handleLeaveStartEvent(
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
 
+  const offPremEpisode = mapOffPremStartEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    communityName: communityContext.CommunityName,
+    leaveId,
+    offPremStart: leaveStartDate,
+    startEventMessageId: event.EventMessageId,
+  });
+  await upsertOffPremEpisodeByEpisodeId(offPremEpisode);
+
   logger.info(
     {
       eventMessageId: event.EventMessageId,
@@ -596,6 +654,15 @@ async function handleLeaveEndEvent(
   };
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+
+  await closeOpenOffPremEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    leaveId,
+    offPremEnd: leaveEndDate,
+    endEventMessageId: event.EventMessageId,
+    closeReason: 'leave_end',
+  });
 
   logger.info(
     {
