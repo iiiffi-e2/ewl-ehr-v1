@@ -1,5 +1,7 @@
 const findRecordByFieldsMock = jest.fn();
 const findByPatientNumberMock = jest.fn();
+const findCommunityByIdAndRoomNumberMock = jest.fn();
+const findActiveOrLatestServiceRowMock = jest.fn();
 const findOpenOffPremEpisodeMock = jest.fn();
 const upsertByFieldsMock = jest.fn();
 const upsertOffPremEpisodeByEpisodeIdMock = jest.fn();
@@ -8,6 +10,8 @@ const updateRecordByIdMock = jest.fn();
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findRecordByFields: findRecordByFieldsMock,
   findByPatientNumber: findByPatientNumberMock,
+  findCommunityByIdAndRoomNumber: findCommunityByIdAndRoomNumberMock,
+  findActiveOrLatestServiceRow: findActiveOrLatestServiceRowMock,
   findOpenOffPremEpisode: findOpenOffPremEpisodeMock,
   upsertByFields: upsertByFieldsMock,
   upsertOffPremEpisodeByEpisodeId: upsertOffPremEpisodeByEpisodeIdMock,
@@ -52,6 +56,15 @@ describe('eventOrchestrator leave events with off-prem history', () => {
     jest.clearAllMocks();
     upsertByFieldsMock.mockResolvedValue({ action: 'update', id: 'svc-1' });
     upsertOffPremEpisodeByEpisodeIdMock.mockResolvedValue({ action: 'update', id: 'ep-1' });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: { CUID: 'C-113', CommunityName: 'Test Community' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-1',
+      record: { ServiceType: 'Assisted Living', StartDate: '2025-01-01' },
+    });
     findOpenOffPremEpisodeMock.mockResolvedValue({
       found: true,
       id: 'ep-1',
@@ -205,6 +218,8 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       EventType: 'residents.move_out',
       NotificationData: {
         ...baseEvent.NotificationData,
+        RoomNumber: '101',
+        MoveOutDate: '2026-01-19',
       },
     };
 
@@ -221,13 +236,11 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       }),
     );
 
-    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
       'Service_Table_API',
-      [{ field: 'Service_ID', value: expect.any(String) }],
+      'svc-1',
       expect.objectContaining({
-        PatientNumber: '70508',
-        CUID: 'C-113',
-        EndDate: expect.any(String),
+        EndDate: '2026-01-19',
       }),
     );
 

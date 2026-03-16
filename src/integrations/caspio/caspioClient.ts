@@ -25,6 +25,17 @@ export type CommunityTableRecord = {
   [key: string]: unknown;
 };
 
+export type ServiceTableRecord = {
+  Service_ID?: string;
+  PatientNumber?: string;
+  CUID?: string;
+  ServiceType?: string;
+  StartDate?: string;
+  EndDate?: string;
+  CommunityName?: string;
+  [key: string]: unknown;
+};
+
 let tokenCache: TokenCache | null = null;
 
 const authClient = createHttpClient({
@@ -144,6 +155,23 @@ function extractRecordsFromResponse(data: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function extractRecordId(record: Record<string, unknown>): string | undefined {
+  if (record.PK_ID !== undefined) return String(record.PK_ID);
+  if (record.PK !== undefined) return String(record.PK);
+  if (record._id !== undefined) return String(record._id);
+  if (record.id !== undefined) return String(record.id);
+  if (record.Id !== undefined) return String(record.Id);
+  return undefined;
+}
+
+function parseSortableDate(value: unknown): number {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const ts = Date.parse(value);
+  return Number.isNaN(ts) ? Number.NEGATIVE_INFINITY : ts;
 }
 
 /**
@@ -344,6 +372,32 @@ export async function findRecordByFields(
           'caspio_record_not_found_404_filters',
         );
         return { found: false };
+      }
+      throw error;
+    }
+  });
+}
+
+async function findRecordsByFields(
+  tableName: string,
+  filters: Array<{ field: string; value: string | number | boolean }>,
+): Promise<unknown[]> {
+  return caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const filter = buildCompositeFilter(filters);
+    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return extractRecordsFromResponse(response.data);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        logger.debug({ tableName, filters, url }, 'caspio_records_not_found_404_filters');
+        return [];
       }
       throw error;
     }
@@ -615,6 +669,46 @@ export async function findByPatientNumber(
       throw error;
     }
   });
+}
+
+export async function findActiveOrLatestServiceRow(params: {
+  patientNumber: string;
+  cuid: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const records = (await findRecordsByFields(env.CASPIO_SERVICE_TABLE_NAME, [
+    { field: 'PatientNumber', value: params.patientNumber },
+    { field: 'CUID', value: params.cuid },
+  ])) as Array<Record<string, unknown>>;
+
+  if (records.length === 0) {
+    return { found: false };
+  }
+
+  const withIds = records
+    .map((record) => ({ record, id: extractRecordId(record) }))
+    .filter((entry) => entry.id);
+
+  if (withIds.length === 0) {
+    logger.warn(
+      { patientNumber: params.patientNumber, cuid: params.cuid, matchCount: records.length },
+      'caspio_service_rows_found_without_ids',
+    );
+    return { found: false };
+  }
+
+  const activeRows = withIds.filter(({ record }) => {
+    const endDate = record.EndDate;
+    return endDate === undefined || endDate === null || (typeof endDate === 'string' && endDate.trim().length === 0);
+  });
+  const sourceRows = activeRows.length > 0 ? activeRows : withIds;
+
+  sourceRows.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
+  const selected = sourceRows[0];
+  return {
+    found: true,
+    id: selected.id,
+    record: selected.record as ServiceTableRecord,
+  };
 }
 
 /**
