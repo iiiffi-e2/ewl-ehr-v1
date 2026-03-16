@@ -1,4 +1,5 @@
 import { format, parseISO } from 'date-fns';
+import { createHash } from 'crypto';
 
 import type { AlisEvent } from '../../webhook/schemas.js';
 import type { AllResidentData } from '../alisClient.js';
@@ -52,6 +53,79 @@ export type CaspioRecord = {
   CommunityGroup?: string;
   Neighborhood?: string;
   SerialNumber?: string;
+};
+
+export type CommunityTableApiRecord = {
+  CUID?: string;
+  CommunityID?: string;
+  CommunityName?: string;
+  Neighborhood?: string;
+  Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
+  CommunityGroup?: string;
+  RoomNumber?: string;
+  SerialNumber?: string;
+  Sector?: string;
+};
+
+export type CarePatientTableApiRecord = {
+  PatientNumber?: string;
+  PatientSSN?: string;
+  LastName?: string;
+  FirstName?: string;
+  PatientDOB?: string;
+  PatientCommunity?: string;
+  PatientAddress?: string;
+  ApartmentNumber?: string;
+  PatientAddressCity?: string;
+  PatientAddressState?: string;
+  PatientAddressZip?: string;
+  PatientPrimaryInsurance?: string | null;
+  PrimaryInsuranceNum?: string | null;
+  GroupNumber1?: string | null;
+  Secondinsurance?: string | null;
+  SecondInsuranceNum?: string | null;
+  GroupNumber2?: string | null;
+  Diagnosis1?: string;
+  Diagnosis2?: string;
+  PatientPhoneNumber?: string;
+  FamilyContact1Name?: string | null;
+  FamilyContact1Relationship?: string | null;
+  FamilyContact1Number?: string | null;
+  FamilyContact1Email?: string | null;
+  FamilyContact1Address?: string | null;
+  FamilyContact2Name?: string | null;
+  FamilyContact2Relationship?: string | null;
+  FamilyContact2Number?: string | null;
+  FamilyContact2Email?: string | null;
+  FamilyContact2Address?: string | null;
+  Insurance_Type?: string | null;
+  Insurance_2_Type?: string | null;
+  Move_in_Date?: string;
+  Move_Out_Date?: string;
+  Service_Start_Date?: string;
+  Service_End_Date?: string;
+  Fall_Baseline?: string;
+  On_Prem?: boolean;
+  On_Prem_Date?: string;
+  Off_Prem?: boolean;
+  Off_Prem_Date?: string;
+  Hospice?: boolean;
+  DiagnosisCode?: string;
+  CUID?: string;
+  CommunityName?: string;
+};
+
+export type ServiceTableApiRecord = {
+  Service_ID: string;
+  PatientNumber: string;
+  CUID?: string;
+  ServiceType?: string;
+  StartDate?: string;
+  EndDate?: string;
+  CommunityName?: string;
 };
 
 /**
@@ -244,6 +318,221 @@ function filterFinancialContacts(
   contacts: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   return contacts.filter((contact) => isFinanciallyResponsibleContact(contact));
+}
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
+}
+
+function getResidentRecord(payload: AlisPayload): Record<string, unknown> {
+  return payload.data.resident as Record<string, unknown>;
+}
+
+function getBasicInfoRecord(payload: AlisPayload): Record<string, unknown> {
+  return payload.data.basicInfo as Record<string, unknown>;
+}
+
+function getCommunityRecord(payload: AlisPayload): Record<string, unknown> | undefined {
+  return payload.data.community as Record<string, unknown> | undefined;
+}
+
+export function mapCommunityRecord(payload: AlisPayload): CommunityTableApiRecord {
+  const resident = getResidentRecord(payload);
+  const basicInfo = getBasicInfoRecord(payload);
+  const community = getCommunityRecord(payload);
+  const communityId =
+    getStringValue(community, ['CommunityID', 'CommunityId', 'communityId']) ??
+    getStringValue(resident, ['CommunityId', 'communityId']) ??
+    getStringValue(basicInfo, ['CommunityId', 'communityId']);
+
+  const record: CommunityTableApiRecord = {
+    CUID:
+      getStringValue(community, ['CUID', 'cuid']) ??
+      (communityId ? `COMM-${communityId}` : undefined),
+    CommunityID: communityId,
+    CommunityName: getStringValue(community, ['CommunityName', 'communityName']),
+    Neighborhood: getStringValue(community, ['Neighborhood', 'neighborhood']),
+    Address: getStringValue(community, ['Address', 'address']),
+    City: getStringValue(community, ['City', 'city']),
+    State: getStringValue(community, ['State', 'state']),
+    Zip: getStringValue(community, ['Zip', 'zip', 'ZipCode', 'zipCode']),
+    CommunityGroup: getStringValue(community, ['CommunityGroup', 'communityGroup']),
+    RoomNumber: getActiveRoomNumber(
+      payload.data.roomAssignments as Array<Record<string, unknown>> | undefined,
+      (resident.Rooms || resident.rooms) as Array<Record<string, unknown>> | undefined,
+    ),
+    SerialNumber: getStringValue(community, ['SerialNumber', 'serialNumber']),
+    Sector: getStringValue(community, ['Sector', 'sector']),
+  };
+
+  return stripUndefined(record);
+}
+
+export function mapPatientRecord(
+  payload: AlisPayload,
+  community: {
+    CUID?: string;
+    CommunityName?: string;
+  } = {},
+): CarePatientTableApiRecord {
+  const resident = getResidentRecord(payload);
+  const basicInfo = getBasicInfoRecord(payload);
+  const residentId = payload.residentId ?? getStringValue(resident, ['ResidentId', 'residentId']);
+  const firstName = getStringValue(resident, ['FirstName', 'firstName']);
+  const lastName = getStringValue(resident, ['LastName', 'lastName']);
+  const dob = extractDatePart(getStringValue(resident, ['DateOfBirth', 'dateOfBirth']));
+  const moveInDate = extractDatePart(
+    getStringValue(resident, ['PhysicalMoveInDate', 'physicalMoveInDate']) ??
+      getStringValue(resident, ['FinancialMoveInDate', 'financialMoveInDate']),
+  );
+  const isOnLeave = getBooleanValue(resident, ['IsOnLeave', 'isOnLeave', 'OnLeave', 'onLeave']);
+
+  const contacts = filterFinancialContacts(
+    (payload.data.contacts || []) as Array<Record<string, unknown>>,
+  );
+  const contact1 = contacts[0];
+  const contact2 = contacts[1];
+
+  const contact1Name =
+    getStringValue(contact1, ['Name', 'name']) ||
+    [getStringValue(contact1, ['FirstName', 'firstName']), getStringValue(contact1, ['LastName', 'lastName'])]
+      .filter(Boolean)
+      .join(' ')
+      .trim() ||
+    undefined;
+  const contact2Name =
+    getStringValue(contact2, ['Name', 'name']) ||
+    [getStringValue(contact2, ['FirstName', 'firstName']), getStringValue(contact2, ['LastName', 'lastName'])]
+      .filter(Boolean)
+      .join(' ')
+      .trim() ||
+    undefined;
+
+  const contact1Relationship = getStringValue(contact1, [
+    'RelationshipType',
+    'relationshipType',
+    'Relationship',
+    'relationship',
+  ]);
+  const contact2Relationship = getStringValue(contact2, [
+    'RelationshipType',
+    'relationshipType',
+    'Relationship',
+    'relationship',
+  ]);
+
+  const diagnosesFull = payload.data.diagnosesAndAllergiesFull as Record<string, unknown> | undefined | null;
+  const diagnosis1 =
+    getStringValue(diagnosesFull ?? undefined, ['primaryDiagnoses', 'PrimaryDiagnoses']) ??
+    getStringValue((payload.data.diagnosesAndAllergies?.[0] as Record<string, unknown>) ?? undefined, [
+      'Description',
+      'description',
+      'Code',
+      'code',
+    ]);
+  const diagnosis2 =
+    getStringValue(diagnosesFull ?? undefined, ['secondaryDiagnoses', 'SecondaryDiagnoses']) ??
+    getStringValue((payload.data.diagnosesAndAllergies?.[1] as Record<string, unknown>) ?? undefined, [
+      'Description',
+      'description',
+      'Code',
+      'code',
+    ]);
+
+  const { slot1, slot2 } = normalizeMedicalInsurances(payload.data.insurance ?? []);
+
+  const communityPayload = getCommunityRecord(payload);
+  const patientAddress = getStringValue(communityPayload, ['Address', 'address']);
+  const patientAddressCity = getStringValue(communityPayload, ['City', 'city']);
+  const patientAddressState = getStringValue(communityPayload, ['State', 'state']);
+  const patientAddressZip = getStringValue(communityPayload, ['Zip', 'zip', 'ZipCode', 'zipCode']);
+
+  const record: CarePatientTableApiRecord = {
+    PatientNumber: residentId ? String(residentId) : undefined,
+    PatientSSN: getStringValue(resident, ['SSN', 'Ssn', 'ssn']),
+    LastName: lastName,
+    FirstName: firstName,
+    PatientDOB: dob,
+    PatientCommunity: community.CommunityName ?? getStringValue(communityPayload, ['CommunityName', 'communityName']),
+    PatientAddress: patientAddress,
+    PatientAddressCity: patientAddressCity,
+    PatientAddressState: patientAddressState,
+    PatientAddressZip: patientAddressZip,
+    PatientPrimaryInsurance: slot1?.name ?? null,
+    PrimaryInsuranceNum: slot1?.number ?? null,
+    GroupNumber1: slot1?.group ?? null,
+    Secondinsurance: slot2?.name ?? null,
+    SecondInsuranceNum: slot2?.number ?? null,
+    GroupNumber2: slot2?.group ?? null,
+    Insurance_Type: slot1?.type ?? null,
+    Insurance_2_Type: slot2?.type ?? null,
+    Diagnosis1: diagnosis1,
+    Diagnosis2: diagnosis2,
+    PatientPhoneNumber:
+      getStringValue(resident, ['Phone', 'phone', 'PhoneNumber', 'phoneNumber']) ?? getContactPhoneNumber(contact1),
+    FamilyContact1Name: contact1Name,
+    FamilyContact1Relationship: contact1Relationship,
+    FamilyContact1Number: getContactPhoneNumber(contact1) ?? null,
+    FamilyContact1Email: getStringValue(contact1, ['Email', 'email']) ?? null,
+    FamilyContact1Address: getContactAddress(contact1) ?? null,
+    FamilyContact2Name: contact2Name ?? null,
+    FamilyContact2Relationship: contact2Relationship ?? null,
+    FamilyContact2Number: getContactPhoneNumber(contact2) ?? null,
+    FamilyContact2Email: getStringValue(contact2, ['Email', 'email']) ?? null,
+    FamilyContact2Address: getContactAddress(contact2) ?? null,
+    Move_in_Date: moveInDate,
+    On_Prem: isOnLeave === undefined ? undefined : !isOnLeave,
+    Off_Prem: isOnLeave,
+    Off_Prem_Date:
+      isOnLeave === true
+        ? extractDatePart(
+            getStringValue(resident, [
+              'OnLeaveStartDateUtc',
+              'onLeaveStartDateUtc',
+              'OnLeaveStartDate',
+              'onLeaveStartDate',
+              'LeaveStartDate',
+              'leaveStartDate',
+            ]),
+          )
+        : undefined,
+    Hospice: contacts.some((contact) => isHospiceContact(contact)),
+    DiagnosisCode: getStringValue(basicInfo, ['PrimaryDiagnosisCode', 'primaryDiagnosisCode']),
+    CUID: community.CUID,
+    CommunityName: community.CommunityName,
+  };
+
+  return stripUndefined(record);
+}
+
+export function mapServiceRecord(params: {
+  patientNumber: string | number;
+  cuid?: string;
+  serviceType?: string;
+  startDate?: string;
+  endDate?: string;
+  communityName?: string;
+  serviceId?: string;
+}): ServiceTableApiRecord {
+  const patientNumber = String(params.patientNumber);
+  const stableInput = [
+    patientNumber,
+    params.cuid ?? '',
+    params.serviceType ?? '',
+    params.startDate ?? '',
+  ].join('|');
+  const deterministicServiceId = createHash('sha1').update(stableInput).digest('hex').slice(0, 20);
+  return stripUndefined({
+    Service_ID: params.serviceId ?? deterministicServiceId,
+    PatientNumber: patientNumber,
+    CUID: params.cuid,
+    ServiceType: params.serviceType,
+    StartDate: params.startDate,
+    EndDate: params.endDate,
+    CommunityName: params.communityName,
+  });
 }
 
 /**
