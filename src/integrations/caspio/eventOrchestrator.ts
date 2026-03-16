@@ -210,7 +210,6 @@ async function findExistingPatient(
     if (match.found) {
       return { found: true, id: match.id, record: match.record as CarePatientTableApiRecord };
     }
-    return { found: false };
   }
 
   const fallback = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
