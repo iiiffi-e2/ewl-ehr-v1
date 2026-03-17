@@ -65,6 +65,16 @@ export async function getCommunityEnrichment(
     const roomLookup = await findCommunityByIdAndRoomNumber(communityId, normalizedRoom);
     if (roomLookup.found) {
       const record = roomLookup.record;
+      // Room-level match is the most specific source for patient/service routing.
+      // Prefer CUID and CommunityName from this row when present.
+      const roomLevelCuid = getStringField(record, 'CUID');
+      const roomLevelCommunityName = getStringField(record, 'CommunityName');
+      if (roomLevelCuid) {
+        enrichment.CUID = roomLevelCuid;
+      }
+      if (roomLevelCommunityName) {
+        enrichment.CommunityName = roomLevelCommunityName;
+      }
       enrichment.Neighborhood = getStringField(record, 'Neighborhood');
       enrichment.SerialNumber = getStringField(record, 'SerialNumber');
       if (!enrichment.CommunityGroup) {

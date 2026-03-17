@@ -412,6 +412,10 @@ export function mapPatientRecord(
     getStringValue(resident, ['PhysicalMoveInDate', 'physicalMoveInDate']) ??
       getStringValue(resident, ['FinancialMoveInDate', 'financialMoveInDate']),
   );
+  const apartmentNumber = getActiveRoomNumber(
+    payload.data.roomAssignments as Array<Record<string, unknown>> | undefined,
+    (resident.Rooms || resident.rooms) as Array<Record<string, unknown>> | undefined,
+  );
   const isOnLeave = getBooleanValue(resident, ['IsOnLeave', 'isOnLeave', 'OnLeave', 'onLeave']);
 
   const contacts = filterFinancialContacts(
@@ -481,6 +485,7 @@ export function mapPatientRecord(
     FirstName: firstName,
     PatientDOB: dob,
     PatientCommunity: community.CommunityName ?? getStringValue(communityPayload, ['CommunityName', 'communityName']),
+    ApartmentNumber: apartmentNumber,
     PatientAddress: patientAddress,
     PatientAddressCity: patientAddressCity,
     PatientAddressState: patientAddressState,

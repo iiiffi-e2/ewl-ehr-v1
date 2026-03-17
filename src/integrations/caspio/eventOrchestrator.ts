@@ -187,6 +187,15 @@ async function applyCommunityEnrichment(
 ): Promise<{ CUID?: string; CommunityName?: string }> {
   try {
     const enrichment = await getCommunityEnrichment(communityId, roomNumber);
+    logger.info(
+      {
+        communityId,
+        roomNumber: roomNumber ?? null,
+        resolvedCuid: enrichment.CUID ?? null,
+        resolvedCommunityName: enrichment.CommunityName ?? null,
+      },
+      'patient_community_context_resolved',
+    );
     return {
       CUID: enrichment.CUID,
       CommunityName: enrichment.CommunityName,
@@ -350,6 +359,19 @@ async function resolveServiceCommunityContext(params: {
     return { matched: false };
   }
 
+  logger.info(
+    {
+      eventMessageId: params.event.EventMessageId,
+      eventType: params.event.EventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      roomNumber,
+      resolvedCuid: cuid,
+      resolvedCommunityName: communityName ?? null,
+    },
+    'service_community_context_resolved',
+  );
+
   return { matched: true, cuid, communityName };
 }
 
@@ -369,10 +391,20 @@ async function createServiceRow(params: {
     startDate: params.startDate,
     endDate: params.endDate,
   });
+  const { Service_ID, ...serviceRecordForWrite } = serviceRecord;
+  const filters: Array<{ field: string; value: string | number | boolean }> = [
+    { field: 'PatientNumber', value: params.patientNumber },
+    { field: 'CUID', value: params.cuid },
+    { field: 'StartDate', value: params.startDate },
+  ];
+  if (params.serviceType) {
+    filters.push({ field: 'ServiceType', value: params.serviceType });
+  }
+
   await upsertByFields(
     env.CASPIO_SERVICE_TABLE_NAME,
-    [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
-    serviceRecord,
+    filters,
+    serviceRecordForWrite as Record<string, unknown>,
   );
 }
 

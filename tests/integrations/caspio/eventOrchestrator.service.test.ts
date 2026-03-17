@@ -106,7 +106,12 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
-      [{ field: 'Service_ID', value: expect.any(String) }],
+      [
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'CUID', value: 'C-113' },
+        { field: 'StartDate', value: '2026-01-10' },
+        { field: 'ServiceType', value: 'Assisted Living' },
+      ],
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: 'C-113',
@@ -174,7 +179,12 @@ describe('eventOrchestrator service-table scenarios', () => {
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
-      [{ field: 'Service_ID', value: expect.any(String) }],
+      [
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'CUID', value: 'C-113' },
+        { field: 'StartDate', value: '2026-01-22T12:00:00Z' },
+        { field: 'ServiceType', value: 'Memory Care' },
+      ],
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: 'C-113',
