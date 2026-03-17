@@ -6,11 +6,17 @@ import {
 } from './caspioClient.js';
 
 export type CommunityEnrichment = {
+  CUID?: string;
+  CommunityID?: string;
   CommunityGroup?: string;
   Neighborhood?: string;
   SerialNumber?: string;
   CommunityName?: string;
   Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
+  Sector?: string;
 };
 
 function normalizeRoomNumber(value?: string | number | null): string | undefined {
@@ -43,9 +49,15 @@ export async function getCommunityEnrichment(
   const communityLookup = await findCommunityById(communityId);
   if (communityLookup.found) {
     const record = communityLookup.record;
+    enrichment.CUID = getStringField(record, 'CUID');
+    enrichment.CommunityID = getStringField(record, 'CommunityID');
     enrichment.CommunityGroup = getStringField(record, 'CommunityGroup');
     enrichment.CommunityName = getStringField(record, 'CommunityName');
     enrichment.Address = getStringField(record, 'Address');
+    enrichment.City = getStringField(record, 'City');
+    enrichment.State = getStringField(record, 'State');
+    enrichment.Zip = getStringField(record, 'Zip');
+    enrichment.Sector = getStringField(record, 'Sector');
   }
 
   const normalizedRoom = normalizeRoomNumber(roomNumber);

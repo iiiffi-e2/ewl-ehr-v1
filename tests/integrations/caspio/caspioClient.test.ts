@@ -27,7 +27,8 @@ jest.mock('../../../src/config/env.js', () => ({
     CASPIO_TOKEN_URL: 'https://c3aca270.caspio.com/oauth/token',
     CASPIO_CLIENT_ID: 'test-client-id',
     CASPIO_CLIENT_SECRET: 'test-client-secret',
-    CASPIO_TABLE_NAME: 'AlisAPITestTable',
+    CASPIO_TABLE_NAME: 'CarePatientTable_API',
+    CASPIO_OFF_PREM_HISTORY_TABLE_NAME: 'PatientOffPremHistory_API',
     CASPIO_TIMEOUT_MS: 10000,
     CASPIO_RETRY_MAX: 3,
   },
@@ -174,7 +175,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(false);
     });
 
@@ -198,7 +199,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(true);
       expect(result.id).toBe('caspio-record-id-123');
       expect(result.matches).toBe(1);
@@ -222,7 +223,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(true);
       expect(result.matches).toBe(2);
       expect(logger.warn).toHaveBeenCalledWith(
@@ -237,7 +238,7 @@ describe('caspioClient', () => {
     it('handles 404 as not found', async () => {
       const axiosError = new Error('Not Found') as any;
       axiosError.response = { status: 404 };
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       const mockGet = jest.fn().mockRejectedValue(axiosError);
 
@@ -250,7 +251,7 @@ describe('caspioClient', () => {
       jest.resetModules();
       const { findByResidentId: findById } = await import('../../../src/integrations/caspio/caspioClient.js');
 
-      const result = await findById('AlisAPITestTable', '12345');
+      const result = await findById('CarePatientTable_API', '12345');
       expect(result.found).toBe(false);
     });
   });
@@ -261,19 +262,20 @@ describe('caspioClient', () => {
         data: [{ PK: 'caspio-id-123', Resident_ID: '12345' }],
       });
       const mockPut = jest.fn().mockResolvedValue({ data: {} });
+      const mockPost = jest.fn();
 
       const { createHttpClient } = require('../../../src/config/axios.js');
       createHttpClient.mockReturnValue({
         get: mockGet,
         put: mockPut,
-        post: jest.fn(),
+        post: mockPost,
       });
 
       jest.resetModules();
       const { upsertByResidentId: upsert } = await import('../../../src/integrations/caspio/caspioClient.js');
 
       const record = { Resident_ID: '12345', Resident_Name: 'John Doe' };
-      const result = await upsert('AlisAPITestTable', '12345', record);
+      const result = await upsert('CarePatientTable_API', '12345', record);
 
       expect(result.action).toBe('update');
       expect(result.id).toBe('caspio-id-123');
@@ -298,14 +300,13 @@ describe('caspioClient', () => {
       const { upsertByResidentId: upsert } = await import('../../../src/integrations/caspio/caspioClient.js');
 
       const record = { Resident_ID: '12345', Resident_Name: 'John Doe' };
-      const result = await upsert('AlisAPITestTable', '12345', record);
+      const result = await upsert('CarePatientTable_API', '12345', record);
 
       expect(result.action).toBe('insert');
       expect(result.id).toBe('new-caspio-id-456');
       expect(mockPost).toHaveBeenCalled();
     });
   });
-
 
   describe('retry logic', () => {
     it('retries on 429 status', async () => {
@@ -317,7 +318,7 @@ describe('caspioClient', () => {
         })
         .mockResolvedValueOnce({ data: 'success' });
 
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       jest.resetModules();
       const { caspioRequestWithRetry: withRetry } = await import(
@@ -338,7 +339,7 @@ describe('caspioClient', () => {
         })
         .mockResolvedValueOnce({ data: 'success' });
 
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       jest.resetModules();
       const { caspioRequestWithRetry: withRetry } = await import(
@@ -359,7 +360,7 @@ describe('caspioClient', () => {
         })
         .mockResolvedValueOnce({ data: 'success' });
 
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       jest.resetModules();
       const { caspioRequestWithRetry: withRetry } = await import(
@@ -377,7 +378,7 @@ describe('caspioClient', () => {
         isAxiosError: true,
       });
 
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       jest.resetModules();
       const { caspioRequestWithRetry: withRetry } = await import(
@@ -397,7 +398,7 @@ describe('caspioClient', () => {
         })
         .mockResolvedValueOnce({ data: 'success' });
 
-      axios.isAxiosError = jest.fn().mockReturnValue(true);
+      (axios.isAxiosError as unknown as jest.Mock) = jest.fn().mockReturnValue(true);
 
       jest.resetModules();
       const { caspioRequestWithRetry: withRetry } = await import(

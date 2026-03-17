@@ -1,25 +1,30 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import {
-  createAlisClient,
   fetchAllResidentData,
   resolveAlisCredentials,
   type AllResidentData,
 } from '../alisClient.js';
 import type { AlisEvent } from '../../webhook/schemas.js';
+import type { AlisPayload } from '../alis/types.js';
 
 import {
-  findRecordByResidentIdAndCommunityId,
-  findByResidentId,
-  insertRecord,
+  findActiveOrLatestServiceRow,
+  findOpenOffPremEpisode,
+  findByPatientNumber,
+  findCommunityByIdAndRoomNumber,
+  findRecordByFields,
+  upsertOffPremEpisodeByEpisodeId,
+  upsertByFields,
   updateRecordById,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
-import type { CaspioRecord } from './caspioMapper.js';
+import type { CarePatientTableApiRecord } from './caspioMapper.js';
 import {
-  mapMoveInEventToResidentRecord,
-  mapMoveOutEventToVacantRecord,
-  mapUpdateEventToResidentPatch,
+  mapOffPremEndPatch,
+  mapOffPremStartEpisode,
+  mapPatientRecord,
+  mapServiceRecord,
   redactForLogs,
 } from './caspioMapper.js';
 
@@ -46,6 +51,23 @@ function extractNumericValue(
   return undefined;
 }
 
+function extractStringValue(
+  payload: Record<string, unknown> | undefined,
+  keys: string[],
+): string | undefined {
+  if (!payload) return undefined;
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return undefined;
+}
+
 /**
  * Extract residentId from event NotificationData
  */
@@ -57,6 +79,36 @@ function extractResidentId(event: AlisEvent): number {
   }
 
   throw new Error('ResidentId is required in NotificationData');
+}
+
+function extractRoomNumber(event: AlisEvent): string | undefined {
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  if (!notificationData) return undefined;
+
+  const direct = extractStringValue(notificationData, ['RoomNumber', 'roomNumber', 'Room', 'room']);
+  if (direct) return direct;
+
+  const roomsAssigned = notificationData.RoomsAssigned;
+  if (Array.isArray(roomsAssigned)) {
+    for (const item of roomsAssigned) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const room = extractStringValue(record, ['RoomNumber', 'Room', 'roomNumber', 'room']);
+      if (room) return room;
+    }
+  }
+
+  const roomsUnassigned = notificationData.RoomsUnassigned;
+  if (Array.isArray(roomsUnassigned)) {
+    for (const item of roomsUnassigned) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const room = extractStringValue(record, ['RoomNumber', 'Room', 'roomNumber', 'room']);
+      if (room) return room;
+    }
+  }
+
+  return undefined;
 }
 
 function selectValidDateString(params: {
@@ -132,22 +184,13 @@ function getTodayDateString(): string {
 async function applyCommunityEnrichment(
   communityId: number,
   roomNumber: string | undefined,
-  record: Partial<CaspioRecord>,
-): Promise<void> {
+): Promise<{ CUID?: string; CommunityName?: string }> {
   try {
     const enrichment = await getCommunityEnrichment(communityId, roomNumber);
-    if (enrichment.CommunityName) {
-      record.CommunityName = enrichment.CommunityName;
-    }
-    if (enrichment.CommunityGroup) {
-      record.CommunityGroup = enrichment.CommunityGroup;
-    }
-    if (enrichment.Neighborhood) {
-      record.Neighborhood = enrichment.Neighborhood;
-    }
-    if (enrichment.SerialNumber) {
-      record.SerialNumber = enrichment.SerialNumber;
-    }
+    return {
+      CUID: enrichment.CUID,
+      CommunityName: enrichment.CommunityName,
+    };
   } catch (error) {
     logger.warn(
       {
@@ -157,21 +200,10 @@ async function applyCommunityEnrichment(
       },
       'caspio_community_enrichment_failed',
     );
+    return {};
   }
 }
 
-function appendCommunityNameSuffix(name: string | undefined): string | undefined {
-  if (!name) return undefined;
-  const trimmed = name.trim();
-  if (trimmed.length === 0) return undefined;
-  if (trimmed.endsWith('_1')) return trimmed;
-  if (trimmed.endsWith(' 1')) return `${trimmed.slice(0, -2)}_1`;
-  return `${trimmed}_1`;
-}
-
-/**
- * Fetch full resident data if needed
- */
 async function fetchFullResidentDataIfNeeded(
   companyId: number,
   companyKey: string,
@@ -188,69 +220,223 @@ async function fetchFullResidentDataIfNeeded(
 }
 
 /**
- * Check if resident record exists in Caspio
- * Tries composite key lookup first, falls back to Resident_ID only for legacy records
+ * Build AlisPayload from fetched resident data for mapper reuse.
  */
-async function ensureResidentExists(
+function buildAlisPayload(
   residentId: number,
-  communityId: number,
-  required: boolean = false,
-): Promise<{ found: boolean; id?: string; record?: CaspioRecord }> {
-  if (!communityId) {
-    if (required) {
-      throw new Error('CommunityId is required for resident lookup');
-    }
-    // Try Resident_ID only lookup as fallback
-    const result = await findByResidentId(env.CASPIO_TABLE_NAME, residentId);
-    return {
-      found: result.found,
-      id: result.id,
-      record: result.raw as CaspioRecord | undefined,
-    };
-  }
-
-  // First try composite key lookup (Resident_ID + Community_ID)
-  const result = await findRecordByResidentIdAndCommunityId(
-    env.CASPIO_TABLE_NAME,
+  event: AlisEvent,
+  fullResidentData: AllResidentData,
+): AlisPayload {
+  return {
+    success: true,
     residentId,
-    communityId,
-  );
+    timestamp: event.EventMessageDate,
+    apiBase: '',
+    data: {
+      resident: fullResidentData.resident,
+      basicInfo: fullResidentData.basicInfo,
+      insurance: fullResidentData.insurance,
+      roomAssignments: fullResidentData.roomAssignments,
+      diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies,
+      diagnosesAndAllergiesFull: fullResidentData.diagnosesAndAllergiesFull ?? null,
+      contacts: fullResidentData.contacts,
+      community: fullResidentData.community ?? null,
+    },
+    counts: {
+      insurance: fullResidentData.insurance.length,
+      roomAssignments: fullResidentData.roomAssignments.length,
+      diagnosesAndAllergies: fullResidentData.diagnosesAndAllergies.length,
+      contacts: fullResidentData.contacts.length,
+    },
+  };
+}
 
-  if (result.found) {
-    return {
-      found: true,
-      id: result.id,
-      record: result.record as CaspioRecord | undefined,
-    };
-  }
-
-  // Fallback: try Resident_ID only (for legacy records without Community_ID)
-  // Only do this for update operations, not for move-in (new records should have Community_ID)
-  logger.debug(
-    { residentId, communityId },
-    'composite_key_not_found_trying_resident_id_only',
-  );
-  const fallbackResult = await findByResidentId(env.CASPIO_TABLE_NAME, residentId);
-  
-  if (fallbackResult.found && fallbackResult.raw) {
-    const record = fallbackResult.raw as CaspioRecord;
-    // Only use fallback if the record doesn't have a Community_ID set (legacy record)
-    // or if it matches the requested Community_ID
-    const recordCommunityId = record.Community_ID;
-    if (!recordCommunityId || recordCommunityId === communityId) {
-      logger.info(
-        { residentId, communityId, foundCommunityId: recordCommunityId },
-        'using_resident_id_only_fallback_for_legacy_record',
-      );
-      return {
-        found: true,
-        id: fallbackResult.id,
-        record: record,
-      };
+async function findExistingPatient(
+  patientNumber: string,
+  cuid?: string,
+): Promise<{ found: boolean; id?: string; record?: CarePatientTableApiRecord }> {
+  if (cuid) {
+    const match = await findRecordByFields(env.CASPIO_TABLE_NAME, [
+      { field: 'PatientNumber', value: patientNumber },
+      { field: 'CUID', value: cuid },
+    ]);
+    if (match.found) {
+      return { found: true, id: match.id, record: match.record as CarePatientTableApiRecord };
     }
   }
 
-  return { found: false };
+  const fallback = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
+  return {
+    found: fallback.found,
+    id: fallback.id,
+    record: fallback.raw as CarePatientTableApiRecord | undefined,
+  };
+}
+
+function getClassification(
+  event: AlisEvent,
+  residentData?: Record<string, unknown>,
+): string | undefined {
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  return (
+    extractStringValue(notificationData, ['Classification', 'classification', 'ServiceType', 'serviceType']) ??
+    (residentData ? extractStringValue(residentData, ['Classification', 'ProductType']) : undefined)
+  );
+}
+
+function normalizeScenarioDate(primary?: string, fallback?: string): string {
+  const value = (primary && primary.trim().length > 0 ? primary : undefined) ?? fallback ?? getTodayDateString();
+  return value;
+}
+
+function isOpenServiceRow(endDate: unknown): boolean {
+  return endDate === undefined || endDate === null || (typeof endDate === 'string' && endDate.trim().length === 0);
+}
+
+async function resolveServiceCommunityContext(params: {
+  event: AlisEvent;
+  residentId: number;
+  communityId: number;
+}): Promise<{ matched: boolean; cuid?: string; communityName?: string }> {
+  const roomNumber = extractRoomNumber(params.event);
+  if (!roomNumber) {
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+      },
+      'service_write_skipped_missing_room_number',
+    );
+    return { matched: false };
+  }
+
+  const communityMatch = await findCommunityByIdAndRoomNumber(params.communityId, roomNumber);
+  if (!communityMatch.found || !communityMatch.record) {
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        roomNumber,
+      },
+      'service_write_skipped_community_room_not_found',
+    );
+    return { matched: false };
+  }
+
+  const cuid =
+    typeof communityMatch.record.CUID === 'string' && communityMatch.record.CUID.trim().length > 0
+      ? communityMatch.record.CUID.trim()
+      : undefined;
+  const communityName =
+    typeof communityMatch.record.CommunityName === 'string' && communityMatch.record.CommunityName.trim().length > 0
+      ? communityMatch.record.CommunityName.trim()
+      : undefined;
+
+  if (!cuid) {
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        roomNumber,
+      },
+      'service_write_skipped_missing_cuid',
+    );
+    return { matched: false };
+  }
+
+  return { matched: true, cuid, communityName };
+}
+
+async function createServiceRow(params: {
+  patientNumber: string;
+  cuid: string;
+  communityName?: string;
+  serviceType?: string;
+  startDate: string;
+  endDate?: string;
+}): Promise<void> {
+  const serviceRecord = mapServiceRecord({
+    patientNumber: params.patientNumber,
+    cuid: params.cuid,
+    communityName: params.communityName,
+    serviceType: params.serviceType,
+    startDate: params.startDate,
+    endDate: params.endDate,
+  });
+  await upsertByFields(
+    env.CASPIO_SERVICE_TABLE_NAME,
+    [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
+    serviceRecord,
+  );
+}
+
+async function closeLatestServiceRow(params: {
+  patientNumber: string;
+  cuid: string;
+  endDate: string;
+}): Promise<void> {
+  const serviceRow = await findActiveOrLatestServiceRow({
+    patientNumber: params.patientNumber,
+    cuid: params.cuid,
+  });
+
+  if (!serviceRow.found || !serviceRow.id) {
+    logger.warn(
+      {
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+      },
+      'service_close_skipped_no_existing_row',
+    );
+    return;
+  }
+
+  if (serviceRow.record?.EndDate === params.endDate) {
+    return;
+  }
+
+  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, { EndDate: params.endDate });
+}
+
+async function closeOpenOffPremEpisode(params: {
+  patientNumber: string;
+  cuid?: string;
+  leaveId?: number;
+  offPremEnd: string;
+  endEventMessageId: string | number;
+  closeReason: 'leave_end' | 'move_out';
+}): Promise<void> {
+  const openEpisode = await findOpenOffPremEpisode({
+    patientNumber: params.patientNumber,
+    cuid: params.cuid,
+    leaveId: params.leaveId,
+  });
+
+  if (!openEpisode.found || !openEpisode.id || !openEpisode.record?.OffPremStart) {
+    logger.warn(
+      {
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+        leaveId: params.leaveId,
+      },
+      'off_prem_open_episode_not_found',
+    );
+    return;
+  }
+
+  const closePatch = mapOffPremEndPatch({
+    offPremStart: String(openEpisode.record.OffPremStart),
+    offPremEnd: params.offPremEnd,
+    endEventMessageId: params.endEventMessageId,
+    closeReason: params.closeReason,
+  });
+  await updateRecordById(env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME, openEpisode.id, closePatch);
 }
 
 /**
@@ -268,10 +454,6 @@ async function handleMoveInEvent(
     'handling_move_in_event',
   );
 
-  // Check if resident exists
-  const existing = await ensureResidentExists(residentId, communityId, false);
-
-  // Fetch full resident data
   const fullResidentData = await fetchFullResidentDataIfNeeded(
     companyId,
     companyKey,
@@ -279,67 +461,56 @@ async function handleMoveInEvent(
     communityId,
   );
 
-  if (existing.found && existing.id) {
-    // Update existing record (idempotency) - but don't overwrite Move_in_Date
-    const patch = mapUpdateEventToResidentPatch(
-      event,
-      fullResidentData,
-      existing.record,
-    );
-    
-    // Ensure we don't include Move_in_Date in patch
-    const { Move_in_Date, ...patchWithoutMoveIn } = patch;
-    
-    // Ensure Community_ID is set if it was missing (for legacy records)
-    if (!existing.record?.Community_ID && communityId) {
-      patchWithoutMoveIn.Community_ID = communityId;
-    }
-
-    const roomNumber = patchWithoutMoveIn.Room_number ?? existing.record?.Room_number;
-    await applyCommunityEnrichment(communityId, roomNumber, patchWithoutMoveIn);
-    
-    await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
-    
-    logger.info(
-      {
-        eventMessageId: event.EventMessageId,
-        residentId,
-        communityId,
-        caspioId: existing.id,
-      },
-      'move_in_event_updated_existing_record',
-    );
-  } else {
-    // Insert new record
-    const record = mapMoveInEventToResidentRecord(event, fullResidentData);
-    await applyCommunityEnrichment(communityId, record.Room_number, record);
-    const response = await insertRecord(env.CASPIO_TABLE_NAME, record);
-    
-    // Extract ID from response (Caspio uses PK_ID as primary key)
-    const responseData = response.data as Record<string, unknown>;
-    let id: string | undefined;
-    if (responseData.PK_ID) {
-      id = String(responseData.PK_ID);
-    } else if (responseData.PK) {
-      id = String(responseData.PK);
-    } else if (responseData._id) {
-      id = String(responseData._id);
-    } else if (responseData.id) {
-      id = String(responseData.id);
-    } else if (responseData.Id) {
-      id = String(responseData.Id);
-    }
-    
-    logger.info(
-      {
-        eventMessageId: event.EventMessageId,
-        residentId,
-        communityId,
-        caspioId: id,
-      },
-      'move_in_event_inserted_new_record',
-    );
+  const payload = buildAlisPayload(residentId, event, fullResidentData);
+  const roomNumber = extractRoomNumber(event);
+  const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
+  const patientRecord = mapPatientRecord(payload, communityContext);
+  patientRecord.PatientNumber = String(residentId);
+  if (!patientRecord.Service_Start_Date) {
+    patientRecord.Service_Start_Date = patientRecord.Move_in_Date ?? getTodayDateString();
   }
+
+  const result = await upsertByFields(
+    env.CASPIO_TABLE_NAME,
+    patientRecord.CUID
+      ? [
+          { field: 'PatientNumber', value: patientRecord.PatientNumber },
+          { field: 'CUID', value: patientRecord.CUID },
+        ]
+      : [{ field: 'PatientNumber', value: patientRecord.PatientNumber }],
+    patientRecord as Record<string, unknown>,
+  );
+
+  const resident = fullResidentData.resident as Record<string, unknown>;
+  const serviceType =
+    (typeof resident.Classification === 'string' && resident.Classification) ||
+    (typeof resident.ProductType === 'string' && resident.ProductType) ||
+    undefined;
+  const serviceCommunity = await resolveServiceCommunityContext({
+    event,
+    residentId,
+    communityId,
+  });
+  if (serviceCommunity.matched && serviceCommunity.cuid) {
+    await createServiceRow({
+      patientNumber: String(residentId),
+      cuid: serviceCommunity.cuid,
+      communityName: serviceCommunity.communityName,
+      serviceType,
+      startDate: normalizeScenarioDate(patientRecord.Move_in_Date, event.EventMessageDate),
+    });
+  }
+
+  logger.info(
+    {
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      action: result.action,
+      caspioId: result.id,
+    },
+    'move_in_event_upserted_patient_and_service',
+  );
 }
 
 /**
@@ -357,8 +528,9 @@ async function handleMoveOutEvent(
     'handling_move_out_event',
   );
 
-  // Check if resident exists (must exist for move-out)
-  const existing = await ensureResidentExists(residentId, communityId, true);
+  const roomNumber = extractRoomNumber(event);
+  const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
+  const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
   if (!existing.found || !existing.id) {
     logger.warn(
@@ -372,30 +544,34 @@ async function handleMoveOutEvent(
     return;
   }
 
-  // Update resident row: Set Move_Out_Date and Service_End_Date if empty
-  const updateData: Partial<CaspioRecord> = {
-    Resident_ID: String(residentId),
-    Community_ID: communityId,
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  const moveOutDate = normalizeScenarioDate(
+    extractStringValue(notificationData, ['PhysicalMoveOutDate', 'MoveOutDate', 'MoveOutDateTime']),
+    event.EventMessageDate,
+  );
+
+  const updateData: Partial<CarePatientTableApiRecord> = {
+    PatientNumber: String(residentId),
+    CUID: communityContext.CUID,
+    CommunityName: communityContext.CommunityName,
   };
 
   if (!existing.record?.Move_Out_Date) {
-    updateData.Move_Out_Date = getTodayDateString();
+    updateData.Move_Out_Date = moveOutDate;
   }
 
   if (!existing.record?.Service_End_Date) {
-    updateData.Service_End_Date = getTodayDateString();
-  }
-
-  const roomNumber = existing.record?.Room_number;
-  await applyCommunityEnrichment(communityId, roomNumber, updateData);
-
-  const baseCommunityName = updateData.CommunityName ?? existing.record?.CommunityName;
-  const suffixedCommunityName = appendCommunityNameSuffix(baseCommunityName);
-  if (suffixedCommunityName) {
-    updateData.CommunityName = suffixedCommunityName;
+    updateData.Service_End_Date = moveOutDate;
   }
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, updateData);
+
+  await fetchFullResidentDataIfNeeded(
+    companyId,
+    companyKey,
+    residentId,
+    communityId,
+  );
 
   logger.info(
     {
@@ -404,38 +580,29 @@ async function handleMoveOutEvent(
       communityId,
       caspioId: existing.id,
     },
-    'move_out_event_updated_resident_record',
+    'move_out_event_updated_patient_record',
   );
 
-  // Insert vacancy row
-  const vacantRecord = mapMoveOutEventToVacantRecord(event);
-  await applyCommunityEnrichment(communityId, vacantRecord.Room_number, vacantRecord);
-  const response = await insertRecord(env.CASPIO_TABLE_NAME, vacantRecord);
-
-  // Extract ID from response (Caspio uses PK_ID as primary key)
-  const responseData = response.data as Record<string, unknown>;
-  let id: string | undefined;
-  if (responseData.PK_ID) {
-    id = String(responseData.PK_ID);
-  } else if (responseData.PK) {
-    id = String(responseData.PK);
-  } else if (responseData._id) {
-    id = String(responseData._id);
-  } else if (responseData.id) {
-    id = String(responseData.id);
-  } else if (responseData.Id) {
-    id = String(responseData.Id);
+  const serviceCommunity = await resolveServiceCommunityContext({
+    event,
+    residentId,
+    communityId,
+  });
+  if (serviceCommunity.matched && serviceCommunity.cuid) {
+    await closeLatestServiceRow({
+      patientNumber: String(residentId),
+      cuid: serviceCommunity.cuid,
+      endDate: moveOutDate,
+    });
   }
 
-  logger.info(
-    {
-      eventMessageId: event.EventMessageId,
-      residentId,
-      communityId,
-      vacantCaspioId: id,
-    },
-    'move_out_event_inserted_vacancy_record',
-  );
+  await closeOpenOffPremEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    offPremEnd: moveOutDate,
+    endEventMessageId: event.EventMessageId,
+    closeReason: 'move_out',
+  });
 }
 
 /**
@@ -453,8 +620,9 @@ async function handleUpdateEvent(
     'handling_update_event',
   );
 
-  // Check if resident exists - if not, ignore the event
-  const existing = await ensureResidentExists(residentId, communityId, false);
+  const roomNumber = extractRoomNumber(event);
+  const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
+  const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
   if (!existing.found || !existing.id) {
     logger.info(
@@ -469,7 +637,6 @@ async function handleUpdateEvent(
     return;
   }
 
-  // Fetch full resident data
   const fullResidentData = await fetchFullResidentDataIfNeeded(
     companyId,
     companyKey,
@@ -477,22 +644,13 @@ async function handleUpdateEvent(
     communityId,
   );
 
-  // Create patch (excluding Move_in_Date unless explicitly requested)
-  const patch = mapUpdateEventToResidentPatch(event, fullResidentData, existing.record);
-
-  // Ensure we don't include Move_in_Date in patch for most events
+  const payload = buildAlisPayload(residentId, event, fullResidentData);
+  const patientRecord = mapPatientRecord(payload, communityContext);
+  patientRecord.PatientNumber = String(residentId);
   const patchWithoutMoveIn =
     event.EventType === 'residents.move_in_out_info_updated'
-      ? patch
-      : (({ Move_in_Date, ...rest }) => rest)(patch);
-
-  // Ensure Community_ID is set if it was missing (for legacy records)
-  if (!existing.record?.Community_ID && communityId) {
-    patchWithoutMoveIn.Community_ID = communityId;
-  }
-
-  const roomNumber = patchWithoutMoveIn.Room_number ?? existing.record?.Room_number;
-  await applyCommunityEnrichment(communityId, roomNumber, patchWithoutMoveIn);
+      ? patientRecord
+      : (({ Move_in_Date, ...rest }) => rest)(patientRecord);
 
   logger.debug(
     {
@@ -506,6 +664,59 @@ async function handleUpdateEvent(
   );
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
+
+  const resident = fullResidentData.resident as Record<string, unknown>;
+  const incomingServiceType = getClassification(event, resident);
+  const serviceCommunity = await resolveServiceCommunityContext({
+    event,
+    residentId,
+    communityId,
+  });
+  if (serviceCommunity.matched && serviceCommunity.cuid && incomingServiceType) {
+    const boundaryDate = normalizeScenarioDate(event.EventMessageDate);
+    const existingService = await findActiveOrLatestServiceRow({
+      patientNumber: String(residentId),
+      cuid: serviceCommunity.cuid,
+    });
+
+    if (!existingService.found || !existingService.id || !existingService.record) {
+      await createServiceRow({
+        patientNumber: String(residentId),
+        cuid: serviceCommunity.cuid,
+        communityName: serviceCommunity.communityName,
+        serviceType: incomingServiceType,
+        startDate: boundaryDate,
+      });
+    } else {
+      const currentServiceType =
+        typeof existingService.record.ServiceType === 'string'
+          ? existingService.record.ServiceType
+          : undefined;
+      const active = isOpenServiceRow(existingService.record.EndDate);
+      const hasChanged = !currentServiceType || currentServiceType !== incomingServiceType;
+
+      if (active && hasChanged) {
+        await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {
+          EndDate: boundaryDate,
+        });
+        await createServiceRow({
+          patientNumber: String(residentId),
+          cuid: serviceCommunity.cuid,
+          communityName: serviceCommunity.communityName,
+          serviceType: incomingServiceType,
+          startDate: boundaryDate,
+        });
+      } else if (!active) {
+        await createServiceRow({
+          patientNumber: String(residentId),
+          cuid: serviceCommunity.cuid,
+          communityName: serviceCommunity.communityName,
+          serviceType: incomingServiceType,
+          startDate: boundaryDate,
+        });
+      }
+    }
+  }
 
   logger.info(
     {
@@ -558,7 +769,8 @@ async function handleLeaveStartEvent(
     return;
   }
 
-  const existing = await ensureResidentExists(residentId, communityId, false);
+  const communityContext = await applyCommunityEnrichment(communityId, undefined);
+  const existing = await findExistingPatient(String(residentId), communityContext.CUID);
   if (!existing.found || !existing.id) {
     logger.info(
       {
@@ -573,13 +785,23 @@ async function handleLeaveStartEvent(
     return;
   }
 
-  const patch: Partial<CaspioRecord> = {
+  const patch: Partial<CarePatientTableApiRecord> = {
     Off_Prem: true,
     Off_Prem_Date: leaveStartDate,
     On_Prem: false,
   };
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+
+  const offPremEpisode = mapOffPremStartEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    communityName: communityContext.CommunityName,
+    leaveId,
+    offPremStart: leaveStartDate,
+    startEventMessageId: event.EventMessageId,
+  });
+  await upsertOffPremEpisodeByEpisodeId(offPremEpisode);
 
   logger.info(
     {
@@ -634,7 +856,8 @@ async function handleLeaveEndEvent(
     return;
   }
 
-  const existing = await ensureResidentExists(residentId, communityId, false);
+  const communityContext = await applyCommunityEnrichment(communityId, undefined);
+  const existing = await findExistingPatient(String(residentId), communityContext.CUID);
   if (!existing.found || !existing.id) {
     logger.info(
       {
@@ -649,13 +872,22 @@ async function handleLeaveEndEvent(
     return;
   }
 
-  const patch: Partial<CaspioRecord> = {
+  const patch: Partial<CarePatientTableApiRecord> = {
     On_Prem: true,
     On_Prem_Date: leaveEndDate,
     Off_Prem: false,
   };
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patch);
+
+  await closeOpenOffPremEpisode({
+    patientNumber: String(residentId),
+    cuid: communityContext.CUID,
+    leaveId,
+    offPremEnd: leaveEndDate,
+    endEventMessageId: event.EventMessageId,
+    closeReason: 'leave_end',
+  });
 
   logger.info(
     {

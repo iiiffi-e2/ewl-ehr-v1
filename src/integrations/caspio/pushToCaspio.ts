@@ -2,17 +2,21 @@ import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import {
   caspioRequestWithRetry,
-  upsertByResidentId,
-  upsertByResidentIdAndCommunityId,
+  upsertByFields,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
-import { mapAlisPayloadToCaspioRecord, redactForLogs } from './caspioMapper.js';
+import {
+  mapCommunityRecord,
+  mapPatientRecord,
+  mapServiceRecord,
+  redactForLogs,
+} from './caspioMapper.js';
 
 import type { AlisPayload } from '../alis/types.js';
 
 /**
  * Push ALIS payload to Caspio table
- * Validates payload, maps to Caspio format, and upserts by Resident_ID
+ * Validates payload, maps to new Caspio API table shapes, and upserts by PatientNumber/CUID
  */
 export async function pushToCaspio(
   payload: AlisPayload,
@@ -31,41 +35,77 @@ export async function pushToCaspio(
   logger.info({ residentId }, 'caspio_push_start');
 
   try {
-    // Map ALIS payload to Caspio record format
-    const record = mapAlisPayloadToCaspioRecord(payload);
+    const mappedCommunity = mapCommunityRecord(payload);
+    const communityId = Number(mappedCommunity.CommunityID ?? NaN);
+    const enrichment =
+      Number.isFinite(communityId) && communityId > 0
+        ? await getCommunityEnrichment(communityId, mappedCommunity.RoomNumber)
+        : {};
 
-    // Ensure Resident_ID is set
-    if (!record.Resident_ID) {
-      record.Resident_ID = residentId;
+    const communityRecord = {
+      ...mappedCommunity,
+      CUID: enrichment.CUID ?? mappedCommunity.CUID,
+      CommunityName: mappedCommunity.CommunityName ?? enrichment.CommunityName,
+      CommunityGroup: mappedCommunity.CommunityGroup ?? enrichment.CommunityGroup,
+      Neighborhood: mappedCommunity.Neighborhood ?? enrichment.Neighborhood,
+      SerialNumber: mappedCommunity.SerialNumber ?? enrichment.SerialNumber,
+      Address: mappedCommunity.Address ?? enrichment.Address,
+      City: mappedCommunity.City ?? enrichment.City,
+      State: mappedCommunity.State ?? enrichment.State,
+      Zip: mappedCommunity.Zip ?? enrichment.Zip,
+      Sector: mappedCommunity.Sector ?? enrichment.Sector,
+    };
+
+    if (communityRecord.CommunityID) {
+      await caspioRequestWithRetry(() =>
+        upsertByFields(
+          env.CASPIO_COMMUNITY_TABLE_NAME,
+          [{ field: 'CommunityID', value: String(communityRecord.CommunityID) }],
+          communityRecord,
+        ),
+      );
     }
 
-    // Enrich with community details if we have Community_ID
-    if (record.Community_ID && !record.CommunityGroup && !record.Neighborhood) {
-      const enrichment = await getCommunityEnrichment(record.Community_ID, record.Room_number);
-      if (enrichment.CommunityGroup) {
-        record.CommunityGroup = enrichment.CommunityGroup;
-      }
-      if (enrichment.Neighborhood) {
-        record.Neighborhood = enrichment.Neighborhood;
-      }
-      if (enrichment.SerialNumber) {
-        record.SerialNumber = enrichment.SerialNumber;
-      }
-      if (enrichment.CommunityName && !record.CommunityName) {
-        record.CommunityName = enrichment.CommunityName;
-      }
+    const patientRecord = mapPatientRecord(payload, {
+      CUID: communityRecord.CUID,
+      CommunityName: communityRecord.CommunityName,
+    });
+    if (!patientRecord.PatientNumber) {
+      patientRecord.PatientNumber = residentId;
     }
 
-    // Upsert record (prefer composite key if Community_ID is present)
     const result = await caspioRequestWithRetry(() =>
-      record.Community_ID
-        ? upsertByResidentIdAndCommunityId(
-            env.CASPIO_TABLE_NAME,
-            record.Resident_ID!,
-            record.Community_ID,
-            record,
-          )
-        : upsertByResidentId(env.CASPIO_TABLE_NAME, record.Resident_ID!, record),
+      upsertByFields(
+        env.CASPIO_TABLE_NAME,
+        patientRecord.CUID
+          ? [
+              { field: 'PatientNumber', value: patientRecord.PatientNumber! },
+              { field: 'CUID', value: patientRecord.CUID },
+            ]
+          : [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
+        patientRecord as Record<string, unknown>,
+      ),
+    );
+
+    const serviceType = payload.data.resident
+      ? ((payload.data.resident as Record<string, unknown>).Classification ??
+          (payload.data.resident as Record<string, unknown>).ProductType)
+      : undefined;
+    const serviceRecord = mapServiceRecord({
+      patientNumber: patientRecord.PatientNumber!,
+      cuid: patientRecord.CUID,
+      serviceType: typeof serviceType === 'string' ? serviceType : undefined,
+      startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
+      endDate: patientRecord.Service_End_Date,
+      communityName: patientRecord.CommunityName,
+    });
+
+    await caspioRequestWithRetry(() =>
+      upsertByFields(
+        env.CASPIO_SERVICE_TABLE_NAME,
+        [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
+        serviceRecord,
+      ),
     );
 
     logger.info(
@@ -95,6 +135,7 @@ export async function pushToCaspio(
         caspio: {
           baseUrl: env.CASPIO_BASE_URL,
           tableName: env.CASPIO_TABLE_NAME,
+          serviceTableName: env.CASPIO_SERVICE_TABLE_NAME,
         },
         responseData,
         payload: redactForLogs(payload),

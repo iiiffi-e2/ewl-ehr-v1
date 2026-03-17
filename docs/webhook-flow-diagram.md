@@ -1,5 +1,7 @@
 # Webhook Event Flow Diagram
 
+For a focused webhook-to-Caspio view, see [`webhook-to-caspio-diagram.md`](./webhook-to-caspio-diagram.md).
+
 ## Complete Webhook Processing Flow
 
 ```

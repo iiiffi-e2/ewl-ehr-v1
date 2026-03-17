@@ -10,9 +10,10 @@ import {
 import { normalizeResident } from '../integrations/mappers.js';
 import { handleAlisEvent } from '../integrations/caspio/eventOrchestrator.js';
 import {
-  findByResidentId,
-  findRecordByResidentIdAndCommunityId,
+  findByPatientNumber,
+  findRecordByFields,
 } from '../integrations/caspio/caspioClient.js';
+import { getCommunityEnrichment } from '../integrations/caspio/caspioCommunityEnrichment.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
 import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js';
@@ -91,13 +92,18 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
 
     if (isContactEvent) {
       try {
-        const lookup = communityId
-          ? await findRecordByResidentIdAndCommunityId(
-              env.CASPIO_TABLE_NAME,
-              residentId,
-              communityId,
-            )
-          : await findByResidentId(env.CASPIO_TABLE_NAME, residentId);
+        let lookup;
+        if (communityId) {
+          const enrichment = await getCommunityEnrichment(communityId);
+          lookup = enrichment.CUID
+            ? await findRecordByFields(env.CASPIO_TABLE_NAME, [
+                { field: 'PatientNumber', value: String(residentId) },
+                { field: 'CUID', value: enrichment.CUID },
+              ])
+            : await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+        } else {
+          lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+        }
         if (!lookup.found) {
           logger.info(
             { eventMessageId, residentId, communityId },
