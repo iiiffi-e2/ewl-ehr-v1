@@ -24,6 +24,21 @@ import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
 import type { ProcessAlisEventJobData } from './types.js';
 
 export function startProcessAlisEventWorker(): Worker<ProcessAlisEventJobData> {
+  logger.info(
+    {
+      caspioPatientTable: env.CASPIO_TABLE_NAME,
+      caspioCommunityTable: env.CASPIO_COMMUNITY_TABLE_NAME,
+      caspioServiceTable: env.CASPIO_SERVICE_TABLE_NAME,
+    },
+    'worker_caspio_table_configuration',
+  );
+  if (env.CASPIO_TABLE_NAME.toLowerCase().includes('temp')) {
+    logger.warn(
+      { caspioPatientTable: env.CASPIO_TABLE_NAME },
+      'worker_caspio_patient_table_is_temp_verify_schema',
+    );
+  }
+
   const worker = new Worker<ProcessAlisEventJobData>(
     PROCESS_ALIS_EVENT_QUEUE,
     async (job) => processJob(job),
@@ -198,7 +213,6 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     };
 
     if (shouldProcessCaspio) {
-      // Handle event via orchestrator (handle errors gracefully - log but don't fail job)
       try {
         await handleAlisEvent(event, companyId, companyKey);
       } catch (caspioError) {
@@ -208,9 +222,9 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
             residentId,
             error: caspioError instanceof Error ? caspioError.message : String(caspioError),
           },
-          'caspio_event_processing_failed_continuing',
+          'caspio_event_processing_failed',
         );
-        // Don't throw - allow job to complete even if Caspio processing fails
+        throw caspioError;
       }
     }
 

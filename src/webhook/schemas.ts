@@ -12,13 +12,16 @@ export const AlisEventSchema = z.object({
 export type AlisEvent = z.infer<typeof AlisEventSchema>;
 
 export const RESIDENT_EVENT_TYPES = new Set([
+  'residents.created',
   'residents.move_in',
   'residents.move_out',
   'residents.leave_start',
   'residents.leave_end',
   'residents.leave_cancelled',
   'residents.basic_info_updated',
+  'residents.health_profile_updated',
   'residents.move_in_out_info_updated',
+  'resident.room_assigned',
   'resident.contact.created',
   'resident.contact.updated',
   'resident.contact.deleted',

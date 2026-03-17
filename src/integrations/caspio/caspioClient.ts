@@ -174,6 +174,57 @@ function parseSortableDate(value: unknown): number {
   return Number.isNaN(ts) ? Number.NEGATIVE_INFINITY : ts;
 }
 
+function parseMissingFieldsFromFieldNotFound(
+  error: unknown,
+): string[] {
+  if (!axios.isAxiosError(error)) {
+    return [];
+  }
+
+  const responseData = error.response?.data as Record<string, unknown> | undefined;
+  if (!responseData) {
+    return [];
+  }
+
+  const code = responseData.Code;
+  const message = responseData.Message;
+  if (code !== 'FieldNotFound' || typeof message !== 'string') {
+    return [];
+  }
+
+  const matches = [...message.matchAll(/'([^']+)'/g)];
+  if (matches.length === 0) {
+    return [];
+  }
+
+  return matches
+    .map((match) => match[1]?.trim())
+    .filter((field): field is string => Boolean(field));
+}
+
+function stripUnsupportedFieldsFromRecord(
+  record: Record<string, unknown>,
+  unsupportedFields: string[],
+): { sanitizedRecord: Record<string, unknown>; droppedFields: string[] } {
+  if (unsupportedFields.length === 0) {
+    return { sanitizedRecord: record, droppedFields: [] };
+  }
+
+  const unsupported = new Set(unsupportedFields);
+  const sanitizedRecord: Record<string, unknown> = {};
+  const droppedFields: string[] = [];
+
+  for (const [key, value] of Object.entries(record)) {
+    if (unsupported.has(key)) {
+      droppedFields.push(key);
+      continue;
+    }
+    sanitizedRecord[key] = value;
+  }
+
+  return { sanitizedRecord, droppedFields };
+}
+
 /**
  * Insert a record into a Caspio table
  */
@@ -185,12 +236,41 @@ export async function insertRecord(
     const token = await getAccessToken();
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
 
-    return apiClient.post(url, record, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    try {
+      return await apiClient.post(url, record, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    } catch (error) {
+      const missingFields = parseMissingFieldsFromFieldNotFound(error);
+      const { sanitizedRecord, droppedFields } = stripUnsupportedFieldsFromRecord(
+        record,
+        missingFields,
+      );
+
+      if (droppedFields.length === 0 || Object.keys(sanitizedRecord).length === 0) {
+        throw error;
+      }
+
+      logger.warn(
+        {
+          tableName,
+          droppedFields,
+          attemptedFieldCount: Object.keys(record).length,
+          retriedFieldCount: Object.keys(sanitizedRecord).length,
+        },
+        'caspio_retry_insert_without_unsupported_fields',
+      );
+
+      return apiClient.post(url, sanitizedRecord, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
   });
 }
 
@@ -238,12 +318,42 @@ export async function updateRecordById(
       'caspio_updating_record_by_id',
     );
 
-    return apiClient.put(url, recordWithoutPK_ID, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    try {
+      return await apiClient.put(url, recordWithoutPK_ID, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    } catch (error) {
+      const missingFields = parseMissingFieldsFromFieldNotFound(error);
+      const { sanitizedRecord, droppedFields } = stripUnsupportedFieldsFromRecord(
+        recordWithoutPK_ID,
+        missingFields,
+      );
+
+      if (droppedFields.length === 0 || Object.keys(sanitizedRecord).length === 0) {
+        throw error;
+      }
+
+      logger.warn(
+        {
+          tableName,
+          id,
+          droppedFields,
+          attemptedFieldCount: Object.keys(recordWithoutPK_ID).length,
+          retriedFieldCount: Object.keys(sanitizedRecord).length,
+        },
+        'caspio_retry_update_without_unsupported_fields',
+      );
+
+      return apiClient.put(url, sanitizedRecord, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
   });
 }
 
