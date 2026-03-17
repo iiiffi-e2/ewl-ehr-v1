@@ -110,6 +110,7 @@ describe('caspioMapper new table mappings', () => {
     expect(record.PatientNumber).not.toContain('_');
     expect(record.CUID).toBe('C-113');
     expect(record.PatientCommunity).toBe('Sunset Manor');
+    expect(record.ApartmentNumber).toBe('101');
     expect(record.Diagnosis1).toBe('Hypertension');
     expect(record.Diagnosis2).toBe('Diabetes');
   });
