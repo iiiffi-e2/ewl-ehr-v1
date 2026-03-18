@@ -174,6 +174,20 @@ function parseSortableDate(value: unknown): number {
   return Number.isNaN(ts) ? Number.NEGATIVE_INFINITY : ts;
 }
 
+function normalizeComparable(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
 function parseMissingFieldsFromFieldNotFound(
   error: unknown,
 ): string[] {
@@ -551,16 +565,29 @@ export async function findCommunityById(
         return { found: false };
       }
 
+      const exactMatches = records.filter((rec) => {
+        const record = rec as CommunityTableRecord;
+        return normalizeComparable(record.CommunityID) === String(communityId);
+      }) as CommunityTableRecord[];
+
+      if (exactMatches.length === 0) {
+        logger.debug(
+          { communityId, matchCount: records.length },
+          'caspio_community_id_no_exact_match_after_lookup',
+        );
+        return { found: false };
+      }
+
       if (records.length > 1) {
         logger.warn(
-          { communityId, matchCount: records.length },
+          { communityId, matchCount: records.length, exactMatchCount: exactMatches.length },
           'caspio_multiple_community_matches_found',
         );
       }
 
       return {
         found: true,
-        record: records[0] as CommunityTableRecord,
+        record: exactMatches[0],
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
@@ -602,16 +629,38 @@ export async function findCommunityByIdAndRoomNumber(
         return { found: false };
       }
 
+      const normalizedRoom = roomNumber.trim();
+      const exactMatches = records.filter((rec) => {
+        const record = rec as CommunityTableRecord;
+        return (
+          normalizeComparable(record.CommunityID) === String(communityId) &&
+          normalizeComparable(record.RoomNumber) === normalizedRoom
+        );
+      }) as CommunityTableRecord[];
+
+      if (exactMatches.length === 0) {
+        logger.debug(
+          { communityId, roomNumber: normalizedRoom, matchCount: records.length },
+          'caspio_community_room_no_exact_match_after_lookup',
+        );
+        return { found: false };
+      }
+
       if (records.length > 1) {
         logger.warn(
-          { communityId, roomNumber, matchCount: records.length },
+          {
+            communityId,
+            roomNumber: normalizedRoom,
+            matchCount: records.length,
+            exactMatchCount: exactMatches.length,
+          },
           'caspio_multiple_community_room_matches_found',
         );
       }
 
       return {
         found: true,
-        record: records[0] as CommunityTableRecord,
+        record: exactMatches[0],
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
