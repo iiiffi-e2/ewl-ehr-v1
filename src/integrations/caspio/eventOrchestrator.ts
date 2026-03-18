@@ -85,7 +85,16 @@ function extractRoomNumber(event: AlisEvent): string | undefined {
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   if (!notificationData) return undefined;
 
-  const direct = extractStringValue(notificationData, ['RoomNumber', 'roomNumber', 'Room', 'room']);
+  const direct = extractStringValue(notificationData, [
+    'RoomNumber',
+    'roomNumber',
+    'Room',
+    'room',
+    'AssignedRoom',
+    'assignedRoom',
+    'ApartmentNumber',
+    'apartmentNumber',
+  ]);
   if (direct) return direct;
 
   const roomsAssigned = notificationData.RoomsAssigned;

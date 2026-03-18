@@ -66,4 +66,37 @@ describe('caspioClient community lookup exact matching', () => {
       }),
     );
   });
+
+  it('matches alternate field casing for community and room keys', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        { CommunityId: 113, roomNumber: '49', CUID: '259', CommunityName: 'EyeWatch LIVE' },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        CUID: '259',
+        CommunityName: 'EyeWatch LIVE',
+      }),
+    );
+  });
 });

@@ -115,6 +115,24 @@ describe('caspioMapper new table mappings', () => {
     expect(record.Diagnosis2).toBe('Diabetes');
   });
 
+  it('prefers resident/basic address fields over community location', () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).Address = '200 Resident Way';
+    (payload.data.resident as Record<string, unknown>).City = 'Plano';
+    (payload.data.resident as Record<string, unknown>).State = 'TX';
+    (payload.data.resident as Record<string, unknown>).ZipCode = '75024';
+
+    const record = mapPatientRecord(payload, {
+      CUID: 'C-113',
+      CommunityName: 'Sunset Manor',
+    });
+
+    expect(record.PatientAddress).toBe('200 Resident Way');
+    expect(record.PatientAddressCity).toBe('Plano');
+    expect(record.PatientAddressState).toBe('TX');
+    expect(record.PatientAddressZip).toBe('75024');
+  });
+
   it('maps only financially-tagged contacts intentionally', () => {
     const record = mapPatientRecord(buildPayload(), {
       CUID: 'C-113',
