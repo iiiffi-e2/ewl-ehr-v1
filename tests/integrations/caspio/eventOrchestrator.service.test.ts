@@ -122,6 +122,46 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('move_in uses Classification from basicInfo when resident classification is missing', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        ProductType: '',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {
+        Classification: 'Assisted Living',
+      },
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.move_in',
+      EventMessageId: 'evt-move-in-basicinfo-classification',
+      EventMessageDate: '2026-01-15T10:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        ServiceType: 'Assisted Living',
+      }),
+    );
+  });
+
   it('move_in uses event room number fallback for ApartmentNumber', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: {

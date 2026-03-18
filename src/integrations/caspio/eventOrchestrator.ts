@@ -294,11 +294,17 @@ async function findExistingPatient(
 function getClassification(
   event: AlisEvent,
   residentData?: Record<string, unknown>,
+  basicInfoData?: Record<string, unknown>,
 ): string | undefined {
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   return (
     extractStringValue(notificationData, ['Classification', 'classification', 'ServiceType', 'serviceType']) ??
-    (residentData ? extractStringValue(residentData, ['Classification', 'ProductType']) : undefined)
+    (residentData
+      ? extractStringValue(residentData, ['Classification', 'classification', 'ProductType', 'productType'])
+      : undefined) ??
+    (basicInfoData
+      ? extractStringValue(basicInfoData, ['Classification', 'classification', 'ProductType', 'productType'])
+      : undefined)
   );
 }
 
@@ -526,10 +532,8 @@ async function handleMoveInEvent(
   );
 
   const resident = fullResidentData.resident as Record<string, unknown>;
-  const serviceType =
-    (typeof resident.Classification === 'string' && resident.Classification) ||
-    (typeof resident.ProductType === 'string' && resident.ProductType) ||
-    undefined;
+  const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
+  const serviceType = getClassification(event, resident, basicInfo);
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
@@ -713,7 +717,8 @@ async function handleUpdateEvent(
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
 
   const resident = fullResidentData.resident as Record<string, unknown>;
-  const incomingServiceType = getClassification(event, resident);
+  const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
+  const incomingServiceType = getClassification(event, resident, basicInfo);
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
