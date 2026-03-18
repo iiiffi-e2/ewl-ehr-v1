@@ -40,7 +40,7 @@ describe('caspioClient off-prem helpers', () => {
       .fn()
       .mockResolvedValueOnce({ data: [] })
       .mockResolvedValueOnce({
-        data: [{ PK_ID: 11, PatientNumber: '12345', CUID: 'C-113', IsOpen: true, OffPremStart: '2026-01-19T13:00:00' }],
+        data: [{ PK_ID: 11, PatientNumber: '12345', CUID: '259', IsOpen: true, OffPremStart: '2026-01-19T13:00:00' }],
       });
 
     const { createHttpClient } = require('../../../src/config/axios.js');
@@ -51,7 +51,7 @@ describe('caspioClient off-prem helpers', () => {
     const { findOpenOffPremEpisode } = await import('../../../src/integrations/caspio/caspioClient.js');
     const result = await findOpenOffPremEpisode({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       leaveId: 285,
     });
 
@@ -78,9 +78,9 @@ describe('caspioClient off-prem helpers', () => {
 
     const { upsertOffPremEpisodeByEpisodeId } = await import('../../../src/integrations/caspio/caspioClient.js');
     const result = await upsertOffPremEpisodeByEpisodeId({
-      Episode_ID: 'leave:12345:C-113:285',
+      Episode_ID: 'leave:12345:259:285',
       PatientNumber: '12345',
-      CUID: 'C-113',
+      CUID: '259',
       OffPremStart: '2026-01-19T13:00:00',
       IsOpen: true,
       StartEventMessageId: 'evt-1',

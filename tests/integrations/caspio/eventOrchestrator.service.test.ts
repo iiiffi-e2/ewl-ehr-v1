@@ -67,12 +67,12 @@ describe('eventOrchestrator service-table scenarios', () => {
       community: null,
     });
     getCommunityEnrichmentMock.mockResolvedValue({
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Test Community',
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValue({
       found: true,
-      record: { CUID: 'C-113', CommunityName: 'Test Community' },
+      record: { CUID: '259', CommunityName: 'Test Community' },
     });
     findActiveOrLatestServiceRowMock.mockResolvedValue({
       found: true,
@@ -83,7 +83,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     findRecordByFieldsMock.mockResolvedValue({
       found: true,
       id: 'patient-1',
-      record: { PatientNumber: '70508', CUID: 'C-113' },
+      record: { PatientNumber: '70508', CUID: '259' },
     });
     findOpenOffPremEpisodeMock.mockResolvedValue({ found: false });
     upsertOffPremEpisodeByEpisodeIdMock.mockResolvedValue({ action: 'insert', id: 'ep-1' });
@@ -108,16 +108,55 @@ describe('eventOrchestrator service-table scenarios', () => {
       'Service_Table_API',
       [
         { field: 'PatientNumber', value: '70508' },
-        { field: 'CUID', value: 'C-113' },
+        { field: 'CUID', value: '259' },
         { field: 'StartDate', value: '2026-01-10' },
         { field: 'ServiceType', value: 'Assisted Living' },
       ],
       expect.objectContaining({
         PatientNumber: '70508',
-        CUID: 'C-113',
+        CUID: '259',
         CommunityName: 'Test Community',
         ServiceType: 'Assisted Living',
         StartDate: '2026-01-10',
+      }),
+    );
+  });
+
+  it('move_in uses event room number fallback for ApartmentNumber', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Assisted Living',
+        ProductType: 'Assisted Living',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.move_in',
+      EventMessageId: 'evt-move-in-room-fallback',
+      EventMessageDate: '2026-01-15T10:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomsAssigned: [{ RoomNumber: '49' }],
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        ApartmentNumber: '49',
       }),
     );
   });
@@ -181,13 +220,13 @@ describe('eventOrchestrator service-table scenarios', () => {
       'Service_Table_API',
       [
         { field: 'PatientNumber', value: '70508' },
-        { field: 'CUID', value: 'C-113' },
+        { field: 'CUID', value: '259' },
         { field: 'StartDate', value: '2026-01-22T12:00:00Z' },
         { field: 'ServiceType', value: 'Memory Care' },
       ],
       expect.objectContaining({
         PatientNumber: '70508',
-        CUID: 'C-113',
+        CUID: '259',
         ServiceType: 'Memory Care',
         StartDate: '2026-01-22T12:00:00Z',
       }),
