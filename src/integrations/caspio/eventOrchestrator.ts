@@ -488,6 +488,11 @@ async function createServiceRow(params: {
   serviceType?: string;
   startDate: string;
   endDate?: string;
+  eventMessageId?: string | number;
+  eventType?: string;
+  residentId?: number;
+  communityId?: number;
+  source?: string;
 }): Promise<void> {
   const serviceRecord = mapServiceRecord({
     patientNumber: params.patientNumber,
@@ -509,10 +514,27 @@ async function createServiceRow(params: {
     filters.push({ field: 'ServiceType', value: params.serviceType });
   }
 
-  await upsertByFields(
+  const result = await upsertByFields(
     env.CASPIO_SERVICE_TABLE_NAME,
     filters,
     serviceRecordForWrite as Record<string, unknown>,
+  );
+  logger.info(
+    {
+      eventMessageId: params.eventMessageId,
+      eventType: params.eventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      source: params.source,
+      patientNumber: params.patientNumber ?? null,
+      cuid: params.cuid,
+      serviceType: params.serviceType ?? null,
+      startDate: params.startDate,
+      endDate: params.endDate ?? null,
+      action: result.action,
+      caspioId: result.id ?? null,
+    },
+    'service_row_upserted',
   );
 }
 
@@ -520,6 +542,11 @@ async function closeLatestServiceRow(params: {
   patientNumber: string;
   cuid: string;
   endDate: string;
+  eventMessageId?: string | number;
+  eventType?: string;
+  residentId?: number;
+  communityId?: number;
+  source?: string;
 }): Promise<void> {
   const serviceRow = await findActiveOrLatestServiceRow({
     patientNumber: params.patientNumber,
@@ -529,6 +556,11 @@ async function closeLatestServiceRow(params: {
   if (!serviceRow.found || !serviceRow.id) {
     logger.warn(
       {
+        eventMessageId: params.eventMessageId,
+        eventType: params.eventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        source: params.source,
         patientNumber: params.patientNumber,
         cuid: params.cuid,
       },
@@ -537,11 +569,54 @@ async function closeLatestServiceRow(params: {
     return;
   }
 
+  logger.info(
+    {
+      eventMessageId: params.eventMessageId,
+      eventType: params.eventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      source: params.source,
+      serviceRowId: serviceRow.id,
+      patientNumber: params.patientNumber,
+      cuid: params.cuid,
+      currentStartDate: serviceRow.record?.StartDate ?? null,
+      currentEndDate: serviceRow.record?.EndDate ?? null,
+      requestedEndDate: params.endDate,
+    },
+    'service_close_target_resolved',
+  );
+
   if (serviceRow.record?.EndDate === params.endDate) {
+    logger.info(
+      {
+        eventMessageId: params.eventMessageId,
+        eventType: params.eventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        source: params.source,
+        serviceRowId: serviceRow.id,
+        requestedEndDate: params.endDate,
+      },
+      'service_close_skipped_same_end_date',
+    );
     return;
   }
 
   await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, { EndDate: params.endDate });
+  logger.info(
+    {
+      eventMessageId: params.eventMessageId,
+      eventType: params.eventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      source: params.source,
+      serviceRowId: serviceRow.id,
+      patientNumber: params.patientNumber,
+      cuid: params.cuid,
+      endDate: params.endDate,
+    },
+    'service_row_closed',
+  );
 }
 
 async function closeOpenOffPremEpisode(params: {
@@ -639,6 +714,11 @@ async function handleMoveInEvent(
       communityName: serviceCommunity.communityName,
       serviceType,
       startDate: normalizeScenarioDateTime(patientRecord.Move_in_Date, event.EventMessageDate),
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      source: 'move_in',
     });
   }
 
@@ -739,12 +819,22 @@ async function handleMoveOutEvent(
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       endDate: serviceBoundaryDate,
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      source: 'move_out',
     });
     await createServiceRow({
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
       serviceType: 'Vacant',
       startDate: serviceBoundaryDate,
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      source: 'move_out_vacant_handoff',
     });
   }
 
@@ -884,26 +974,86 @@ async function handleUpdateEvent(
         'service_write_skipped_missing_classification',
       );
     } else if (!existingService.found || !existingService.id || !existingService.record) {
+      logger.info(
+        {
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+          source: 'update_event',
+          patientNumber: String(residentId),
+          cuid: serviceCommunity.cuid,
+          currentServiceType: currentServiceType ?? null,
+          incomingServiceType,
+          hasChanged,
+          existingServiceFound: false,
+        },
+        'service_transition_evaluated',
+      );
       await createServiceRow({
         patientNumber: String(residentId),
         cuid: serviceCommunity.cuid,
         communityName: serviceCommunity.communityName,
         serviceType: incomingServiceType,
         startDate: boundaryDate,
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+        source: 'update_event_insert_first_service',
       });
     } else {
       const active = isOpenServiceRow(existingService.record.EndDate);
+      logger.info(
+        {
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+          source: 'update_event',
+          serviceRowId: existingService.id,
+          patientNumber: String(residentId),
+          cuid: serviceCommunity.cuid,
+          currentServiceType: currentServiceType ?? null,
+          incomingServiceType,
+          hasChanged,
+          active,
+          currentStartDate: existingService.record.StartDate ?? null,
+          currentEndDate: existingService.record.EndDate ?? null,
+          boundaryDate,
+        },
+        'service_transition_evaluated',
+      );
 
       if (active && hasChanged) {
         await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {
           EndDate: boundaryDate,
         });
+        logger.info(
+          {
+            eventMessageId: event.EventMessageId,
+            eventType: event.EventType,
+            residentId,
+            communityId,
+            source: 'update_event_classification_change',
+            serviceRowId: existingService.id,
+            patientNumber: String(residentId),
+            cuid: serviceCommunity.cuid,
+            endDate: boundaryDate,
+          },
+          'service_row_closed',
+        );
         await createServiceRow({
           patientNumber: String(residentId),
           cuid: serviceCommunity.cuid,
           communityName: serviceCommunity.communityName,
           serviceType: incomingServiceType,
           startDate: boundaryDate,
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+          source: 'update_event_classification_change',
         });
       } else if (!active) {
         await createServiceRow({
@@ -912,6 +1062,11 @@ async function handleUpdateEvent(
           communityName: serviceCommunity.communityName,
           serviceType: incomingServiceType,
           startDate: boundaryDate,
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+          source: 'update_event_existing_closed_row',
         });
       }
     }
