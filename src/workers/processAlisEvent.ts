@@ -89,7 +89,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
   try {
     if (!requiresResidentFetch(eventType)) {
       logger.info({ eventMessageId, eventType }, 'event_does_not_require_processing');
-      await markEventProcessed(eventMessageId);
+      await markEventProcessed({ companyId, eventType, eventMessageId });
       return;
     }
 
@@ -228,7 +228,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       }
     }
 
-    await markEventProcessed(eventMessageId);
+    await markEventProcessed({ companyId, eventType, eventMessageId });
 
     logger.info({ eventMessageId, eventType, companyKey }, 'event_processed_successfully');
   } catch (error) {
@@ -241,7 +241,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       },
       'event_processing_failed',
     );
-    await markEventFailed(eventMessageId, error);
+    await markEventFailed({ companyId, eventType, eventMessageId }, error);
     throw error;
   }
 }

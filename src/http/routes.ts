@@ -891,8 +891,9 @@ router.get('/admin/webhook-events/:eventMessageId', authAdmin, async (req, res) 
 
     logger.info({ eventMessageId }, 'admin_webhook_event_detail_called');
 
-    const event = await prisma.eventLog.findUnique({
+    const event = await prisma.eventLog.findFirst({
       where: { eventMessageId },
+      orderBy: { receivedAt: 'desc' },
       include: {
         company: {
           select: {

@@ -72,7 +72,7 @@ model EventLog {
   companyId      Int
   communityId    Int?
   eventType      String
-  eventMessageId String    @unique
+  eventMessageId String
   payload        Json
   receivedAt     DateTime  @default(now())
   processedAt    DateTime?
@@ -81,5 +81,6 @@ model EventLog {
 
   company Company @relation(fields: [companyId], references: [id])
 
+  @@unique([companyId, eventType, eventMessageId])
   @@index([companyId, eventType])
 }

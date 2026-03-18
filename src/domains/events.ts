@@ -22,7 +22,13 @@ export async function recordIncomingEvent(event: AlisEvent): Promise<RecordedEve
   });
 
   const existing = await prisma.eventLog.findUnique({
-    where: { eventMessageId: EventMessageId },
+    where: {
+      companyId_eventType_eventMessageId: {
+        companyId: company.id,
+        eventType: EventType,
+        eventMessageId: EventMessageId,
+      },
+    },
   });
 
   if (existing) {
@@ -52,18 +58,40 @@ export async function recordIncomingEvent(event: AlisEvent): Promise<RecordedEve
   return { eventLog: created, company, isDuplicate: false };
 }
 
-export async function markEventQueued(eventMessageId: string): Promise<void> {
+type EventIdentity = {
+  companyId: number;
+  eventType: string;
+  eventMessageId: string;
+};
+
+function toCompositeEventWhere(identity: EventIdentity): {
+  companyId_eventType_eventMessageId: {
+    companyId: number;
+    eventType: string;
+    eventMessageId: string;
+  };
+} {
+  return {
+    companyId_eventType_eventMessageId: {
+      companyId: identity.companyId,
+      eventType: identity.eventType,
+      eventMessageId: identity.eventMessageId,
+    },
+  };
+}
+
+export async function markEventQueued(identity: EventIdentity): Promise<void> {
   await prisma.eventLog.update({
-    where: { eventMessageId },
+    where: toCompositeEventWhere(identity),
     data: {
       status: 'queued',
     },
   });
 }
 
-export async function markEventProcessed(eventMessageId: string): Promise<void> {
+export async function markEventProcessed(identity: EventIdentity): Promise<void> {
   await prisma.eventLog.update({
-    where: { eventMessageId },
+    where: toCompositeEventWhere(identity),
     data: {
       status: 'processed',
       processedAt: new Date(),
@@ -72,10 +100,10 @@ export async function markEventProcessed(eventMessageId: string): Promise<void> 
   });
 }
 
-export async function markEventFailed(eventMessageId: string, error: unknown): Promise<void> {
+export async function markEventFailed(identity: EventIdentity, error: unknown): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   await prisma.eventLog.update({
-    where: { eventMessageId },
+    where: toCompositeEventWhere(identity),
     data: {
       status: 'failed',
       error: message.slice(0, 500),
@@ -83,9 +111,9 @@ export async function markEventFailed(eventMessageId: string, error: unknown): P
   });
 }
 
-export async function markEventIgnored(eventMessageId: string, reason: string): Promise<void> {
+export async function markEventIgnored(identity: EventIdentity, reason: string): Promise<void> {
   await prisma.eventLog.update({
-    where: { eventMessageId },
+    where: toCompositeEventWhere(identity),
     data: {
       status: 'ignored',
       error: reason,

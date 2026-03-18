@@ -133,6 +133,28 @@ describe('caspioMapper new table mappings', () => {
     expect(record.PatientAddressZip).toBe('75024');
   });
 
+  it('does not fall back to community location for patient address fields', () => {
+    const payload = buildPayload();
+    delete (payload.data.resident as Record<string, unknown>).Address;
+    delete (payload.data.resident as Record<string, unknown>).City;
+    delete (payload.data.resident as Record<string, unknown>).State;
+    delete (payload.data.resident as Record<string, unknown>).ZipCode;
+    delete (payload.data.basicInfo as Record<string, unknown>).Address;
+    delete (payload.data.basicInfo as Record<string, unknown>).City;
+    delete (payload.data.basicInfo as Record<string, unknown>).State;
+    delete (payload.data.basicInfo as Record<string, unknown>).ZipCode;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '259',
+      CommunityName: 'Sunset Manor',
+    });
+
+    expect(record.PatientAddress).toBeUndefined();
+    expect(record.PatientAddressCity).toBeUndefined();
+    expect(record.PatientAddressState).toBeUndefined();
+    expect(record.PatientAddressZip).toBeUndefined();
+  });
+
   it('maps only financially-tagged contacts intentionally', () => {
     const record = mapPatientRecord(buildPayload(), {
       CUID: '259',
