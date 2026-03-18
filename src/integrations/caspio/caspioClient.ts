@@ -1057,15 +1057,24 @@ export async function findByPatientNumber(
 ): Promise<{ found: boolean; id?: string; raw?: unknown; matches?: number }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const filter = buildEqualsFilter('PatientNumber', String(patientNumber));
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records?q=${filter}`;
+    const patientNumberString = String(patientNumber).trim();
+    const numericCandidate = Number(patientNumberString);
+    const variants: Array<string | number> = [patientNumberString];
+    if (
+      patientNumberString.length > 0 &&
+      /^-?\d+(\.\d+)?$/.test(patientNumberString) &&
+      Number.isFinite(numericCandidate)
+    ) {
+      variants.push(numericCandidate);
+    }
 
     try {
-      const response = await apiClient.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const records = extractRecordsFromResponse(response.data);
+      const records: unknown[] = [];
+      for (const variant of variants) {
+        const whereClause = buildWhereClause([{ field: 'PatientNumber', value: variant }]);
+        const filtered = await fetchRecordsWithWherePaged(tableName, token, whereClause);
+        records.push(...filtered);
+      }
       if (records.length === 0) {
         return { found: false };
       }
@@ -1078,7 +1087,7 @@ export async function findByPatientNumber(
           'Patient_Number',
           'patient_number',
         ]);
-        return recordPatientNumber === String(patientNumber);
+        return recordPatientNumber === patientNumberString;
       }) as Record<string, unknown>[];
 
       if (exactMatches.length === 0) {
@@ -1086,7 +1095,7 @@ export async function findByPatientNumber(
         logger.debug(
           {
             tableName,
-            patientNumber: String(patientNumber),
+            patientNumber: patientNumberString,
             matchCount: records.length,
             sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
           },
@@ -1112,7 +1121,7 @@ export async function findByPatientNumber(
       if (records.length > 1) {
         logger.warn(
           {
-            patientNumber: String(patientNumber),
+            patientNumber: patientNumberString,
             matchCount: records.length,
             exactMatchCount: exactMatches.length,
           },
@@ -1129,7 +1138,7 @@ export async function findByPatientNumber(
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         logger.debug(
-          { tableName, patientNumber: String(patientNumber), url },
+          { tableName, patientNumber: patientNumberString },
           'caspio_patient_record_not_found_404',
         );
         return { found: false };
