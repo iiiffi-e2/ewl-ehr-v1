@@ -69,13 +69,8 @@ describe('caspioClient patient number exact matching', () => {
     });
     const mockApiGet = jest
       .fn()
-      // string variant page 1
       .mockResolvedValueOnce({
         data: [{ PK_ID: 1, PatientNumber: '11111' }],
-      })
-      // numeric variant page 1
-      .mockResolvedValueOnce({
-        data: [{ PK_ID: 2, PatientNumber: '22222' }],
       });
 
     const { createHttpClient } = require('../../../src/config/axios.js');
@@ -104,12 +99,8 @@ describe('caspioClient patient number exact matching', () => {
     }));
     const mockApiGet = jest
       .fn()
-      // string variant page 1
       .mockResolvedValueOnce({ data: noisyPage })
-      // string variant page 2
-      .mockResolvedValueOnce({ data: [{ PK_ID: 999, PatientNumber: '71667' }] })
-      // numeric variant page 1
-      .mockResolvedValueOnce({ data: [] });
+      .mockResolvedValueOnce({ data: [{ PK_ID: 999, PatientNumber: '71667' }] });
 
     const { createHttpClient } = require('../../../src/config/axios.js');
     createHttpClient
@@ -122,7 +113,7 @@ describe('caspioClient patient number exact matching', () => {
     expect(result.found).toBe(true);
     expect(result.id).toBe('999');
     expect(result.raw).toEqual(expect.objectContaining({ PatientNumber: '71667' }));
-    expect(mockApiGet).toHaveBeenCalledTimes(3);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
   });
 });
 

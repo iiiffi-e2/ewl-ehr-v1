@@ -1058,23 +1058,10 @@ export async function findByPatientNumber(
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const patientNumberString = String(patientNumber).trim();
-    const numericCandidate = Number(patientNumberString);
-    const variants: Array<string | number> = [patientNumberString];
-    if (
-      patientNumberString.length > 0 &&
-      /^-?\d+(\.\d+)?$/.test(patientNumberString) &&
-      Number.isFinite(numericCandidate)
-    ) {
-      variants.push(numericCandidate);
-    }
 
     try {
-      const records: unknown[] = [];
-      for (const variant of variants) {
-        const whereClause = buildWhereClause([{ field: 'PatientNumber', value: variant }]);
-        const filtered = await fetchRecordsWithWherePaged(tableName, token, whereClause);
-        records.push(...filtered);
-      }
+      const whereClause = buildWhereClause([{ field: 'PatientNumber', value: patientNumberString }]);
+      const records = await fetchRecordsWithWherePaged(tableName, token, whereClause);
       if (records.length === 0) {
         return { found: false };
       }
