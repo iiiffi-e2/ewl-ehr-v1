@@ -188,6 +188,19 @@ function normalizeComparable(value: unknown): string | undefined {
   return undefined;
 }
 
+function readComparableField(
+  record: Record<string, unknown>,
+  candidates: string[],
+): string | undefined {
+  for (const key of candidates) {
+    const normalized = normalizeComparable(record[key]);
+    if (normalized !== undefined) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
 function parseMissingFieldsFromFieldNotFound(
   error: unknown,
 ): string[] {
@@ -566,8 +579,14 @@ export async function findCommunityById(
       }
 
       const exactMatches = records.filter((rec) => {
-        const record = rec as CommunityTableRecord;
-        return normalizeComparable(record.CommunityID) === String(communityId);
+        const record = rec as Record<string, unknown>;
+        const recordCommunityId = readComparableField(record, [
+          'CommunityID',
+          'CommunityId',
+          'communityId',
+          'communityID',
+        ]);
+        return recordCommunityId === String(communityId);
       }) as CommunityTableRecord[];
 
       if (exactMatches.length === 0) {
@@ -631,10 +650,24 @@ export async function findCommunityByIdAndRoomNumber(
 
       const normalizedRoom = roomNumber.trim();
       const exactMatches = records.filter((rec) => {
-        const record = rec as CommunityTableRecord;
+        const record = rec as Record<string, unknown>;
+        const recordCommunityId = readComparableField(record, [
+          'CommunityID',
+          'CommunityId',
+          'communityId',
+          'communityID',
+        ]);
+        const recordRoomNumber = readComparableField(record, [
+          'RoomNumber',
+          'roomNumber',
+          'Room',
+          'room',
+          'ApartmentNumber',
+          'Apartment',
+        ]);
         return (
-          normalizeComparable(record.CommunityID) === String(communityId) &&
-          normalizeComparable(record.RoomNumber) === normalizedRoom
+          recordCommunityId === String(communityId) &&
+          recordRoomNumber === normalizedRoom
         );
       }) as CommunityTableRecord[];
 

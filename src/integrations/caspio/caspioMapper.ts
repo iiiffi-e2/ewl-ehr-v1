@@ -357,6 +357,21 @@ function getCommunityRecord(payload: AlisPayload): Record<string, unknown> | und
   return payload.data.community as Record<string, unknown> | undefined;
 }
 
+function getPatientAddressField(
+  resident: Record<string, unknown>,
+  basicInfo: Record<string, unknown>,
+  communityPayload: Record<string, unknown> | undefined,
+  residentKeys: string[],
+  basicInfoKeys: string[],
+  communityKeys: string[],
+): string | undefined {
+  return (
+    getStringValue(resident, residentKeys) ??
+    getStringValue(basicInfo, basicInfoKeys) ??
+    getStringValue(communityPayload, communityKeys)
+  );
+}
+
 export function mapCommunityRecord(payload: AlisPayload): CommunityTableApiRecord {
   const resident = getResidentRecord(payload);
   const basicInfo = getBasicInfoRecord(payload);
@@ -473,10 +488,38 @@ export function mapPatientRecord(
   const { slot1, slot2 } = normalizeMedicalInsurances(payload.data.insurance ?? []);
 
   const communityPayload = getCommunityRecord(payload);
-  const patientAddress = getStringValue(communityPayload, ['Address', 'address']);
-  const patientAddressCity = getStringValue(communityPayload, ['City', 'city']);
-  const patientAddressState = getStringValue(communityPayload, ['State', 'state']);
-  const patientAddressZip = getStringValue(communityPayload, ['Zip', 'zip', 'ZipCode', 'zipCode']);
+  const patientAddress = getPatientAddressField(
+    resident,
+    basicInfo,
+    communityPayload,
+    ['Address', 'address', 'StreetAddress', 'streetAddress', 'StreetAddress1', 'streetAddress1'],
+    ['Address', 'address', 'StreetAddress', 'streetAddress', 'StreetAddress1', 'streetAddress1'],
+    ['Address', 'address'],
+  );
+  const patientAddressCity = getPatientAddressField(
+    resident,
+    basicInfo,
+    communityPayload,
+    ['City', 'city'],
+    ['City', 'city'],
+    ['City', 'city'],
+  );
+  const patientAddressState = getPatientAddressField(
+    resident,
+    basicInfo,
+    communityPayload,
+    ['State', 'state'],
+    ['State', 'state'],
+    ['State', 'state'],
+  );
+  const patientAddressZip = getPatientAddressField(
+    resident,
+    basicInfo,
+    communityPayload,
+    ['Zip', 'zip', 'ZipCode', 'zipCode', 'PostalCode', 'postalCode'],
+    ['Zip', 'zip', 'ZipCode', 'zipCode', 'PostalCode', 'postalCode'],
+    ['Zip', 'zip', 'ZipCode', 'zipCode'],
+  );
 
   const record: CarePatientTableApiRecord = {
     PatientNumber: residentId ? String(residentId) : undefined,
