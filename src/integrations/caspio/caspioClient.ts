@@ -138,6 +138,92 @@ function buildCompositeFilter(filters: Array<{ field: string; value: string | nu
   return encodeURIComponent(JSON.stringify(filter));
 }
 
+function formatWhereLiteral(value: string | number | boolean): string {
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  const escaped = value.replace(/'/g, "''");
+  return `'${escaped}'`;
+}
+
+function buildWhereClause(filters: Array<{ field: string; value: string | number | boolean }>): string {
+  return filters
+    .map((f) => `${f.field}=${formatWhereLiteral(f.value)}`)
+    .join(' AND ');
+}
+
+const CASPIO_QUERY_PAGE_SIZE = 200;
+const CASPIO_QUERY_MAX_PAGES = 20;
+
+async function fetchRecordsWithWherePaged(
+  tableName: string,
+  token: string,
+  whereClause?: string,
+): Promise<unknown[]> {
+  const baseUrl = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;
+  const records: unknown[] = [];
+
+  const makeUrl = (pageNumber?: number): string => {
+    const params: string[] = [];
+    if (whereClause) {
+      params.push(`q.where=${encodeURIComponent(whereClause)}`);
+    }
+    if (pageNumber !== undefined) {
+      params.push(`q.pageNumber=${pageNumber}`);
+      params.push(`q.pageSize=${CASPIO_QUERY_PAGE_SIZE}`);
+    }
+    return params.length > 0 ? `${baseUrl}?${params.join('&')}` : baseUrl;
+  };
+
+  for (let pageNumber = 1; pageNumber <= CASPIO_QUERY_MAX_PAGES; pageNumber += 1) {
+    const url = makeUrl(pageNumber);
+    try {
+      const response = await apiClient.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const pageRecords = extractRecordsFromResponse(response.data);
+      records.push(...pageRecords);
+      if (pageRecords.length < CASPIO_QUERY_PAGE_SIZE) {
+        return records;
+      }
+      continue;
+    } catch (error) {
+      if (
+        pageNumber === 1 &&
+        axios.isAxiosError(error) &&
+        error.response?.status === 400
+      ) {
+        // Fallback for environments that reject q.pageNumber/q.pageSize.
+        const nonPagedUrl = makeUrl();
+        const response = await apiClient.get(nonPagedUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        return extractRecordsFromResponse(response.data);
+      }
+      throw error;
+    }
+  }
+
+  logger.warn(
+    {
+      tableName,
+      whereClause,
+      pageSize: CASPIO_QUERY_PAGE_SIZE,
+      maxPages: CASPIO_QUERY_MAX_PAGES,
+      matchCount: records.length,
+    },
+    'caspio_query_max_pages_reached',
+  );
+  return records;
+}
+
 function extractRecordsFromResponse(data: unknown): unknown[] {
   if (Array.isArray(data)) {
     return data;
@@ -591,9 +677,9 @@ export async function findCommunityById(
     const token = await getAccessToken();
 
     try {
-      const filters = [
-        buildEqualsFilter('CommunityID', communityId),
-        buildEqualsFilter('CommunityID', String(communityId)),
+      const filters: Array<{ field: string; value: string | number }> = [
+        { field: 'CommunityID', value: communityId },
+        { field: 'CommunityID', value: String(communityId) },
       ];
 
       const records: unknown[] = [];
@@ -605,13 +691,10 @@ export async function findCommunityById(
         didFallbackScan = true;
         // Fallback: some Caspio schemas can behave inconsistently for filtered queries.
         // Retry with an unfiltered scan and exact-match locally.
-        const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
-        const fullScanResponse = await apiClient.get(fullScanUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const scanned = extractRecordsFromResponse(fullScanResponse.data);
+        const scanned = await fetchRecordsWithWherePaged(
+          env.CASPIO_COMMUNITY_TABLE_NAME,
+          token,
+        );
         records.push(...scanned);
         logger.info(
           {
@@ -622,13 +705,13 @@ export async function findCommunityById(
         );
       };
       for (const filter of filters) {
-        const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
-        const response = await apiClient.get(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        records.push(...extractRecordsFromResponse(response.data));
+        const whereClause = buildWhereClause([{ field: filter.field, value: filter.value }]);
+        const filtered = await fetchRecordsWithWherePaged(
+          env.CASPIO_COMMUNITY_TABLE_NAME,
+          token,
+          whereClause,
+        );
+        records.push(...filtered);
       }
       if (records.length === 0) {
         await appendFallbackScanRecords();
@@ -717,13 +800,10 @@ export async function findCommunityByIdAndRoomNumber(
         didFallbackScan = true;
         // Fallback: scan table and exact-match in code when filtered API returns no rows
         // or only noisy non-exact rows.
-        const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
-        const fullScanResponse = await apiClient.get(fullScanUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const scanned = extractRecordsFromResponse(fullScanResponse.data);
+        const scanned = await fetchRecordsWithWherePaged(
+          env.CASPIO_COMMUNITY_TABLE_NAME,
+          token,
+        );
         records.push(...scanned);
         logger.info(
           {
@@ -736,17 +816,16 @@ export async function findCommunityByIdAndRoomNumber(
       };
       for (const communityFilterValue of communityFilterValues) {
         for (const roomFilterValue of roomFilterValues) {
-          const filter = buildCompositeFilter([
+          const whereClause = buildWhereClause([
             { field: 'CommunityID', value: communityFilterValue },
             { field: 'RoomNumber', value: roomFilterValue },
           ]);
-          const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
-          const response = await apiClient.get(url, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          records.push(...extractRecordsFromResponse(response.data));
+          const filtered = await fetchRecordsWithWherePaged(
+            env.CASPIO_COMMUNITY_TABLE_NAME,
+            token,
+            whereClause,
+          );
+          records.push(...filtered);
         }
       }
       if (records.length === 0) {
