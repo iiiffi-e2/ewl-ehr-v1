@@ -41,7 +41,7 @@ describe('caspioClient service helpers', () => {
         {
           PK_ID: 10,
           PatientNumber: '12345',
-          CUID: 'C-113',
+          CUID: '259',
           ServiceType: 'Assisted Living',
           StartDate: '2026-01-10',
           EndDate: '',
@@ -49,7 +49,7 @@ describe('caspioClient service helpers', () => {
         {
           PK_ID: 11,
           PatientNumber: '12345',
-          CUID: 'C-113',
+          CUID: '259',
           ServiceType: 'Memory Care',
           StartDate: '2026-02-01',
           EndDate: '2026-02-15',
@@ -63,7 +63,7 @@ describe('caspioClient service helpers', () => {
       .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
 
     const { findActiveOrLatestServiceRow } = await import('../../../src/integrations/caspio/caspioClient.js');
-    const result = await findActiveOrLatestServiceRow({ patientNumber: '12345', cuid: 'C-113' });
+    const result = await findActiveOrLatestServiceRow({ patientNumber: '12345', cuid: '259' });
 
     expect(result.found).toBe(true);
     expect(result.id).toBe('10');
@@ -83,14 +83,14 @@ describe('caspioClient service helpers', () => {
         {
           PK_ID: 21,
           PatientNumber: '12345',
-          CUID: 'C-113',
+          CUID: '259',
           StartDate: '2026-01-01',
           EndDate: '2026-01-10',
         },
         {
           PK_ID: 22,
           PatientNumber: '12345',
-          CUID: 'C-113',
+          CUID: '259',
           StartDate: '2026-03-01',
           EndDate: '2026-03-10',
         },
@@ -103,7 +103,7 @@ describe('caspioClient service helpers', () => {
       .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
 
     const { findActiveOrLatestServiceRow } = await import('../../../src/integrations/caspio/caspioClient.js');
-    const result = await findActiveOrLatestServiceRow({ patientNumber: '12345', cuid: 'C-113' });
+    const result = await findActiveOrLatestServiceRow({ patientNumber: '12345', cuid: '259' });
 
     expect(result.found).toBe(true);
     expect(result.id).toBe('22');

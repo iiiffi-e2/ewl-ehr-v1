@@ -589,17 +589,23 @@ export async function findCommunityById(
 ): Promise<{ found: boolean; record?: CommunityTableRecord }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const filter = buildEqualsFilter('CommunityID', communityId);
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
 
     try {
-      const response = await apiClient.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const filters = [
+        buildEqualsFilter('CommunityID', communityId),
+        buildEqualsFilter('CommunityID', String(communityId)),
+      ];
 
-      const records = extractRecordsFromResponse(response.data);
+      const records: unknown[] = [];
+      for (const filter of filters) {
+        const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
+        const response = await apiClient.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        records.push(...extractRecordsFromResponse(response.data));
+      }
       if (records.length === 0) {
         return { found: false };
       }
@@ -642,7 +648,7 @@ export async function findCommunityById(
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         logger.debug(
-          { communityId, url },
+          { communityId },
           'caspio_community_record_not_found_404',
         );
         return { found: false };
@@ -661,25 +667,36 @@ export async function findCommunityByIdAndRoomNumber(
 ): Promise<{ found: boolean; record?: CommunityTableRecord }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
-    const filter = buildCompositeFilter([
-      { field: 'CommunityID', value: communityId },
-      { field: 'RoomNumber', value: roomNumber },
-    ]);
-    const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
 
     try {
-      const response = await apiClient.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const normalizedRoom = roomNumber.trim();
+      const roomAsNumber = Number(normalizedRoom);
+      const roomFilterValues: Array<string | number> = Number.isFinite(roomAsNumber)
+        ? [normalizedRoom, roomAsNumber]
+        : [normalizedRoom];
 
-      const records = extractRecordsFromResponse(response.data);
+      const communityFilterValues: Array<string | number> = [communityId, String(communityId)];
+
+      const records: unknown[] = [];
+      for (const communityFilterValue of communityFilterValues) {
+        for (const roomFilterValue of roomFilterValues) {
+          const filter = buildCompositeFilter([
+            { field: 'CommunityID', value: communityFilterValue },
+            { field: 'RoomNumber', value: roomFilterValue },
+          ]);
+          const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
+          const response = await apiClient.get(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          records.push(...extractRecordsFromResponse(response.data));
+        }
+      }
       if (records.length === 0) {
         return { found: false };
       }
 
-      const normalizedRoom = roomNumber.trim();
       const exactMatches = records.filter((rec) => {
         const record = rec as Record<string, unknown>;
         const recordCommunityId = readComparableField(record, [
@@ -735,7 +752,7 @@ export async function findCommunityByIdAndRoomNumber(
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         logger.debug(
-          { communityId, roomNumber, url },
+          { communityId, roomNumber },
           'caspio_community_room_record_not_found_404',
         );
         return { found: false };

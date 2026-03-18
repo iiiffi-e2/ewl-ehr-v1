@@ -102,13 +102,13 @@ describe('caspioMapper new table mappings', () => {
 
   it('maps patient payload and preserves raw PatientNumber', () => {
     const record = mapPatientRecord(buildPayload(), {
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Sunset Manor',
     });
 
     expect(record.PatientNumber).toBe('12345');
     expect(record.PatientNumber).not.toContain('_');
-    expect(record.CUID).toBe('C-113');
+    expect(record.CUID).toBe('259');
     expect(record.PatientCommunity).toBe('Sunset Manor');
     expect(record.ApartmentNumber).toBe('101');
     expect(record.Diagnosis1).toBe('Hypertension');
@@ -123,7 +123,7 @@ describe('caspioMapper new table mappings', () => {
     (payload.data.resident as Record<string, unknown>).ZipCode = '75024';
 
     const record = mapPatientRecord(payload, {
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Sunset Manor',
     });
 
@@ -135,7 +135,7 @@ describe('caspioMapper new table mappings', () => {
 
   it('maps only financially-tagged contacts intentionally', () => {
     const record = mapPatientRecord(buildPayload(), {
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Sunset Manor',
     });
 
@@ -147,7 +147,7 @@ describe('caspioMapper new table mappings', () => {
   it('generates deterministic Service_ID when one is not provided', () => {
     const recordA = mapServiceRecord({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       serviceType: 'Assisted Living',
       startDate: '2024-01-01',
       endDate: '2024-02-01',
@@ -155,7 +155,7 @@ describe('caspioMapper new table mappings', () => {
     });
     const recordB = mapServiceRecord({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       serviceType: 'Assisted Living',
       startDate: '2024-01-01',
       endDate: '2024-03-01',
@@ -177,12 +177,12 @@ describe('caspioMapper new table mappings', () => {
   it('builds deterministic off-prem Episode_ID without Leave_ID', () => {
     const idA = buildOffPremEpisodeId({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       offPremStart: '2026-01-19T13:00:00',
     });
     const idB = buildOffPremEpisodeId({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       offPremStart: '2026-01-19T13:00:00',
     });
     expect(idA).toBe(idB);
@@ -191,17 +191,17 @@ describe('caspioMapper new table mappings', () => {
   it('uses leave-based Episode_ID when Leave_ID exists', () => {
     const id = buildOffPremEpisodeId({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       leaveId: 285,
       offPremStart: '2026-01-19T13:00:00',
     });
-    expect(id).toBe('leave:12345:C-113:285');
+    expect(id).toBe('leave:12345:259:285');
   });
 
   it('maps off-prem start episode with patient and community linkage', () => {
     const episode = mapOffPremStartEpisode({
       patientNumber: '12345',
-      cuid: 'C-113',
+      cuid: '259',
       communityName: 'Sunset Manor',
       leaveId: 285,
       offPremStart: '2026-01-19T13:00:00',
@@ -209,9 +209,9 @@ describe('caspioMapper new table mappings', () => {
     });
     expect(episode).toEqual(
       expect.objectContaining({
-        Episode_ID: 'leave:12345:C-113:285',
+        Episode_ID: 'leave:12345:259:285',
         PatientNumber: '12345',
-        CUID: 'C-113',
+        CUID: '259',
         Leave_ID: '285',
         OffPremStart: '2026-01-19T13:00:00',
         IsOpen: true,

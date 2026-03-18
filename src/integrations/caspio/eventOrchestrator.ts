@@ -507,6 +507,9 @@ async function handleMoveInEvent(
   const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const patientRecord = mapPatientRecord(payload, communityContext);
   patientRecord.PatientNumber = String(residentId);
+  if (!patientRecord.ApartmentNumber && roomNumber) {
+    patientRecord.ApartmentNumber = roomNumber;
+  }
   if (!patientRecord.Service_Start_Date) {
     patientRecord.Service_Start_Date = patientRecord.Move_in_Date ?? getTodayDateString();
   }
@@ -687,6 +690,9 @@ async function handleUpdateEvent(
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const patientRecord = mapPatientRecord(payload, communityContext);
+  if (!patientRecord.ApartmentNumber && roomNumber) {
+    patientRecord.ApartmentNumber = roomNumber;
+  }
   patientRecord.PatientNumber = String(residentId);
   const patchWithoutMoveIn =
     event.EventType === 'residents.move_in_out_info_updated'

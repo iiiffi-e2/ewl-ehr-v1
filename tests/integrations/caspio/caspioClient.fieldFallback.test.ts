@@ -78,7 +78,7 @@ describe('caspioClient FieldNotFound fallback', () => {
     await insertRecord('CarePatientTable_API_Temp', {
       PatientNumber: '71620',
       LastName: 'Doe',
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Test Community',
     });
 
@@ -109,7 +109,7 @@ describe('caspioClient FieldNotFound fallback', () => {
     await updateRecordById('CarePatientTable_API_Temp', 1, {
       PatientNumber: '71620',
       FirstName: 'Jane',
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Test Community',
     });
 

@@ -78,7 +78,7 @@ describe('pushToCaspio new-table routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getCommunityEnrichmentMock.mockResolvedValue({
-      CUID: 'C-113',
+      CUID: '259',
       CommunityName: 'Sunset Manor',
     });
     upsertByFieldsMock.mockResolvedValue({ action: 'update', id: 'id-1' });
@@ -99,11 +99,11 @@ describe('pushToCaspio new-table routing', () => {
       'CarePatientTable_API',
       [
         { field: 'PatientNumber', value: '12345' },
-        { field: 'CUID', value: 'C-113' },
+        { field: 'CUID', value: '259' },
       ],
       expect.objectContaining({
         PatientNumber: '12345',
-        CUID: 'C-113',
+        CUID: '259',
       }),
     );
 
@@ -112,7 +112,7 @@ describe('pushToCaspio new-table routing', () => {
       [{ field: 'Service_ID', value: expect.any(String) }],
       expect.objectContaining({
         PatientNumber: '12345',
-        CUID: 'C-113',
+        CUID: '259',
         CommunityName: 'Sunset Manor',
       }),
     );

@@ -18,7 +18,7 @@ jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   updateRecordById: updateRecordByIdMock,
 }));
 jest.mock('../../../src/integrations/caspio/caspioCommunityEnrichment.js', () => ({
-  getCommunityEnrichment: jest.fn().mockResolvedValue({ CUID: 'C-113', CommunityName: 'Test Community' }),
+  getCommunityEnrichment: jest.fn().mockResolvedValue({ CUID: '259', CommunityName: 'Test Community' }),
 }));
 jest.mock('../../../src/integrations/alisClient.js', () => ({
   fetchAllResidentData: jest.fn().mockResolvedValue({
@@ -58,7 +58,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
     upsertOffPremEpisodeByEpisodeIdMock.mockResolvedValue({ action: 'update', id: 'ep-1' });
     findCommunityByIdAndRoomNumberMock.mockResolvedValue({
       found: true,
-      record: { CUID: 'C-113', CommunityName: 'Test Community' },
+      record: { CUID: '259', CommunityName: 'Test Community' },
     });
     findActiveOrLatestServiceRowMock.mockResolvedValue({
       found: true,
@@ -109,7 +109,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
     expect(upsertOffPremEpisodeByEpisodeIdMock).toHaveBeenCalledWith(
       expect.objectContaining({
         PatientNumber: '70508',
-        CUID: 'C-113',
+        CUID: '259',
         Leave_ID: '285',
         OffPremStart: '2026-01-19T13:00:00',
         IsOpen: true,
@@ -195,7 +195,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
 
     expect(findOpenOffPremEpisodeMock).toHaveBeenCalledWith({
       patientNumber: '70508',
-      cuid: 'C-113',
+      cuid: '259',
       leaveId: undefined,
     });
   });
@@ -206,7 +206,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       id: '201',
       record: {
         PatientNumber: '70508',
-        CUID: 'C-113',
+        CUID: '259',
         CommunityName: 'Test Community',
         Move_in_Date: '2025-01-01',
         Service_Start_Date: '2025-01-01',
@@ -230,7 +230,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       '201',
       expect.objectContaining({
         PatientNumber: '70508',
-        CUID: 'C-113',
+        CUID: '259',
         Move_Out_Date: expect.any(String),
         Service_End_Date: expect.any(String),
       }),
