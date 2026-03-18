@@ -359,8 +359,52 @@ function normalizeScenarioDate(primary?: string, fallback?: string): string {
   return value;
 }
 
+function formatCaspioDateTime(value?: string): string {
+  const source = value && value.trim().length > 0 ? value : undefined;
+  const parsed = source ? new Date(source) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const yyyy = String(date.getUTCFullYear());
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const min = String(date.getUTCMinutes()).padStart(2, '0');
+  const ss = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
+}
+
+function normalizeScenarioDateTime(primary?: string, fallback?: string): string {
+  const value = (primary && primary.trim().length > 0 ? primary : undefined) ?? fallback;
+  return formatCaspioDateTime(value);
+}
+
+function isDefaultEndDateValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return true;
+  }
+  return (
+    normalized.startsWith('0001-01-01') ||
+    normalized.startsWith('1900-01-01') ||
+    normalized.startsWith('01/01/1900') ||
+    normalized.startsWith('1/1/1900')
+  );
+}
+
 function isOpenServiceRow(endDate: unknown): boolean {
-  return endDate === undefined || endDate === null || (typeof endDate === 'string' && endDate.trim().length === 0);
+  if (endDate === undefined || endDate === null) {
+    return true;
+  }
+  if (typeof endDate === 'string') {
+    if (isDefaultEndDateValue(endDate)) {
+      return true;
+    }
+    const parsed = Date.parse(endDate);
+    return Number.isNaN(parsed) ? false : new Date(parsed).getUTCFullYear() <= 1900;
+  }
+  if (endDate instanceof Date) {
+    return Number.isNaN(endDate.getTime()) ? true : endDate.getUTCFullYear() <= 1900;
+  }
+  return false;
 }
 
 async function resolveServiceCommunityContext(params: {
@@ -594,7 +638,7 @@ async function handleMoveInEvent(
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
       serviceType,
-      startDate: normalizeScenarioDate(patientRecord.Move_in_Date, event.EventMessageDate),
+      startDate: normalizeScenarioDateTime(patientRecord.Move_in_Date, event.EventMessageDate),
     });
   }
 
@@ -646,7 +690,7 @@ async function handleMoveOutEvent(
     extractStringValue(notificationData, ['PhysicalMoveOutDate', 'MoveOutDate', 'MoveOutDateTime']),
     event.EventMessageDate,
   );
-  const serviceBoundaryDate = getTodayDateString();
+  const serviceBoundaryDate = formatCaspioDateTime();
 
   const updateData: Partial<CarePatientTableApiRecord> = {
     PatientNumber: String(residentId),
@@ -793,7 +837,7 @@ async function handleUpdateEvent(
     fallbackRoomNumber: serviceRoomFallback,
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
-    const boundaryDate = normalizeScenarioDate(event.EventMessageDate);
+    const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
     const existingService = await findActiveOrLatestServiceRow({
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,

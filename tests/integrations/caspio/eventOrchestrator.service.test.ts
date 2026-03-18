@@ -108,7 +108,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'Service_Table_API',
       expect.arrayContaining([
         { field: 'CUID', value: '259' },
-        { field: 'StartDate', value: '2026-01-10' },
+        { field: 'StartDate', value: '01/10/2026 00:00:00' },
         { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Assisted Living' },
       ]),
@@ -117,7 +117,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         CUID: '259',
         CommunityName: 'Test Community',
         ServiceType: 'Assisted Living',
-        StartDate: '2026-01-10',
+        StartDate: '01/10/2026 00:00:00',
       }),
     );
   });
@@ -220,19 +220,19 @@ describe('eventOrchestrator service-table scenarios', () => {
       await handleAlisEvent(event, 10, 'appstoresandbox');
 
       expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
-        EndDate: '2026-01-21',
+        EndDate: '01/21/2026 14:00:00',
       });
       expect(upsertByFieldsMock).toHaveBeenCalledWith(
         'Service_Table_API',
         [
           { field: 'CUID', value: '259' },
-          { field: 'StartDate', value: '2026-01-21' },
+          { field: 'StartDate', value: '01/21/2026 14:00:00' },
           { field: 'ServiceType', value: 'Vacant' },
         ],
         expect.objectContaining({
           CUID: '259',
           ServiceType: 'Vacant',
-          StartDate: '2026-01-21',
+          StartDate: '01/21/2026 14:00:00',
         }),
       );
       expect(upsertByFieldsMock.mock.calls[0]?.[2]).not.toHaveProperty('PatientNumber');
@@ -273,13 +273,13 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
-      EndDate: '2026-01-22T12:00:00Z',
+      EndDate: '01/22/2026 12:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
       expect.arrayContaining([
         { field: 'CUID', value: '259' },
-        { field: 'StartDate', value: '2026-01-22T12:00:00Z' },
+        { field: 'StartDate', value: '01/22/2026 12:00:00' },
         { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Memory Care' },
       ]),
@@ -287,7 +287,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '70508',
         CUID: '259',
         ServiceType: 'Memory Care',
-        StartDate: '2026-01-22T12:00:00Z',
+        StartDate: '01/22/2026 12:00:00',
       }),
     );
   });
@@ -344,7 +344,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
-      EndDate: '2026-01-22T12:00:00Z',
+      EndDate: '01/22/2026 12:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
@@ -353,6 +353,59 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '70508',
         CUID: '259',
         ServiceType: 'Memory Care',
+        StartDate: '01/22/2026 12:00:00',
+      }),
+    );
+  });
+
+  it('classification change treats default EndDate sentinel as active and closes previous row', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-default-enddate',
+      record: {
+        ServiceType: 'Assisted Living',
+        StartDate: '2026-01-10',
+        EndDate: '01/01/1900 00:00:00',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-service-change-sentinel-enddate',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+        Classification: 'Memory Care',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-default-enddate', {
+      EndDate: '01/22/2026 12:00:00',
+    });
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'StartDate', value: '01/22/2026 12:00:00' },
+        { field: 'ServiceType', value: 'Memory Care' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        ServiceType: 'Memory Care',
+        StartDate: '01/22/2026 12:00:00',
       }),
     );
   });
