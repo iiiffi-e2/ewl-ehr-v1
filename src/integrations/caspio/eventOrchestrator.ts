@@ -68,6 +68,37 @@ function extractStringValue(
   return undefined;
 }
 
+function extractNestedStringValue(
+  payload: unknown,
+  keys: string[],
+  depth = 0,
+): string | undefined {
+  if (!payload || depth > 3) return undefined;
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const nested = extractNestedStringValue(item, keys, depth + 1);
+      if (nested) return nested;
+    }
+    return undefined;
+  }
+
+  if (typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const direct = extractStringValue(record, keys);
+  if (direct) return direct;
+
+  for (const value of Object.values(record)) {
+    const nested = extractNestedStringValue(value, keys, depth + 1);
+    if (nested) return nested;
+  }
+
+  return undefined;
+}
+
 /**
  * Extract residentId from event NotificationData
  */
@@ -299,6 +330,14 @@ function getClassification(
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   return (
     extractStringValue(notificationData, ['Classification', 'classification', 'ServiceType', 'serviceType']) ??
+    extractNestedStringValue(notificationData, [
+      'Classification',
+      'classification',
+      'ServiceType',
+      'serviceType',
+      'ProductType',
+      'productType',
+    ]) ??
     (residentData
       ? extractStringValue(residentData, ['Classification', 'classification', 'ProductType', 'productType'])
       : undefined) ??
@@ -308,13 +347,64 @@ function getClassification(
   );
 }
 
+function normalizeServiceType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.toLowerCase();
+}
+
 function normalizeScenarioDate(primary?: string, fallback?: string): string {
   const value = (primary && primary.trim().length > 0 ? primary : undefined) ?? fallback ?? getTodayDateString();
   return value;
 }
 
+function formatCaspioDateTime(value?: string): string {
+  const source = value && value.trim().length > 0 ? value : undefined;
+  const parsed = source ? new Date(source) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const yyyy = String(date.getUTCFullYear());
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const min = String(date.getUTCMinutes()).padStart(2, '0');
+  const ss = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
+}
+
+function normalizeScenarioDateTime(primary?: string, fallback?: string): string {
+  const value = (primary && primary.trim().length > 0 ? primary : undefined) ?? fallback;
+  return formatCaspioDateTime(value);
+}
+
+function isDefaultEndDateValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return true;
+  }
+  return (
+    normalized.startsWith('0001-01-01') ||
+    normalized.startsWith('1900-01-01') ||
+    normalized.startsWith('01/01/1900') ||
+    normalized.startsWith('1/1/1900')
+  );
+}
+
 function isOpenServiceRow(endDate: unknown): boolean {
-  return endDate === undefined || endDate === null || (typeof endDate === 'string' && endDate.trim().length === 0);
+  if (endDate === undefined || endDate === null) {
+    return true;
+  }
+  if (typeof endDate === 'string') {
+    if (isDefaultEndDateValue(endDate)) {
+      return true;
+    }
+    const parsed = Date.parse(endDate);
+    return Number.isNaN(parsed) ? false : new Date(parsed).getUTCFullYear() <= 1900;
+  }
+  if (endDate instanceof Date) {
+    return Number.isNaN(endDate.getTime()) ? true : endDate.getUTCFullYear() <= 1900;
+  }
+  return false;
 }
 
 async function resolveServiceCommunityContext(params: {
@@ -392,7 +482,7 @@ async function resolveServiceCommunityContext(params: {
 }
 
 async function createServiceRow(params: {
-  patientNumber: string;
+  patientNumber?: string;
   cuid: string;
   communityName?: string;
   serviceType?: string;
@@ -409,10 +499,12 @@ async function createServiceRow(params: {
   });
   const { Service_ID, ...serviceRecordForWrite } = serviceRecord;
   const filters: Array<{ field: string; value: string | number | boolean }> = [
-    { field: 'PatientNumber', value: params.patientNumber },
     { field: 'CUID', value: params.cuid },
     { field: 'StartDate', value: params.startDate },
   ];
+  if (params.patientNumber) {
+    filters.push({ field: 'PatientNumber', value: params.patientNumber });
+  }
   if (params.serviceType) {
     filters.push({ field: 'ServiceType', value: params.serviceType });
   }
@@ -546,7 +638,7 @@ async function handleMoveInEvent(
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
       serviceType,
-      startDate: normalizeScenarioDate(patientRecord.Move_in_Date, event.EventMessageDate),
+      startDate: normalizeScenarioDateTime(patientRecord.Move_in_Date, event.EventMessageDate),
     });
   }
 
@@ -598,6 +690,7 @@ async function handleMoveOutEvent(
     extractStringValue(notificationData, ['PhysicalMoveOutDate', 'MoveOutDate', 'MoveOutDateTime']),
     event.EventMessageDate,
   );
+  const serviceBoundaryDate = formatCaspioDateTime();
 
   const updateData: Partial<CarePatientTableApiRecord> = {
     PatientNumber: String(residentId),
@@ -645,7 +738,13 @@ async function handleMoveOutEvent(
     await closeLatestServiceRow({
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
-      endDate: moveOutDate,
+      endDate: serviceBoundaryDate,
+    });
+    await createServiceRow({
+      cuid: serviceCommunity.cuid,
+      communityName: serviceCommunity.communityName,
+      serviceType: 'Vacant',
+      startDate: serviceBoundaryDate,
     });
   }
 
@@ -723,7 +822,7 @@ async function handleUpdateEvent(
 
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
-  const incomingServiceType = getClassification(event, resident, basicInfo);
+  let incomingServiceType = getClassification(event, resident, basicInfo);
   const serviceRoomFallback =
     (typeof patientRecord.ApartmentNumber === 'string' && patientRecord.ApartmentNumber.trim().length > 0
       ? patientRecord.ApartmentNumber.trim()
@@ -737,14 +836,54 @@ async function handleUpdateEvent(
     communityId,
     fallbackRoomNumber: serviceRoomFallback,
   });
-  if (serviceCommunity.matched && serviceCommunity.cuid && incomingServiceType) {
-    const boundaryDate = normalizeScenarioDate(event.EventMessageDate);
+  if (serviceCommunity.matched && serviceCommunity.cuid) {
+    const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
     const existingService = await findActiveOrLatestServiceRow({
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
     });
 
-    if (!existingService.found || !existingService.id || !existingService.record) {
+    const currentServiceType =
+      existingService.found && existingService.record && typeof existingService.record.ServiceType === 'string'
+        ? existingService.record.ServiceType
+        : undefined;
+
+    let hasChanged =
+      !currentServiceType ||
+      normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+
+    if (
+      event.EventType === 'residents.basic_info_updated' &&
+      (!incomingServiceType || !hasChanged)
+    ) {
+      const refreshedResidentData = await fetchFullResidentDataIfNeeded(
+        companyId,
+        companyKey,
+        residentId,
+        communityId,
+      );
+      const refreshedResident = refreshedResidentData.resident as Record<string, unknown>;
+      const refreshedBasicInfo = refreshedResidentData.basicInfo as Record<string, unknown>;
+      const refreshedServiceType = getClassification(event, refreshedResident, refreshedBasicInfo);
+      if (refreshedServiceType) {
+        incomingServiceType = refreshedServiceType;
+        hasChanged =
+          !currentServiceType ||
+          normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+      }
+    }
+
+    if (!incomingServiceType) {
+      logger.info(
+        {
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+        },
+        'service_write_skipped_missing_classification',
+      );
+    } else if (!existingService.found || !existingService.id || !existingService.record) {
       await createServiceRow({
         patientNumber: String(residentId),
         cuid: serviceCommunity.cuid,
@@ -753,12 +892,7 @@ async function handleUpdateEvent(
         startDate: boundaryDate,
       });
     } else {
-      const currentServiceType =
-        typeof existingService.record.ServiceType === 'string'
-          ? existingService.record.ServiceType
-          : undefined;
       const active = isOpenServiceRow(existingService.record.EndDate);
-      const hasChanged = !currentServiceType || currentServiceType !== incomingServiceType;
 
       if (active && hasChanged) {
         await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {

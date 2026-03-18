@@ -196,6 +196,22 @@ describe('caspioMapper new table mappings', () => {
     expect(record.Service_ID).toBe('SVC-100');
   });
 
+  it('allows service rows without PatientNumber', () => {
+    const record = mapServiceRecord({
+      cuid: '259',
+      serviceType: 'Vacant',
+      startDate: '2026-01-21',
+    });
+    expect(record).toEqual(
+      expect.objectContaining({
+        CUID: '259',
+        ServiceType: 'Vacant',
+        StartDate: '2026-01-21',
+      }),
+    );
+    expect(record).not.toHaveProperty('PatientNumber');
+  });
+
   it('builds deterministic off-prem Episode_ID without Leave_ID', () => {
     const idA = buildOffPremEpisodeId({
       patientNumber: '12345',

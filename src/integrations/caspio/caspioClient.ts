@@ -256,8 +256,59 @@ function parseSortableDate(value: unknown): number {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return Number.NEGATIVE_INFINITY;
   }
-  const ts = Date.parse(value);
-  return Number.isNaN(ts) ? Number.NEGATIVE_INFINITY : ts;
+  const trimmed = value.trim();
+  const ts = Date.parse(trimmed);
+  if (!Number.isNaN(ts)) {
+    return ts;
+  }
+  const mdYDateTimeMatch = trimmed.match(
+    /^(\d{1,2})[/:](\d{1,2})[/:](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
+  );
+  if (mdYDateTimeMatch) {
+    const [, month, day, year, hour, minute, second] = mdYDateTimeMatch;
+    return Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+      0,
+    );
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+function isDefaultServiceEndDate(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return true;
+  }
+  return (
+    normalized.startsWith('0001-01-01') ||
+    normalized.startsWith('1900-01-01') ||
+    normalized.startsWith('01/01/1900') ||
+    normalized.startsWith('1/1/1900')
+  );
+}
+
+function isOpenServiceEndDate(endDate: unknown): boolean {
+  if (endDate === undefined || endDate === null) {
+    return true;
+  }
+  if (typeof endDate === 'string') {
+    if (isDefaultServiceEndDate(endDate)) {
+      return true;
+    }
+    const parsed = parseSortableDate(endDate);
+    return parsed !== Number.NEGATIVE_INFINITY
+      ? new Date(parsed).getUTCFullYear() <= 1900
+      : false;
+  }
+  if (endDate instanceof Date) {
+    return Number.isNaN(endDate.getTime()) ? true : endDate.getUTCFullYear() <= 1900;
+  }
+  return false;
 }
 
 function normalizeComparable(value: unknown): string | undefined {
@@ -1115,7 +1166,7 @@ export async function findActiveOrLatestServiceRow(params: {
 
   const activeRows = withIds.filter(({ record }) => {
     const endDate = record.EndDate;
-    return endDate === undefined || endDate === null || (typeof endDate === 'string' && endDate.trim().length === 0);
+    return isOpenServiceEndDate(endDate);
   });
   const sourceRows = activeRows.length > 0 ? activeRows : withIds;
 

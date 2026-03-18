@@ -120,7 +120,7 @@ export type CarePatientTableApiRecord = {
 
 export type ServiceTableApiRecord = {
   Service_ID: string;
-  PatientNumber: string;
+  PatientNumber?: string;
   CUID?: string;
   ServiceType?: string;
   StartDate?: string;
@@ -570,7 +570,7 @@ export function mapPatientRecord(
 }
 
 export function mapServiceRecord(params: {
-  patientNumber: string | number;
+  patientNumber?: string | number;
   cuid?: string;
   serviceType?: string;
   startDate?: string;
@@ -578,9 +578,9 @@ export function mapServiceRecord(params: {
   communityName?: string;
   serviceId?: string;
 }): ServiceTableApiRecord {
-  const patientNumber = String(params.patientNumber);
+  const patientNumber = params.patientNumber !== undefined ? String(params.patientNumber) : undefined;
   const stableInput = [
-    patientNumber,
+    patientNumber ?? '',
     params.cuid ?? '',
     params.serviceType ?? '',
     params.startDate ?? '',
