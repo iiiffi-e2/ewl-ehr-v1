@@ -188,16 +188,42 @@ function normalizeComparable(value: unknown): string | undefined {
   return undefined;
 }
 
+function normalizeFieldKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function readComparableField(
   record: Record<string, unknown>,
   candidates: string[],
 ): string | undefined {
+  const normalizedCandidateMap = new Map<string, string[]>();
+  for (const candidate of candidates) {
+    const normalized = normalizeFieldKey(candidate);
+    const existing = normalizedCandidateMap.get(normalized) ?? [];
+    existing.push(candidate);
+    normalizedCandidateMap.set(normalized, existing);
+  }
+
   for (const key of candidates) {
     const normalized = normalizeComparable(record[key]);
     if (normalized !== undefined) {
       return normalized;
     }
   }
+
+  // Fallback: Caspio can return alternate key casing/suffixes.
+  // Match keys by normalized form (alphanumeric-only, case-insensitive).
+  for (const [recordKey, rawValue] of Object.entries(record)) {
+    const normalizedRecordKey = normalizeFieldKey(recordKey);
+    if (!normalizedCandidateMap.has(normalizedRecordKey)) {
+      continue;
+    }
+    const normalizedValue = normalizeComparable(rawValue);
+    if (normalizedValue !== undefined) {
+      return normalizedValue;
+    }
+  }
+
   return undefined;
 }
 
@@ -590,8 +616,13 @@ export async function findCommunityById(
       }) as CommunityTableRecord[];
 
       if (exactMatches.length === 0) {
+        const sampleRecord = records[0] as Record<string, unknown> | undefined;
         logger.debug(
-          { communityId, matchCount: records.length },
+          {
+            communityId,
+            matchCount: records.length,
+            sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
+          },
           'caspio_community_id_no_exact_match_after_lookup',
         );
         return { found: false };
@@ -672,8 +703,14 @@ export async function findCommunityByIdAndRoomNumber(
       }) as CommunityTableRecord[];
 
       if (exactMatches.length === 0) {
+        const sampleRecord = records[0] as Record<string, unknown> | undefined;
         logger.debug(
-          { communityId, roomNumber: normalizedRoom, matchCount: records.length },
+          {
+            communityId,
+            roomNumber: normalizedRoom,
+            matchCount: records.length,
+            sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
+          },
           'caspio_community_room_no_exact_match_after_lookup',
         );
         return { found: false };
