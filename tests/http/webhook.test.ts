@@ -73,11 +73,16 @@ describe('POST /webhook/alis', () => {
       'process-alis-event',
       expect.objectContaining({
         eventMessageId: 'evt-123',
+        eventType: 'residents.move_in',
         companyId: 10,
       }),
-      expect.objectContaining({ jobId: 'evt-123' }),
+      expect.objectContaining({ jobId: 'event-residents.move_in-evt-123' }),
     );
-    expect(markEventQueuedMock).toHaveBeenCalledWith('evt-123');
+    expect(markEventQueuedMock).toHaveBeenCalledWith({
+      companyId: 10,
+      eventType: 'residents.move_in',
+      eventMessageId: 'evt-123',
+    });
   });
 
   it('returns 200 when event is duplicate', async () => {
@@ -126,7 +131,11 @@ describe('POST /webhook/alis', () => {
 
     expect(response.status).toBe(202);
     expect(markEventIgnoredMock).toHaveBeenCalledWith(
-      'evt-unsupported',
+      {
+        companyId: 10,
+        eventType: 'unsupported.event',
+        eventMessageId: 'evt-unsupported',
+      },
       expect.stringContaining('Unsupported event type'),
     );
     expect(queueAddMock).not.toHaveBeenCalled();

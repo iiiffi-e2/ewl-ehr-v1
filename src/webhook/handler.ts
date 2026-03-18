@@ -32,14 +32,25 @@ export async function alisWebhookHandler(req: Request, res: Response): Promise<R
 
   if (!isSupportedEventType(event.EventType)) {
     await markEventIgnored(
-      event.EventMessageId,
+      {
+        companyId: company.id,
+        eventType: event.EventType,
+        eventMessageId: event.EventMessageId,
+      },
       `Unsupported event type ${event.EventType as string}`,
     );
     return res.status(202).json({ status: 'ignored' });
   }
 
   if (event.EventType === 'test.event') {
-    await markEventIgnored(event.EventMessageId, 'Test event acknowledged');
+    await markEventIgnored(
+      {
+        companyId: company.id,
+        eventType: event.EventType,
+        eventMessageId: event.EventMessageId,
+      },
+      'Test event acknowledged',
+    );
     return res.status(202).json({ status: 'test_acknowledged' });
   }
 
@@ -55,12 +66,16 @@ export async function alisWebhookHandler(req: Request, res: Response): Promise<R
 
   try {
     await processAlisEventQueue.add('process-alis-event', jobData, {
-      jobId: `event-${event.EventMessageId}`,
+      jobId: `event-${event.EventType}-${event.EventMessageId}`,
       removeOnComplete: true,
       removeOnFail: false,
     });
 
-    await markEventQueued(event.EventMessageId);
+    await markEventQueued({
+      companyId: company.id,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+    });
   } catch (queueError) {
     logger.error(
       {

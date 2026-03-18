@@ -233,6 +233,39 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('does not create patient/service rows for residents.created when patient does not exist', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.created',
+      EventMessageId: 'evt-created-no-patient',
+      EventMessageDate: '2026-01-15T10:00:00Z',
+      NotificationData: {
+        ResidentId: 81234,
+        RoomNumber: '110',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    const patientUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'CarePatientTable_API',
+    );
+    const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'Service_Table_API',
+    );
+    expect(patientUpserts).toHaveLength(0);
+    expect(serviceUpserts).toHaveLength(0);
+    expect(updateRecordByIdMock).not.toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(String),
+      expect.any(Object),
+    );
+  });
+
   it('skips service writes when community room match is missing', async () => {
     findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({ found: false });
 
