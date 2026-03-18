@@ -607,7 +607,23 @@ export async function findCommunityById(
         records.push(...extractRecordsFromResponse(response.data));
       }
       if (records.length === 0) {
-        return { found: false };
+        // Fallback: some Caspio schemas can behave inconsistently for filtered queries.
+        // Retry with an unfiltered scan and exact-match locally.
+        const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
+        const fullScanResponse = await apiClient.get(fullScanUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const scanned = extractRecordsFromResponse(fullScanResponse.data);
+        records.push(...scanned);
+        logger.info(
+          {
+            communityId,
+            scannedCount: scanned.length,
+          },
+          'caspio_community_lookup_fallback_scan',
+        );
       }
 
       const exactMatches = records.filter((rec) => {
@@ -694,7 +710,23 @@ export async function findCommunityByIdAndRoomNumber(
         }
       }
       if (records.length === 0) {
-        return { found: false };
+        // Fallback: scan table and exact-match in code when filtered API returns no rows.
+        const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
+        const fullScanResponse = await apiClient.get(fullScanUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const scanned = extractRecordsFromResponse(fullScanResponse.data);
+        records.push(...scanned);
+        logger.info(
+          {
+            communityId,
+            roomNumber: normalizedRoom,
+            scannedCount: scanned.length,
+          },
+          'caspio_community_room_lookup_fallback_scan',
+        );
       }
 
       const exactMatches = records.filter((rec) => {
