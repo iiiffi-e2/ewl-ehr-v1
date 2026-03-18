@@ -1019,23 +1019,52 @@ export async function findByPatientNumber(
         return { found: false };
       }
 
-      const firstRecord = records[0] as Record<string, unknown>;
+      const exactMatches = records.filter((rec) => {
+        const record = rec as Record<string, unknown>;
+        const recordPatientNumber = readComparableField(record, [
+          'PatientNumber',
+          'patientNumber',
+          'Patient_Number',
+          'patient_number',
+        ]);
+        return recordPatientNumber === String(patientNumber);
+      }) as Record<string, unknown>[];
+
+      if (exactMatches.length === 0) {
+        const sampleRecord = records[0] as Record<string, unknown> | undefined;
+        logger.debug(
+          {
+            tableName,
+            patientNumber: String(patientNumber),
+            matchCount: records.length,
+            sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
+          },
+          'caspio_patient_number_no_exact_match_after_lookup',
+        );
+        return { found: false };
+      }
+
+      const matchingRecord = exactMatches[0];
       const id =
-        firstRecord.PK_ID !== undefined
-          ? String(firstRecord.PK_ID)
-          : firstRecord.PK !== undefined
-            ? String(firstRecord.PK)
-            : firstRecord._id !== undefined
-              ? String(firstRecord._id)
-              : firstRecord.id !== undefined
-                ? String(firstRecord.id)
-                : firstRecord.Id !== undefined
-                  ? String(firstRecord.Id)
+        matchingRecord.PK_ID !== undefined
+          ? String(matchingRecord.PK_ID)
+          : matchingRecord.PK !== undefined
+            ? String(matchingRecord.PK)
+            : matchingRecord._id !== undefined
+              ? String(matchingRecord._id)
+              : matchingRecord.id !== undefined
+                ? String(matchingRecord.id)
+                : matchingRecord.Id !== undefined
+                  ? String(matchingRecord.Id)
                   : undefined;
 
       if (records.length > 1) {
         logger.warn(
-          { patientNumber: String(patientNumber), matchCount: records.length },
+          {
+            patientNumber: String(patientNumber),
+            matchCount: records.length,
+            exactMatchCount: exactMatches.length,
+          },
           'caspio_multiple_matches_found_patient_number',
         );
       }
@@ -1043,7 +1072,7 @@ export async function findByPatientNumber(
       return {
         found: true,
         id,
-        raw: firstRecord,
+        raw: matchingRecord,
         matches: records.length,
       };
     } catch (error) {
