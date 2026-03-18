@@ -59,7 +59,7 @@ describe('caspioClient patient number exact matching', () => {
     expect(result.raw).toEqual(expect.objectContaining({ PatientNumber: '71667' }));
   });
 
-  it('returns not found when API rows contain no exact PatientNumber', async () => {
+  it('returns not found when paged API rows contain no exact PatientNumber', async () => {
     const mockAuthPost = jest.fn().mockResolvedValue({
       data: {
         access_token: 'token-1',
@@ -69,16 +69,13 @@ describe('caspioClient patient number exact matching', () => {
     });
     const mockApiGet = jest
       .fn()
+      // string variant page 1
       .mockResolvedValueOnce({
-        data: [
-          { PK_ID: 1, PatientNumber: '11111' },
-          { PK_ID: 2, PatientNumber: '22222' },
-        ],
+        data: [{ PK_ID: 1, PatientNumber: '11111' }],
       })
+      // numeric variant page 1
       .mockResolvedValueOnce({
-        data: [
-          { PK_ID: 3, PatientNumber: '71667' },
-        ],
+        data: [{ PK_ID: 2, PatientNumber: '22222' }],
       });
 
     const { createHttpClient } = require('../../../src/config/axios.js');
@@ -91,10 +88,41 @@ describe('caspioClient patient number exact matching', () => {
     const noMatch = await findByPatientNumber('CarePatientTable_API', '71667');
     expect(noMatch.found).toBe(false);
     expect(noMatch.id).toBeUndefined();
+  });
 
-    const exactMatch = await findByPatientNumber('CarePatientTable_API', '71667');
-    expect(exactMatch.found).toBe(true);
-    expect(exactMatch.id).toBe('3');
+  it('finds exact PatientNumber across paged where results', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const noisyPage = Array.from({ length: 200 }, (_, idx) => ({
+      PK_ID: idx + 1,
+      PatientNumber: String(80000 + idx),
+    }));
+    const mockApiGet = jest
+      .fn()
+      // string variant page 1
+      .mockResolvedValueOnce({ data: noisyPage })
+      // string variant page 2
+      .mockResolvedValueOnce({ data: [{ PK_ID: 999, PatientNumber: '71667' }] })
+      // numeric variant page 1
+      .mockResolvedValueOnce({ data: [] });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findByPatientNumber } = await import('../../../src/integrations/caspio/caspioClient.js');
+
+    const result = await findByPatientNumber('CarePatientTable_API', '71667');
+    expect(result.found).toBe(true);
+    expect(result.id).toBe('999');
+    expect(result.raw).toEqual(expect.objectContaining({ PatientNumber: '71667' }));
+    expect(mockApiGet).toHaveBeenCalledTimes(3);
   });
 });
 
