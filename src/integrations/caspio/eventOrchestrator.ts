@@ -321,8 +321,9 @@ async function resolveServiceCommunityContext(params: {
   event: AlisEvent;
   residentId: number;
   communityId: number;
+  fallbackRoomNumber?: string;
 }): Promise<{ matched: boolean; cuid?: string; communityName?: string }> {
-  const roomNumber = extractRoomNumber(params.event);
+  const roomNumber = extractRoomNumber(params.event) ?? params.fallbackRoomNumber;
   if (!roomNumber) {
     logger.warn(
       {
@@ -635,6 +636,10 @@ async function handleMoveOutEvent(
     event,
     residentId,
     communityId,
+    fallbackRoomNumber:
+      typeof existing.record?.ApartmentNumber === 'string'
+        ? existing.record.ApartmentNumber
+        : undefined,
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await closeLatestServiceRow({
@@ -719,10 +724,18 @@ async function handleUpdateEvent(
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
   const incomingServiceType = getClassification(event, resident, basicInfo);
+  const serviceRoomFallback =
+    (typeof patientRecord.ApartmentNumber === 'string' && patientRecord.ApartmentNumber.trim().length > 0
+      ? patientRecord.ApartmentNumber.trim()
+      : undefined) ??
+    (typeof existing.record?.ApartmentNumber === 'string' && existing.record.ApartmentNumber.trim().length > 0
+      ? existing.record.ApartmentNumber.trim()
+      : undefined);
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
     communityId,
+    fallbackRoomNumber: serviceRoomFallback,
   });
   if (serviceCommunity.matched && serviceCommunity.cuid && incomingServiceType) {
     const boundaryDate = normalizeScenarioDate(event.EventMessageDate);

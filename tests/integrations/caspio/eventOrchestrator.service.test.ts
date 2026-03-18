@@ -273,6 +273,99 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('basic_info_updated uses existing ApartmentNumber when event has no room', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+    });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
+      found: true,
+      record: { CUID: '259', CommunityName: 'Test Community' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-old',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-service-change-no-room',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        Classification: 'Memory Care',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '53');
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '259',
+        ServiceType: 'Memory Care',
+      }),
+    );
+  });
+
+  it('basic_info_updated prefers fetched resident room assignment when event has no room', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '77', IsPrimary: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+    });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
+      found: true,
+      record: { CUID: '259', CommunityName: 'Test Community' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-old',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-service-change-use-fetched-room',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        Classification: 'Memory Care',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
+  });
+
   it('does not create patient/service rows for residents.created when patient does not exist', async () => {
     findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
     findByPatientNumberMock.mockResolvedValueOnce({ found: false });
