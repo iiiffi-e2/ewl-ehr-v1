@@ -106,12 +106,12 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
-      [
-        { field: 'PatientNumber', value: '70508' },
+      expect.arrayContaining([
         { field: 'CUID', value: '259' },
         { field: 'StartDate', value: '2026-01-10' },
+        { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Assisted Living' },
-      ],
+      ]),
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
@@ -202,6 +202,7 @@ describe('eventOrchestrator service-table scenarios', () => {
   });
 
   it('move_out closes end date on latest service row', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-21T14:00:00Z'));
     const event = {
       CompanyKey: 'appstoresandbox',
       CommunityId: 113,
@@ -215,11 +216,29 @@ describe('eventOrchestrator service-table scenarios', () => {
       },
     };
 
-    await handleAlisEvent(event, 10, 'appstoresandbox');
+    try {
+      await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
-      EndDate: '2026-01-20',
-    });
+      expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
+        EndDate: '2026-01-21',
+      });
+      expect(upsertByFieldsMock).toHaveBeenCalledWith(
+        'Service_Table_API',
+        [
+          { field: 'CUID', value: '259' },
+          { field: 'StartDate', value: '2026-01-21' },
+          { field: 'ServiceType', value: 'Vacant' },
+        ],
+        expect.objectContaining({
+          CUID: '259',
+          ServiceType: 'Vacant',
+          StartDate: '2026-01-21',
+        }),
+      );
+      expect(upsertByFieldsMock.mock.calls[0]?.[2]).not.toHaveProperty('PatientNumber');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('classification change closes old row and creates new row at event date', async () => {
@@ -258,17 +277,82 @@ describe('eventOrchestrator service-table scenarios', () => {
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
-      [
-        { field: 'PatientNumber', value: '70508' },
+      expect.arrayContaining([
         { field: 'CUID', value: '259' },
         { field: 'StartDate', value: '2026-01-22T12:00:00Z' },
+        { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Memory Care' },
-      ],
+      ]),
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
         ServiceType: 'Memory Care',
         StartDate: '2026-01-22T12:00:00Z',
+      }),
+    );
+  });
+
+  it('basic_info_updated re-fetches classification when first read is unchanged', async () => {
+    fetchAllResidentDataMock
+      // initial fetch in handleUpdateEvent returns stale/old classification
+      .mockResolvedValueOnce({
+        resident: { Classification: 'Declined', ProductType: 'Declined' },
+        basicInfo: {},
+        insurance: [],
+        roomAssignments: [{ RoomNumber: '53', IsPrimary: true }],
+        diagnosesAndAllergies: [],
+        contacts: [],
+        community: null,
+      })
+      // second fetch in service comparison returns updated classification
+      .mockResolvedValueOnce({
+        resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+        basicInfo: {},
+        insurance: [],
+        roomAssignments: [{ RoomNumber: '53', IsPrimary: true }],
+        diagnosesAndAllergies: [],
+        contacts: [],
+        community: null,
+      });
+
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+    });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
+      found: true,
+      record: { CUID: '259', CommunityName: 'Test Community' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-old',
+      record: { ServiceType: 'Declined', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-service-change-refetch',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
+      EndDate: '2026-01-22T12:00:00Z',
+    });
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '259',
+        ServiceType: 'Memory Care',
       }),
     );
   });
