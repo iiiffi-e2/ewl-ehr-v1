@@ -597,16 +597,12 @@ export async function findCommunityById(
       ];
 
       const records: unknown[] = [];
-      for (const filter of filters) {
-        const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
-        const response = await apiClient.get(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        records.push(...extractRecordsFromResponse(response.data));
-      }
-      if (records.length === 0) {
+      let didFallbackScan = false;
+      const appendFallbackScanRecords = async () => {
+        if (didFallbackScan) {
+          return;
+        }
+        didFallbackScan = true;
         // Fallback: some Caspio schemas can behave inconsistently for filtered queries.
         // Retry with an unfiltered scan and exact-match locally.
         const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
@@ -624,18 +620,37 @@ export async function findCommunityById(
           },
           'caspio_community_lookup_fallback_scan',
         );
+      };
+      for (const filter of filters) {
+        const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
+        const response = await apiClient.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        records.push(...extractRecordsFromResponse(response.data));
+      }
+      if (records.length === 0) {
+        await appendFallbackScanRecords();
       }
 
-      const exactMatches = records.filter((rec) => {
-        const record = rec as Record<string, unknown>;
-        const recordCommunityId = readComparableField(record, [
-          'CommunityID',
-          'CommunityId',
-          'communityId',
-          'communityID',
-        ]);
-        return recordCommunityId === String(communityId);
-      }) as CommunityTableRecord[];
+      const getExactMatches = () =>
+        records.filter((rec) => {
+          const record = rec as Record<string, unknown>;
+          const recordCommunityId = readComparableField(record, [
+            'CommunityID',
+            'CommunityId',
+            'communityId',
+            'communityID',
+          ]);
+          return recordCommunityId === String(communityId);
+        }) as CommunityTableRecord[];
+
+      let exactMatches = getExactMatches();
+      if (exactMatches.length === 0 && !didFallbackScan) {
+        await appendFallbackScanRecords();
+        exactMatches = getExactMatches();
+      }
 
       if (exactMatches.length === 0) {
         const sampleRecord = records[0] as Record<string, unknown> | undefined;
@@ -694,23 +709,14 @@ export async function findCommunityByIdAndRoomNumber(
       const communityFilterValues: Array<string | number> = [communityId, String(communityId)];
 
       const records: unknown[] = [];
-      for (const communityFilterValue of communityFilterValues) {
-        for (const roomFilterValue of roomFilterValues) {
-          const filter = buildCompositeFilter([
-            { field: 'CommunityID', value: communityFilterValue },
-            { field: 'RoomNumber', value: roomFilterValue },
-          ]);
-          const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
-          const response = await apiClient.get(url, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          records.push(...extractRecordsFromResponse(response.data));
+      let didFallbackScan = false;
+      const appendFallbackScanRecords = async () => {
+        if (didFallbackScan) {
+          return;
         }
-      }
-      if (records.length === 0) {
-        // Fallback: scan table and exact-match in code when filtered API returns no rows.
+        didFallbackScan = true;
+        // Fallback: scan table and exact-match in code when filtered API returns no rows
+        // or only noisy non-exact rows.
         const fullScanUrl = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records`;
         const fullScanResponse = await apiClient.get(fullScanUrl, {
           headers: {
@@ -727,29 +733,54 @@ export async function findCommunityByIdAndRoomNumber(
           },
           'caspio_community_room_lookup_fallback_scan',
         );
+      };
+      for (const communityFilterValue of communityFilterValues) {
+        for (const roomFilterValue of roomFilterValues) {
+          const filter = buildCompositeFilter([
+            { field: 'CommunityID', value: communityFilterValue },
+            { field: 'RoomNumber', value: roomFilterValue },
+          ]);
+          const url = `/integrations/rest/v3/tables/${encodeURIComponent(env.CASPIO_COMMUNITY_TABLE_NAME)}/records?q=${filter}`;
+          const response = await apiClient.get(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          records.push(...extractRecordsFromResponse(response.data));
+        }
+      }
+      if (records.length === 0) {
+        await appendFallbackScanRecords();
       }
 
-      const exactMatches = records.filter((rec) => {
-        const record = rec as Record<string, unknown>;
-        const recordCommunityId = readComparableField(record, [
-          'CommunityID',
-          'CommunityId',
-          'communityId',
-          'communityID',
-        ]);
-        const recordRoomNumber = readComparableField(record, [
-          'RoomNumber',
-          'roomNumber',
-          'Room',
-          'room',
-          'ApartmentNumber',
-          'Apartment',
-        ]);
-        return (
-          recordCommunityId === String(communityId) &&
-          recordRoomNumber === normalizedRoom
-        );
-      }) as CommunityTableRecord[];
+      const getExactMatches = () =>
+        records.filter((rec) => {
+          const record = rec as Record<string, unknown>;
+          const recordCommunityId = readComparableField(record, [
+            'CommunityID',
+            'CommunityId',
+            'communityId',
+            'communityID',
+          ]);
+          const recordRoomNumber = readComparableField(record, [
+            'RoomNumber',
+            'roomNumber',
+            'Room',
+            'room',
+            'ApartmentNumber',
+            'Apartment',
+          ]);
+          return (
+            recordCommunityId === String(communityId) &&
+            recordRoomNumber === normalizedRoom
+          );
+        }) as CommunityTableRecord[];
+
+      let exactMatches = getExactMatches();
+      if (exactMatches.length === 0 && !didFallbackScan) {
+        await appendFallbackScanRecords();
+        exactMatches = getExactMatches();
+      }
 
       if (exactMatches.length === 0) {
         const sampleRecord = records[0] as Record<string, unknown> | undefined;
