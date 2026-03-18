@@ -246,6 +246,8 @@ function extractRecordsFromResponse(data: unknown): unknown[] {
 function extractRecordId(record: Record<string, unknown>): string | undefined {
   if (record.PK_ID !== undefined) return String(record.PK_ID);
   if (record.PK !== undefined) return String(record.PK);
+  if (record.Service_ID !== undefined) return String(record.Service_ID);
+  if (record.serviceId !== undefined) return String(record.serviceId);
   if (record._id !== undefined) return String(record._id);
   if (record.id !== undefined) return String(record.id);
   if (record.Id !== undefined) return String(record.Id);

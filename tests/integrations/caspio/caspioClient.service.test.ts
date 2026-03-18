@@ -108,4 +108,38 @@ describe('caspioClient service helpers', () => {
     expect(result.found).toBe(true);
     expect(result.id).toBe('22');
   });
+
+  it('uses Service_ID as fallback row identifier when PK_ID is absent', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        {
+          Service_ID: 406,
+          PatientNumber: '71701',
+          CUID: '263',
+          ServiceType: 'Detect 12',
+          StartDate: '03/18/2026 22:00:00',
+          EndDate: '',
+        },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findActiveOrLatestServiceRow } = await import('../../../src/integrations/caspio/caspioClient.js');
+    const result = await findActiveOrLatestServiceRow({ patientNumber: '71701', cuid: '263' });
+
+    expect(result.found).toBe(true);
+    expect(result.id).toBe('406');
+    expect((result.record as Record<string, unknown>).ServiceType).toBe('Detect 12');
+  });
 });
