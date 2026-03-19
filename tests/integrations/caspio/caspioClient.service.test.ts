@@ -142,4 +142,49 @@ describe('caspioClient service helpers', () => {
     expect(result.id).toBe('406');
     expect((result.record as Record<string, unknown>).ServiceType).toBe('Detect 12');
   });
+
+  it('ignores noisy non-exact service rows when selecting row to close', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        // noisy row that should be ignored
+        {
+          Service_ID: 90,
+          PatientNumber: '12345',
+          CUID: '90',
+          ServiceType: 'Intervene 12',
+          StartDate: '2026-01-27T15:34:00',
+          EndDate: '',
+        },
+        // exact row that should be selected
+        {
+          Service_ID: 406,
+          PatientNumber: '71701',
+          CUID: '263',
+          ServiceType: 'Intervene 12',
+          StartDate: '2026-03-18T22:00:00',
+          EndDate: '',
+        },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findActiveOrLatestServiceRow } = await import('../../../src/integrations/caspio/caspioClient.js');
+    const result = await findActiveOrLatestServiceRow({ patientNumber: '71701', cuid: '263' });
+
+    expect(result.found).toBe(true);
+    expect(result.id).toBe('406');
+    expect((result.record as Record<string, unknown>).PatientNumber).toBe('71701');
+    expect((result.record as Record<string, unknown>).CUID).toBe('263');
+  });
 });
