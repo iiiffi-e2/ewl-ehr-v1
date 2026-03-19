@@ -1141,10 +1141,54 @@ export async function findActiveOrLatestServiceRow(params: {
   patientNumber: string;
   cuid: string;
 }): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
-  const records = (await findRecordsByFields(env.CASPIO_SERVICE_TABLE_NAME, [
-    { field: 'PatientNumber', value: params.patientNumber },
-    { field: 'CUID', value: params.cuid },
-  ])) as Array<Record<string, unknown>>;
+  const records = (await caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const patientNumberString = String(params.patientNumber).trim();
+    const cuidString = String(params.cuid).trim();
+    const patientVariants: Array<string | number> = [patientNumberString];
+    const cuidVariants: Array<string | number> = [cuidString];
+    const parsedPatientNumber = Number(patientNumberString);
+    const parsedCuid = Number(cuidString);
+    if (/^-?\d+(\.\d+)?$/.test(patientNumberString) && Number.isFinite(parsedPatientNumber)) {
+      patientVariants.push(parsedPatientNumber);
+    }
+    if (/^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
+      cuidVariants.push(parsedCuid);
+    }
+
+    const aggregated: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    const appendRecords = (rows: unknown[]) => {
+      for (const row of rows as Array<Record<string, unknown>>) {
+        const id = extractRecordId(row);
+        const key = id ?? JSON.stringify(row);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        aggregated.push(row);
+      }
+    };
+
+    for (const patientVariant of patientVariants) {
+      for (const cuidVariant of cuidVariants) {
+        const whereClause = buildWhereClause([
+          { field: 'PatientNumber', value: patientVariant },
+          { field: 'CUID', value: cuidVariant },
+        ]);
+        appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+      }
+    }
+
+    if (aggregated.length === 0) {
+      for (const patientVariant of patientVariants) {
+        const whereClause = buildWhereClause([{ field: 'PatientNumber', value: patientVariant }]);
+        appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+      }
+    }
+
+    return aggregated;
+  })) as Array<Record<string, unknown>>;
 
   if (records.length === 0) {
     return { found: false };
@@ -1166,7 +1210,7 @@ export async function findActiveOrLatestServiceRow(params: {
       {
         patientNumber: params.patientNumber,
         cuid: params.cuid,
-        matchCount: records.length,
+        scannedCount: records.length,
       },
       'caspio_service_rows_no_exact_match_after_lookup',
     );
