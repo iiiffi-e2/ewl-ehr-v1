@@ -1150,13 +1150,36 @@ export async function findActiveOrLatestServiceRow(params: {
     return { found: false };
   }
 
-  const withIds = records
+  const exactMatches = records.filter((record) => {
+    const recordPatientNumber = readComparableField(record, [
+      'PatientNumber',
+      'patientNumber',
+      'Patient_Number',
+      'patient_number',
+    ]);
+    const recordCuid = readComparableField(record, ['CUID', 'cuid']);
+    return recordPatientNumber === params.patientNumber && recordCuid === params.cuid;
+  });
+
+  if (exactMatches.length === 0) {
+    logger.warn(
+      {
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+        matchCount: records.length,
+      },
+      'caspio_service_rows_no_exact_match_after_lookup',
+    );
+    return { found: false };
+  }
+
+  const withIds = exactMatches
     .map((record) => ({ record, id: extractRecordId(record) }))
     .filter((entry) => entry.id);
 
   if (withIds.length === 0) {
     logger.warn(
-      { patientNumber: params.patientNumber, cuid: params.cuid, matchCount: records.length },
+      { patientNumber: params.patientNumber, cuid: params.cuid, matchCount: exactMatches.length },
       'caspio_service_rows_found_without_ids',
     );
     return { found: false };
