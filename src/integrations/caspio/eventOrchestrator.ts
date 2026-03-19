@@ -624,7 +624,6 @@ async function closeOpenOffPremEpisode(params: {
   cuid?: string;
   leaveId?: number;
   offPremEnd: string;
-  endEventMessageId: string | number;
   closeReason: 'leave_end' | 'move_out';
 }): Promise<void> {
   const openEpisode = await findOpenOffPremEpisode({
@@ -648,7 +647,6 @@ async function closeOpenOffPremEpisode(params: {
   const closePatch = mapOffPremEndPatch({
     offPremStart: String(openEpisode.record.OffPremStart),
     offPremEnd: params.offPremEnd,
-    endEventMessageId: params.endEventMessageId,
     closeReason: params.closeReason,
   });
   await updateRecordById(env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME, openEpisode.id, closePatch);
@@ -842,7 +840,6 @@ async function handleMoveOutEvent(
     patientNumber: String(residentId),
     cuid: communityContext.CUID,
     offPremEnd: moveOutDate,
-    endEventMessageId: event.EventMessageId,
     closeReason: 'move_out',
   });
 }
@@ -1153,7 +1150,6 @@ async function handleLeaveStartEvent(
     communityName: communityContext.CommunityName,
     leaveId,
     offPremStart: leaveStartDate,
-    startEventMessageId: event.EventMessageId,
   });
   await upsertOffPremEpisodeByEpisodeId(offPremEpisode);
 
@@ -1239,7 +1235,6 @@ async function handleLeaveEndEvent(
     cuid: communityContext.CUID,
     leaveId,
     offPremEnd: leaveEndDate,
-    endEventMessageId: event.EventMessageId,
     closeReason: 'leave_end',
   });
 

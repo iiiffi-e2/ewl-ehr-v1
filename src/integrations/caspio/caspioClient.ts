@@ -1442,10 +1442,14 @@ export async function upsertOffPremEpisodeByEpisodeId(
   if (!record.Episode_ID) {
     throw new Error('Episode_ID is required to upsert off-prem episode');
   }
+  const recordWithoutEventTrackingFields: OffPremHistoryRecord = { ...record };
+  delete recordWithoutEventTrackingFields.StartEventMessageId;
+  delete recordWithoutEventTrackingFields.EndEventMessageId;
+  delete recordWithoutEventTrackingFields.SourceSystem;
   return upsertByFields(
     env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME,
-    [{ field: 'Episode_ID', value: String(record.Episode_ID) }],
-    record,
+    [{ field: 'Episode_ID', value: String(recordWithoutEventTrackingFields.Episode_ID) }],
+    recordWithoutEventTrackingFields,
   );
 }
 

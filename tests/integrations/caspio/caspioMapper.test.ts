@@ -243,7 +243,6 @@ describe('caspioMapper new table mappings', () => {
       communityName: 'Sunset Manor',
       leaveId: 285,
       offPremStart: '2026-01-19T13:00:00',
-      startEventMessageId: 'evt-1',
     });
     expect(episode).toEqual(
       expect.objectContaining({
@@ -253,7 +252,6 @@ describe('caspioMapper new table mappings', () => {
         Leave_ID: '285',
         OffPremStart: '2026-01-19T13:00:00',
         IsOpen: true,
-        StartEventMessageId: 'evt-1',
       }),
     );
   });
@@ -262,7 +260,6 @@ describe('caspioMapper new table mappings', () => {
     const patch = mapOffPremEndPatch({
       offPremStart: '2026-01-19T13:00:00',
       offPremEnd: '2026-01-19T15:30:00',
-      endEventMessageId: 'evt-2',
       closeReason: 'leave_end',
     });
     expect(patch).toEqual(
@@ -271,7 +268,6 @@ describe('caspioMapper new table mappings', () => {
         DurationMinutes: 150,
         DurationHours: 2.5,
         IsOpen: false,
-        EndEventMessageId: 'evt-2',
         CloseReason: 'leave_end',
       }),
     );

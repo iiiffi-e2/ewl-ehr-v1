@@ -139,9 +139,6 @@ export type OffPremHistoryTableRecord = {
   DurationMinutes?: number | null;
   DurationHours?: number | null;
   IsOpen: boolean;
-  StartEventMessageId: string;
-  EndEventMessageId?: string;
-  SourceSystem: string;
   CloseReason?: string;
   CreatedAtUtc: string;
   UpdatedAtUtc: string;
@@ -638,9 +635,7 @@ export function mapOffPremStartEpisode(params: {
   communityName?: string;
   leaveId?: string | number;
   offPremStart: string;
-  startEventMessageId: string | number;
   episodeId?: string;
-  sourceSystem?: string;
 }): OffPremHistoryTableRecord {
   const now = getUtcTimestampNow();
   const episodeId =
@@ -662,8 +657,6 @@ export function mapOffPremStartEpisode(params: {
         : String(params.leaveId),
     OffPremStart: params.offPremStart,
     IsOpen: true,
-    StartEventMessageId: String(params.startEventMessageId),
-    SourceSystem: params.sourceSystem ?? 'ALIS',
     CreatedAtUtc: now,
     UpdatedAtUtc: now,
   });
@@ -672,7 +665,6 @@ export function mapOffPremStartEpisode(params: {
 export function mapOffPremEndPatch(params: {
   offPremStart: string;
   offPremEnd: string;
-  endEventMessageId: string | number;
   closeReason?: string;
 }): Partial<OffPremHistoryTableRecord> {
   const durationMinutes = toFiniteDurationMinutes(params.offPremStart, params.offPremEnd);
@@ -682,7 +674,6 @@ export function mapOffPremEndPatch(params: {
     DurationHours:
       durationMinutes === null ? null : Number((durationMinutes / 60).toFixed(2)),
     IsOpen: false,
-    EndEventMessageId: String(params.endEventMessageId),
     CloseReason: params.closeReason ?? 'leave_end',
     UpdatedAtUtc: getUtcTimestampNow(),
   });

@@ -83,8 +83,6 @@ describe('caspioClient off-prem helpers', () => {
       CUID: '259',
       OffPremStart: '2026-01-19T13:00:00',
       IsOpen: true,
-      StartEventMessageId: 'evt-1',
-      SourceSystem: 'ALIS',
       CreatedAtUtc: '2026-01-19T13:00:00Z',
       UpdatedAtUtc: '2026-01-19T13:00:00Z',
     });
