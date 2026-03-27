@@ -27,6 +27,56 @@ import {
   mapServiceRecord,
   redactForLogs,
 } from './caspioMapper.js';
+import {
+  POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
+  ROOM_VACANCY_SERVICE_TYPE,
+} from './serviceLineTypes.js';
+
+/** Prefer NotificationData room over stale API data for these event types. */
+const ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES = new Set([
+  'resident.room_assigned',
+  'residents.move_in_out_info_updated',
+]);
+
+function trimNonEmpty(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const t = value.trim();
+  return t.length > 0 ? t : undefined;
+}
+
+function hasMeaningfulCaspioDate(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string' && value.trim().length === 0) return false;
+  return true;
+}
+
+function isPatientRecordMovedOut(record?: CarePatientTableApiRecord): boolean {
+  if (!record) return false;
+  return (
+    hasMeaningfulCaspioDate(record.Move_Out_Date) || hasMeaningfulCaspioDate(record.Service_End_Date)
+  );
+}
+
+function stripPremFieldsFromPatch(patch: Partial<CarePatientTableApiRecord>): void {
+  delete patch.On_Prem;
+  delete patch.Off_Prem;
+  delete patch.On_Prem_Date;
+  delete patch.Off_Prem_Date;
+}
+
+function applyPreferredApartmentFromEvent(
+  event: AlisEvent,
+  patientRecord: CarePatientTableApiRecord,
+  roomNumber: string | undefined,
+): void {
+  if (roomNumber && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
+    patientRecord.ApartmentNumber = roomNumber;
+    return;
+  }
+  if (!patientRecord.ApartmentNumber && roomNumber) {
+    patientRecord.ApartmentNumber = roomNumber;
+  }
+}
 
 /**
  * Extract numeric value from object with fallback keys
@@ -125,6 +175,10 @@ function extractRoomNumber(event: AlisEvent): string | undefined {
     'assignedRoom',
     'ApartmentNumber',
     'apartmentNumber',
+    'NewRoomNumber',
+    'newRoomNumber',
+    'ToRoomNumber',
+    'toRoomNumber',
   ]);
   if (direct) return direct;
 
@@ -679,7 +733,7 @@ async function handleMoveInEvent(
   const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const patientRecord = mapPatientRecord(payload, communityContext);
   patientRecord.PatientNumber = String(residentId);
-  if (!patientRecord.ApartmentNumber && roomNumber) {
+  if (roomNumber) {
     patientRecord.ApartmentNumber = roomNumber;
   }
   if (!patientRecord.Service_Start_Date) {
@@ -704,6 +758,7 @@ async function handleMoveInEvent(
     event,
     residentId,
     communityId,
+    fallbackRoomNumber: trimNonEmpty(patientRecord.ApartmentNumber),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await createServiceRow({
@@ -774,6 +829,8 @@ async function handleMoveOutEvent(
     PatientNumber: String(residentId),
     CUID: communityContext.CUID,
     CommunityName: communityContext.CommunityName,
+    On_Prem: false,
+    Off_Prem: false,
   };
 
   if (!existing.record?.Move_Out_Date) {
@@ -824,15 +881,27 @@ async function handleMoveOutEvent(
       source: 'move_out',
     });
     await createServiceRow({
+      patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
-      serviceType: 'Vacant',
+      serviceType: POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
       startDate: serviceBoundaryDate,
       eventMessageId: event.EventMessageId,
       eventType: event.EventType,
       residentId,
       communityId,
-      source: 'move_out_vacant_handoff',
+      source: 'move_out_resident_post_exit',
+    });
+    await createServiceRow({
+      cuid: serviceCommunity.cuid,
+      communityName: serviceCommunity.communityName,
+      serviceType: ROOM_VACANCY_SERVICE_TYPE,
+      startDate: serviceBoundaryDate,
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      source: 'move_out_room_vacancy',
     });
   }
 
@@ -860,7 +929,7 @@ async function handleUpdateEvent(
   );
 
   const roomNumber = extractRoomNumber(event);
-  const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
+  let communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
   if (!existing.found || !existing.id) {
@@ -885,14 +954,28 @@ async function handleUpdateEvent(
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const patientRecord = mapPatientRecord(payload, communityContext);
-  if (!patientRecord.ApartmentNumber && roomNumber) {
-    patientRecord.ApartmentNumber = roomNumber;
-  }
+  applyPreferredApartmentFromEvent(event, patientRecord, roomNumber);
+  const effectiveRoom = trimNonEmpty(patientRecord.ApartmentNumber) ?? roomNumber;
+  communityContext = await applyCommunityEnrichment(communityId, effectiveRoom);
+  patientRecord.CUID = communityContext.CUID ?? patientRecord.CUID;
+  patientRecord.CommunityName = communityContext.CommunityName ?? patientRecord.CommunityName;
   patientRecord.PatientNumber = String(residentId);
   const patchWithoutMoveIn =
     event.EventType === 'residents.move_in_out_info_updated'
       ? patientRecord
       : (({ Move_in_Date, ...rest }) => rest)(patientRecord);
+
+  if (isPatientRecordMovedOut(existing.record)) {
+    stripPremFieldsFromPatch(patchWithoutMoveIn);
+  } else {
+    const openEpisode = await findOpenOffPremEpisode({
+      patientNumber: String(residentId),
+      cuid: trimNonEmpty(patientRecord.CUID) ?? trimNonEmpty(existing.record?.CUID),
+    });
+    if (openEpisode.found) {
+      stripPremFieldsFromPatch(patchWithoutMoveIn);
+    }
+  }
 
   logger.debug(
     {
@@ -911,19 +994,27 @@ async function handleUpdateEvent(
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
   let incomingServiceType = getClassification(event, resident, basicInfo);
   const serviceRoomFallback =
-    (typeof patientRecord.ApartmentNumber === 'string' && patientRecord.ApartmentNumber.trim().length > 0
-      ? patientRecord.ApartmentNumber.trim()
-      : undefined) ??
-    (typeof existing.record?.ApartmentNumber === 'string' && existing.record.ApartmentNumber.trim().length > 0
-      ? existing.record.ApartmentNumber.trim()
-      : undefined);
+    trimNonEmpty(patientRecord.ApartmentNumber) ??
+    trimNonEmpty(existing.record?.ApartmentNumber);
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
     communityId,
     fallbackRoomNumber: serviceRoomFallback,
   });
-  if (serviceCommunity.matched && serviceCommunity.cuid) {
+  const skipServiceTransitions = isPatientRecordMovedOut(existing.record);
+  if (skipServiceTransitions) {
+    logger.info(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+      },
+      'update_event_service_skipped_patient_moved_out',
+    );
+  }
+  if (!skipServiceTransitions && serviceCommunity.matched && serviceCommunity.cuid) {
     const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
     const existingService = await findActiveOrLatestServiceRow({
       patientNumber: String(residentId),
