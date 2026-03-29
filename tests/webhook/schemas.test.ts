@@ -5,5 +5,6 @@ describe('webhook schema supported event types', () => {
     expect(isSupportedEventType('residents.created')).toBe(true);
     expect(isSupportedEventType('residents.health_profile_updated')).toBe(true);
     expect(isSupportedEventType('resident.room_assigned')).toBe(true);
+    expect(isSupportedEventType('resident.room_changed')).toBe(true);
   });
 });

@@ -35,6 +35,7 @@ import {
 /** Prefer NotificationData room over stale API data for these event types. */
 const ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES = new Set([
   'resident.room_assigned',
+  'resident.room_changed',
   'residents.move_in_out_info_updated',
 ]);
 
