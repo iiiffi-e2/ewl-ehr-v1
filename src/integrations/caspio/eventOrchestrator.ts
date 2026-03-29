@@ -1172,7 +1172,22 @@ async function handleUpdateEvent(
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
   let incomingServiceType = getClassification(event, resident, basicInfo);
-  const skipServiceTransitions = isPatientRecordMovedOut(existing.record);
+  const caspioRowLooksMovedOut = isPatientRecordMovedOut(existing.record);
+  const roomEventAllowsServiceDespiteMoveOutFields =
+    caspioRowLooksMovedOut && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType);
+  const skipServiceTransitions =
+    caspioRowLooksMovedOut && !ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType);
+  if (roomEventAllowsServiceDespiteMoveOutFields) {
+    logger.info(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+      },
+      'update_event_service_room_event_proceeds_despite_move_out_fields_on_row',
+    );
+  }
   if (skipServiceTransitions) {
     logger.info(
       {
