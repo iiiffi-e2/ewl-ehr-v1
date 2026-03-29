@@ -66,6 +66,7 @@ export async function getCommunityEnrichment(
     if (roomLookup.found) {
       const record = roomLookup.record;
       // Room-level match is the most specific source for patient/service routing.
+      // CUID is unique per (community, room): distinct rooms must not share one CUID.
       // Prefer CUID and CommunityName from this row when present.
       const roomLevelCuid = getStringField(record, 'CUID');
       const roomLevelCommunityName = getStringField(record, 'CommunityName');

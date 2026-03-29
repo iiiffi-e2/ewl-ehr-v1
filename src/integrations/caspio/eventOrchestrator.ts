@@ -673,6 +673,138 @@ async function closeLatestServiceRow(params: {
   );
 }
 
+/**
+ * Service rows are keyed by PatientNumber + CUID. CUID is resolved from the Caspio community
+ * table by (CommunityId, room number). Data model: each room has a distinct CUID—two rooms
+ * must not share the same CUID—so an in-community room change implies a CUID change whenever
+ * enrichment uses room-level rows. When CUID changes, close the open row on the old CUID,
+ * record a room-vacancy line on the old CUID, and open the active service line on the new CUID
+ * (same classification when unchanged).
+ */
+async function applyRoomTransferServiceTable(params: {
+  event: AlisEvent;
+  companyId: number;
+  companyKey: string;
+  residentId: number;
+  communityId: number;
+  patientNumber: string;
+  previousCuid: string;
+  nextCuid: string;
+  previousRoom?: string;
+  nextCommunityName?: string;
+  incomingServiceType: string | undefined;
+}): Promise<void> {
+  const boundaryDate = normalizeScenarioDateTime(params.event.EventMessageDate);
+
+  let incomingServiceType = params.incomingServiceType;
+  if (!incomingServiceType) {
+    const fullResidentData = await fetchFullResidentDataIfNeeded(
+      params.companyId,
+      params.companyKey,
+      params.residentId,
+      params.communityId,
+    );
+    const resident = fullResidentData.resident as Record<string, unknown>;
+    const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
+    incomingServiceType = getClassification(params.event, resident, basicInfo);
+  }
+
+  const oldServiceRow = await findActiveOrLatestServiceRow({
+    patientNumber: params.patientNumber,
+    cuid: params.previousCuid,
+  });
+  const carriedServiceType =
+    oldServiceRow.found &&
+    oldServiceRow.record &&
+    typeof oldServiceRow.record.ServiceType === 'string'
+      ? oldServiceRow.record.ServiceType
+      : undefined;
+  const resolvedServiceType = incomingServiceType ?? carriedServiceType;
+  if (!resolvedServiceType) {
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        previousCuid: params.previousCuid,
+        nextCuid: params.nextCuid,
+      },
+      'room_transfer_service_skipped_missing_service_type',
+    );
+    return;
+  }
+
+  const previousRoomTrimmed = trimNonEmpty(params.previousRoom);
+  const oldRoomEnrichment = previousRoomTrimmed
+    ? await getCommunityEnrichment(params.communityId, previousRoomTrimmed)
+    : undefined;
+
+  await closeLatestServiceRow({
+    patientNumber: params.patientNumber,
+    cuid: params.previousCuid,
+    endDate: boundaryDate,
+    eventMessageId: params.event.EventMessageId,
+    eventType: params.event.EventType,
+    residentId: params.residentId,
+    communityId: params.communityId,
+    source: 'room_transfer_close_old',
+  });
+
+  if (previousRoomTrimmed) {
+    await createServiceRow({
+      cuid: params.previousCuid,
+      communityName: oldRoomEnrichment?.CommunityName ?? undefined,
+      serviceType: ROOM_VACANCY_SERVICE_TYPE,
+      startDate: boundaryDate,
+      eventMessageId: params.event.EventMessageId,
+      eventType: params.event.EventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      source: 'room_transfer_old_room_vacant',
+    });
+  } else {
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        previousCuid: params.previousCuid,
+      },
+      'room_transfer_old_room_vacant_skipped_missing_previous_room',
+    );
+  }
+
+  await createServiceRow({
+    patientNumber: params.patientNumber,
+    cuid: params.nextCuid,
+    communityName: params.nextCommunityName,
+    serviceType: resolvedServiceType,
+    startDate: boundaryDate,
+    eventMessageId: params.event.EventMessageId,
+    eventType: params.event.EventType,
+    residentId: params.residentId,
+    communityId: params.communityId,
+    source: 'room_transfer_new_room',
+  });
+
+  logger.info(
+    {
+      eventMessageId: params.event.EventMessageId,
+      eventType: params.event.EventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      patientNumber: params.patientNumber,
+      previousCuid: params.previousCuid,
+      nextCuid: params.nextCuid,
+      previousRoom: previousRoomTrimmed ?? null,
+      serviceType: resolvedServiceType,
+    },
+    'room_transfer_service_completed',
+  );
+}
+
 async function closeOpenOffPremEpisode(params: {
   patientNumber: string;
   cuid?: string;
@@ -988,20 +1120,19 @@ async function handleUpdateEvent(
     'update_event_applying_patch',
   );
 
+  // Room-level CUID is unique per room; a different room after enrichment => different CUID.
+  const previousCuid = trimNonEmpty(existing.record?.CUID);
+  const previousRoom = trimNonEmpty(existing.record?.ApartmentNumber);
+  const nextCuid = trimNonEmpty(patientRecord.CUID);
+  const isCuidRoomTransfer = Boolean(
+    previousCuid && nextCuid && previousCuid !== nextCuid,
+  );
+
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patchWithoutMoveIn);
 
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
   let incomingServiceType = getClassification(event, resident, basicInfo);
-  const serviceRoomFallback =
-    trimNonEmpty(patientRecord.ApartmentNumber) ??
-    trimNonEmpty(existing.record?.ApartmentNumber);
-  const serviceCommunity = await resolveServiceCommunityContext({
-    event,
-    residentId,
-    communityId,
-    fallbackRoomNumber: serviceRoomFallback,
-  });
   const skipServiceTransitions = isPatientRecordMovedOut(existing.record);
   if (skipServiceTransitions) {
     logger.info(
@@ -1013,123 +1144,93 @@ async function handleUpdateEvent(
       },
       'update_event_service_skipped_patient_moved_out',
     );
-  }
-  if (!skipServiceTransitions && serviceCommunity.matched && serviceCommunity.cuid) {
-    const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
-    const existingService = await findActiveOrLatestServiceRow({
+  } else if (isCuidRoomTransfer && previousCuid && nextCuid) {
+    await applyRoomTransferServiceTable({
+      event,
+      companyId,
+      companyKey,
+      residentId,
+      communityId,
       patientNumber: String(residentId),
-      cuid: serviceCommunity.cuid,
+      previousCuid: previousCuid,
+      nextCuid: nextCuid,
+      previousRoom,
+      nextCommunityName: patientRecord.CommunityName ?? communityContext.CommunityName,
+      incomingServiceType,
     });
-
-    const currentServiceType =
-      existingService.found && existingService.record && typeof existingService.record.ServiceType === 'string'
-        ? existingService.record.ServiceType
-        : undefined;
-
-    let hasChanged =
-      !currentServiceType ||
-      normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
-
-    if (
-      event.EventType === 'residents.basic_info_updated' &&
-      (!incomingServiceType || !hasChanged)
-    ) {
-      const refreshedResidentData = await fetchFullResidentDataIfNeeded(
-        companyId,
-        companyKey,
-        residentId,
-        communityId,
-      );
-      const refreshedResident = refreshedResidentData.resident as Record<string, unknown>;
-      const refreshedBasicInfo = refreshedResidentData.basicInfo as Record<string, unknown>;
-      const refreshedServiceType = getClassification(event, refreshedResident, refreshedBasicInfo);
-      if (refreshedServiceType) {
-        incomingServiceType = refreshedServiceType;
-        hasChanged =
-          !currentServiceType ||
-          normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
-      }
-    }
-
-    if (!incomingServiceType) {
-      logger.info(
-        {
-          eventMessageId: event.EventMessageId,
-          eventType: event.EventType,
-          residentId,
-          communityId,
-        },
-        'service_write_skipped_missing_classification',
-      );
-    } else if (!existingService.found || !existingService.id || !existingService.record) {
-      logger.info(
-        {
-          eventMessageId: event.EventMessageId,
-          eventType: event.EventType,
-          residentId,
-          communityId,
-          source: 'update_event',
-          patientNumber: String(residentId),
-          cuid: serviceCommunity.cuid,
-          currentServiceType: currentServiceType ?? null,
-          incomingServiceType,
-          hasChanged,
-          existingServiceFound: false,
-        },
-        'service_transition_evaluated',
-      );
-      await createServiceRow({
+  } else {
+    const serviceRoomFallback =
+      trimNonEmpty(patientRecord.ApartmentNumber) ??
+      trimNonEmpty(existing.record?.ApartmentNumber);
+    const serviceCommunity = await resolveServiceCommunityContext({
+      event,
+      residentId,
+      communityId,
+      fallbackRoomNumber: serviceRoomFallback,
+    });
+    if (serviceCommunity.matched && serviceCommunity.cuid) {
+      const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
+      const existingService = await findActiveOrLatestServiceRow({
         patientNumber: String(residentId),
         cuid: serviceCommunity.cuid,
-        communityName: serviceCommunity.communityName,
-        serviceType: incomingServiceType,
-        startDate: boundaryDate,
-        eventMessageId: event.EventMessageId,
-        eventType: event.EventType,
-        residentId,
-        communityId,
-        source: 'update_event_insert_first_service',
       });
-    } else {
-      const active = isOpenServiceRow(existingService.record.EndDate);
-      logger.info(
-        {
-          eventMessageId: event.EventMessageId,
-          eventType: event.EventType,
+
+      const currentServiceType =
+        existingService.found && existingService.record && typeof existingService.record.ServiceType === 'string'
+          ? existingService.record.ServiceType
+          : undefined;
+
+      let hasChanged =
+        !currentServiceType ||
+        normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+
+      if (
+        event.EventType === 'residents.basic_info_updated' &&
+        (!incomingServiceType || !hasChanged)
+      ) {
+        const refreshedResidentData = await fetchFullResidentDataIfNeeded(
+          companyId,
+          companyKey,
           residentId,
           communityId,
-          source: 'update_event',
-          serviceRowId: existingService.id,
-          patientNumber: String(residentId),
-          cuid: serviceCommunity.cuid,
-          currentServiceType: currentServiceType ?? null,
-          incomingServiceType,
-          hasChanged,
-          active,
-          currentStartDate: existingService.record.StartDate ?? null,
-          currentEndDate: existingService.record.EndDate ?? null,
-          boundaryDate,
-        },
-        'service_transition_evaluated',
-      );
+        );
+        const refreshedResident = refreshedResidentData.resident as Record<string, unknown>;
+        const refreshedBasicInfo = refreshedResidentData.basicInfo as Record<string, unknown>;
+        const refreshedServiceType = getClassification(event, refreshedResident, refreshedBasicInfo);
+        if (refreshedServiceType) {
+          incomingServiceType = refreshedServiceType;
+          hasChanged =
+            !currentServiceType ||
+            normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+        }
+      }
 
-      if (active && hasChanged) {
-        await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {
-          EndDate: boundaryDate,
-        });
+      if (!incomingServiceType) {
         logger.info(
           {
             eventMessageId: event.EventMessageId,
             eventType: event.EventType,
             residentId,
             communityId,
-            source: 'update_event_classification_change',
-            serviceRowId: existingService.id,
+          },
+          'service_write_skipped_missing_classification',
+        );
+      } else if (!existingService.found || !existingService.id || !existingService.record) {
+        logger.info(
+          {
+            eventMessageId: event.EventMessageId,
+            eventType: event.EventType,
+            residentId,
+            communityId,
+            source: 'update_event',
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
-            endDate: boundaryDate,
+            currentServiceType: currentServiceType ?? null,
+            incomingServiceType,
+            hasChanged,
+            existingServiceFound: false,
           },
-          'service_row_closed',
+          'service_transition_evaluated',
         );
         await createServiceRow({
           patientNumber: String(residentId),
@@ -1141,21 +1242,75 @@ async function handleUpdateEvent(
           eventType: event.EventType,
           residentId,
           communityId,
-          source: 'update_event_classification_change',
+          source: 'update_event_insert_first_service',
         });
-      } else if (!active) {
-        await createServiceRow({
-          patientNumber: String(residentId),
-          cuid: serviceCommunity.cuid,
-          communityName: serviceCommunity.communityName,
-          serviceType: incomingServiceType,
-          startDate: boundaryDate,
-          eventMessageId: event.EventMessageId,
-          eventType: event.EventType,
-          residentId,
-          communityId,
-          source: 'update_event_existing_closed_row',
-        });
+      } else {
+        const active = isOpenServiceRow(existingService.record.EndDate);
+        logger.info(
+          {
+            eventMessageId: event.EventMessageId,
+            eventType: event.EventType,
+            residentId,
+            communityId,
+            source: 'update_event',
+            serviceRowId: existingService.id,
+            patientNumber: String(residentId),
+            cuid: serviceCommunity.cuid,
+            currentServiceType: currentServiceType ?? null,
+            incomingServiceType,
+            hasChanged,
+            active,
+            currentStartDate: existingService.record.StartDate ?? null,
+            currentEndDate: existingService.record.EndDate ?? null,
+            boundaryDate,
+          },
+          'service_transition_evaluated',
+        );
+
+        if (active && hasChanged) {
+          await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {
+            EndDate: boundaryDate,
+          });
+          logger.info(
+            {
+              eventMessageId: event.EventMessageId,
+              eventType: event.EventType,
+              residentId,
+              communityId,
+              source: 'update_event_classification_change',
+              serviceRowId: existingService.id,
+              patientNumber: String(residentId),
+              cuid: serviceCommunity.cuid,
+              endDate: boundaryDate,
+            },
+            'service_row_closed',
+          );
+          await createServiceRow({
+            patientNumber: String(residentId),
+            cuid: serviceCommunity.cuid,
+            communityName: serviceCommunity.communityName,
+            serviceType: incomingServiceType,
+            startDate: boundaryDate,
+            eventMessageId: event.EventMessageId,
+            eventType: event.EventType,
+            residentId,
+            communityId,
+            source: 'update_event_classification_change',
+          });
+        } else if (!active) {
+          await createServiceRow({
+            patientNumber: String(residentId),
+            cuid: serviceCommunity.cuid,
+            communityName: serviceCommunity.communityName,
+            serviceType: incomingServiceType,
+            startDate: boundaryDate,
+            eventMessageId: event.EventMessageId,
+            eventType: event.EventType,
+            residentId,
+            communityId,
+            source: 'update_event_existing_closed_row',
+          });
+        }
       }
     }
   }
