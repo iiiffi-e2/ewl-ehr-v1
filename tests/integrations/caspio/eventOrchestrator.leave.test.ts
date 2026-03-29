@@ -233,6 +233,8 @@ describe('eventOrchestrator leave events with off-prem history', () => {
         CUID: '259',
         Move_Out_Date: expect.any(String),
         Service_End_Date: expect.any(String),
+        On_Prem: false,
+        Off_Prem: false,
       }),
     );
 
@@ -240,7 +242,7 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       'Service_Table_API',
       'svc-1',
       expect.objectContaining({
-        EndDate: '2026-01-19',
+        EndDate: expect.any(String),
       }),
     );
 

@@ -227,6 +227,21 @@ describe('eventOrchestrator service-table scenarios', () => {
         [
           { field: 'CUID', value: '259' },
           { field: 'StartDate', value: '01/21/2026 14:00:00' },
+          { field: 'PatientNumber', value: '70508' },
+          { field: 'ServiceType', value: 'Vacay' },
+        ],
+        expect.objectContaining({
+          CUID: '259',
+          ServiceType: 'Vacay',
+          StartDate: '01/21/2026 14:00:00',
+          PatientNumber: '70508',
+        }),
+      );
+      expect(upsertByFieldsMock).toHaveBeenCalledWith(
+        'Service_Table_API',
+        [
+          { field: 'CUID', value: '259' },
+          { field: 'StartDate', value: '01/21/2026 14:00:00' },
           { field: 'ServiceType', value: 'Vacant' },
         ],
         expect.objectContaining({
@@ -235,7 +250,13 @@ describe('eventOrchestrator service-table scenarios', () => {
           StartDate: '01/21/2026 14:00:00',
         }),
       );
-      expect(upsertByFieldsMock.mock.calls[0]?.[2]).not.toHaveProperty('PatientNumber');
+      const vacantPayload = upsertByFieldsMock.mock.calls.find(
+        (call) =>
+          call[0] === 'Service_Table_API' &&
+          (call[2] as Record<string, unknown>)?.ServiceType === 'Vacant',
+      )?.[2] as Record<string, unknown> | undefined;
+      expect(vacantPayload).toBeDefined();
+      expect(vacantPayload).not.toHaveProperty('PatientNumber');
     } finally {
       jest.useRealTimers();
     }
@@ -553,6 +574,135 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
+    const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'Service_Table_API',
+    );
+    expect(serviceUpserts).toHaveLength(0);
+  });
+
+  it('resident.room_assigned prefers notification room over stale API assignment', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Assisted Living',
+        ProductType: 'Assisted Living',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '1', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'resident.room_assigned',
+      EventMessageId: 'evt-room-change',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '2',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        ApartmentNumber: '2',
+      }),
+    );
+  });
+
+  it('does not overwrite On_Prem/Off_Prem from API when an open off-prem episode exists', async () => {
+    findOpenOffPremEpisodeMock.mockResolvedValueOnce({
+      found: true,
+      id: 'ep-open',
+      record: { OffPremStart: '2026-01-18T12:00:00' },
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Assisted Living',
+        ProductType: 'Assisted Living',
+        PhysicalMoveInDate: '2026-01-10',
+        IsOnLeave: false,
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '101', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.health_profile_updated',
+      EventMessageId: 'evt-stale-leave-flag',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findOpenOffPremEpisodeMock).toHaveBeenCalled();
+    const patientPatch = updateRecordByIdMock.mock.calls.find(
+      (call) => call[0] === 'CarePatientTable_API',
+    )?.[2] as Record<string, unknown> | undefined;
+    expect(patientPatch).toBeDefined();
+    expect(patientPatch).not.toHaveProperty('On_Prem');
+    expect(patientPatch).not.toHaveProperty('Off_Prem');
+  });
+
+  it('basic_info_updated does not create or transition service rows when patient already moved out', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '70508',
+        CUID: '259',
+        Move_Out_Date: '2026-01-20',
+        Service_End_Date: '2026-01-20',
+      },
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Intervene',
+        ProductType: 'Intervene',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '101', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-after-moveout',
+      EventMessageDate: '2026-01-23T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+        Classification: 'Intervene',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findActiveOrLatestServiceRowMock).not.toHaveBeenCalled();
     const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
       (call) => call[0] === 'Service_Table_API',
     );
