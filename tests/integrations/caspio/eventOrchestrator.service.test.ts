@@ -618,6 +618,88 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('room change when CUID changes closes old service, vacant old room, opens line on new CUID', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: {
+        PatientNumber: '70508',
+        CUID: '111',
+        ApartmentNumber: '1',
+      },
+    });
+    getCommunityEnrichmentMock.mockImplementation((_communityId: number, room?: string | number | null) => {
+      const r = room != null ? String(room).trim() : '';
+      if (r === '1') {
+        return Promise.resolve({ CUID: '111', CommunityName: 'Old Wing' });
+      }
+      return Promise.resolve({ CUID: '222', CommunityName: 'New Wing' });
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Assisted Living',
+        ProductType: 'Assisted Living',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '1', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-old-cuid',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'resident.room_assigned',
+      EventMessageId: 'evt-cuid-transfer',
+      EventMessageDate: '2026-01-22T15:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '2',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old-cuid', {
+      EndDate: '01/22/2026 15:00:00',
+    });
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      [
+        { field: 'CUID', value: '111' },
+        { field: 'StartDate', value: '01/22/2026 15:00:00' },
+        { field: 'ServiceType', value: 'Vacant' },
+      ],
+      expect.objectContaining({
+        CUID: '111',
+        ServiceType: 'Vacant',
+      }),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      [
+        { field: 'CUID', value: '222' },
+        { field: 'StartDate', value: '01/22/2026 15:00:00' },
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'ServiceType', value: 'Assisted Living' },
+      ],
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '222',
+        ServiceType: 'Assisted Living',
+      }),
+    );
+  });
+
   it('does not overwrite On_Prem/Off_Prem from API when an open off-prem episode exists', async () => {
     findOpenOffPremEpisodeMock.mockResolvedValueOnce({
       found: true,
