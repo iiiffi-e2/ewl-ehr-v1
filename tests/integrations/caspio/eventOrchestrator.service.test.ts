@@ -700,6 +700,120 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('resident.room_changed resolves old CUID from UnassignedRoom and new CUID from AssignedRoom', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: {
+        PatientNumber: '71703',
+        CUID: '111',
+        ApartmentNumber: '54',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
+      if (room === '54') {
+        return Promise.resolve({
+          found: true,
+          record: { CUID: '111', CommunityName: 'Room 54' },
+        });
+      }
+      if (room === '53') {
+        return Promise.resolve({
+          found: true,
+          record: { CUID: '222', CommunityName: 'Room 53' },
+        });
+      }
+      return Promise.resolve({
+        found: true,
+        record: { CUID: '259', CommunityName: 'Test Community' },
+      });
+    });
+    getCommunityEnrichmentMock.mockImplementation((_communityId: number, room?: string | number | null) => {
+      const r = room != null ? String(room).trim() : '';
+      if (r === '54') {
+        return Promise.resolve({ CUID: '111', CommunityName: 'Room 54' });
+      }
+      if (r === '53') {
+        return Promise.resolve({ CUID: '222', CommunityName: 'Room 53' });
+      }
+      return Promise.resolve({ CUID: '259', CommunityName: 'Test Community' });
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Assisted Living',
+        ProductType: 'Assisted Living',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '54', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-old-cuid',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'resident.room_changed',
+      EventMessageId: '639104054955416800',
+      EventMessageDate: '2026-03-29T18:24:55.5416825',
+      NotificationData: {
+        ResidentId: 71703,
+        AsOfDateUTC: '2026-03-29T05:00:00',
+        AssignedRoom: '53',
+        UnassignedRoom: '54',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '54');
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        ApartmentNumber: '53',
+        CUID: '222',
+      }),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      'svc-old-cuid',
+      expect.objectContaining({ EndDate: expect.any(String) }),
+    );
+    const vacantUpsert = upsertByFieldsMock.mock.calls.find(
+      (c) =>
+        c[0] === 'Service_Table_API' &&
+        (c[2] as Record<string, unknown>)?.ServiceType === 'Vacant',
+    );
+    expect(vacantUpsert?.[1]).toEqual(
+      expect.arrayContaining([
+        { field: 'CUID', value: '111' },
+        { field: 'ServiceType', value: 'Vacant' },
+      ]),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '222' },
+        { field: 'PatientNumber', value: '71703' },
+        { field: 'ServiceType', value: 'Assisted Living' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '71703',
+        CUID: '222',
+        ServiceType: 'Assisted Living',
+      }),
+    );
+  });
+
   it('does not overwrite On_Prem/Off_Prem from API when an open off-prem episode exists', async () => {
     findOpenOffPremEpisodeMock.mockResolvedValueOnce({
       found: true,

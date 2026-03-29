@@ -79,6 +79,33 @@ function applyPreferredApartmentFromEvent(
   }
 }
 
+/** New room after a move (ALIS `resident.room_changed`, etc.). */
+function extractAssignedRoom(event: AlisEvent): string | undefined {
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  if (!notificationData) return undefined;
+  return extractStringValue(notificationData, ['AssignedRoom', 'assignedRoom']);
+}
+
+/** Room the resident is moving out of (ALIS `resident.room_changed`). */
+function extractUnassignedRoom(event: AlisEvent): string | undefined {
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  if (!notificationData) return undefined;
+  return extractStringValue(notificationData, ['UnassignedRoom', 'unassignedRoom']);
+}
+
+async function resolveCuidForCommunityRoom(
+  communityId: number,
+  room: string | undefined,
+): Promise<string | undefined> {
+  const normalized = trimNonEmpty(room);
+  if (!normalized) return undefined;
+  const match = await findCommunityByIdAndRoomNumber(communityId, normalized);
+  if (!match.found || !match.record) return undefined;
+  const raw = match.record.CUID;
+  if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim();
+  return undefined;
+}
+
 /**
  * Extract numeric value from object with fallback keys
  */
@@ -167,13 +194,15 @@ function extractRoomNumber(event: AlisEvent): string | undefined {
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   if (!notificationData) return undefined;
 
+  // New room for the resident (e.g. ALIS room change); takes precedence over generic RoomNumber.
+  const assigned = extractAssignedRoom(event);
+  if (assigned) return assigned;
+
   const direct = extractStringValue(notificationData, [
     'RoomNumber',
     'roomNumber',
     'Room',
     'room',
-    'AssignedRoom',
-    'assignedRoom',
     'ApartmentNumber',
     'apartmentNumber',
     'NewRoomNumber',
@@ -678,9 +707,12 @@ async function closeLatestServiceRow(params: {
  * Service rows are keyed by PatientNumber + CUID. CUID is resolved from the Caspio community
  * table by (CommunityId, room number). Data model: each room has a distinct CUID—two rooms
  * must not share the same CUID—so an in-community room change implies a CUID change whenever
- * enrichment uses room-level rows. When CUID changes, close the open row on the old CUID,
- * record a room-vacancy line on the old CUID, and open the active service line on the new CUID
- * (same classification when unchanged).
+ * enrichment uses room-level rows.
+ *
+ * For `resident.room_changed`, use NotificationData `UnassignedRoom` / `AssignedRoom` to
+ * resolve old vs new CUID from the community table; fall back to the stored patient row when
+ * the payload omits a room. Close the open row on the old CUID, insert a room Vacant line on
+ * the old CUID (no PatientNumber), then open the resident’s active service line on the new CUID.
  */
 async function applyRoomTransferServiceTable(params: {
   event: AlisEvent;
@@ -1121,9 +1153,15 @@ async function handleUpdateEvent(
     'update_event_applying_patch',
   );
 
-  // Room-level CUID is unique per room; a different room after enrichment => different CUID.
-  const previousCuid = trimNonEmpty(existing.record?.CUID);
-  const previousRoom = trimNonEmpty(existing.record?.ApartmentNumber);
+  const unassignedRoomStr = extractUnassignedRoom(event);
+  const previousCuidFromUnassignedRoom = await resolveCuidForCommunityRoom(
+    communityId,
+    unassignedRoomStr,
+  );
+  const previousCuid =
+    previousCuidFromUnassignedRoom ?? trimNonEmpty(existing.record?.CUID);
+  const previousRoom =
+    trimNonEmpty(unassignedRoomStr) ?? trimNonEmpty(existing.record?.ApartmentNumber);
   const nextCuid = trimNonEmpty(patientRecord.CUID);
   const isCuidRoomTransfer = Boolean(
     previousCuid && nextCuid && previousCuid !== nextCuid,
