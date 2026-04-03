@@ -873,12 +873,34 @@ export async function findCommunityByIdAndRoomNumber(
             { field: 'CommunityID', value: communityFilterValue },
             { field: 'RoomNumber', value: roomFilterValue },
           ]);
-          const filtered = await fetchRecordsWithWherePaged(
-            env.CASPIO_COMMUNITY_TABLE_NAME,
-            token,
-            whereClause,
-          );
-          records.push(...filtered);
+          try {
+            const filtered = await fetchRecordsWithWherePaged(
+              env.CASPIO_COMMUNITY_TABLE_NAME,
+              token,
+              whereClause,
+            );
+            records.push(...filtered);
+          } catch (error) {
+            if (axios.isAxiosError(error) && error.response?.status === 400) {
+              logger.warn(
+                {
+                  communityId,
+                  roomNumber: normalizedRoom,
+                  whereClause,
+                  status: error.response.status,
+                  caspioCode:
+                    typeof error.response.data === 'object' &&
+                    error.response.data &&
+                    'Code' in (error.response.data as Record<string, unknown>)
+                      ? (error.response.data as Record<string, unknown>).Code
+                      : undefined,
+                },
+                'caspio_community_room_lookup_filter_variant_failed',
+              );
+              continue;
+            }
+            throw error;
+          }
         }
       }
       if (records.length === 0) {
