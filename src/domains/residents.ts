@@ -1,9 +1,12 @@
 import type { Resident } from '@prisma/client';
 
 import { prisma } from '../db/prisma.js';
+import type { EhrSource } from '../integrations/ehr/types.js';
 
 export type NormalizedResidentData = {
-  alisResidentId: number;
+  source: EhrSource;
+  externalResidentId: string;
+  alisResidentId?: number | null;
   status: string;
   productType?: string | null;
   classification?: string | null;
@@ -25,13 +28,22 @@ export async function upsertResident(
   data: NormalizedResidentData,
 ): Promise<Resident> {
   return prisma.resident.upsert({
-    where: { alisResidentId: data.alisResidentId },
+    where: {
+      companyId_source_externalResidentId: {
+        companyId,
+        source: data.source,
+        externalResidentId: data.externalResidentId,
+      },
+    },
     create: {
       companyId,
       ...data,
     },
     update: {
       companyId,
+      source: data.source,
+      externalResidentId: data.externalResidentId,
+      alisResidentId: data.alisResidentId ?? null,
       status: data.status,
       productType: data.productType ?? null,
       classification: data.classification ?? null,

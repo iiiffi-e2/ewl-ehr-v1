@@ -16,7 +16,7 @@ import {
   residentBackfillQueue,
 } from '../workers/queue.js';
 import { logger } from '../config/logger.js';
-import { alisWebhookHandler } from '../webhook/handler.js';
+import { alisWebhookHandler, handleWebhookBySource } from '../webhook/handler.js';
 import { env } from '../config/env.js';
 import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
 import { upsertAlisCredential } from '../admin/credentials.js';
@@ -51,6 +51,22 @@ router.get('/health/deps', async (_req, res) => {
 router.post('/webhook/alis', authWebhook, async (req, res, next) => {
   try {
     await alisWebhookHandler(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/webhook/yardi/fhir', authWebhook, async (req, res, next) => {
+  try {
+    await handleWebhookBySource('yardi-fhir', req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/webhook/yardi/hl7', authWebhook, async (req, res, next) => {
+  try {
+    await handleWebhookBySource('yardi-hl7', req, res);
   } catch (error) {
     next(error);
   }

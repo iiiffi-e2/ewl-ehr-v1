@@ -1,8 +1,8 @@
-import type { EventLog, Company } from '@prisma/client';
+import type { EventLog, Company, Prisma } from '@prisma/client';
 
 import { prisma } from '../db/prisma.js';
 import { logger } from '../config/logger.js';
-import type { AlisEvent } from '../webhook/schemas.js';
+import type { CanonicalInboundEvent, EhrSource } from '../integrations/ehr/types.js';
 
 export type RecordedEvent = {
   eventLog: EventLog;
@@ -10,30 +10,31 @@ export type RecordedEvent = {
   isDuplicate: boolean;
 };
 
-export async function recordIncomingEvent(event: AlisEvent): Promise<RecordedEvent> {
-  const { CompanyKey, EventMessageId, EventType, CommunityId } = event;
+export async function recordIncomingEvent(event: CanonicalInboundEvent): Promise<RecordedEvent> {
+  const { companyKey, eventMessageId, eventType, communityId } = event;
 
   const company = await prisma.company.upsert({
-    where: { companyKey: CompanyKey },
+    where: { companyKey },
     update: {},
     create: {
-      companyKey: CompanyKey,
+      companyKey,
     },
   });
 
   const existing = await prisma.eventLog.findUnique({
     where: {
-      companyId_eventType_eventMessageId: {
+      companyId_source_eventType_eventMessageId: {
         companyId: company.id,
-        eventType: EventType,
-        eventMessageId: EventMessageId,
+        source: event.source,
+        eventType: eventType,
+        eventMessageId: eventMessageId,
       },
     },
   });
 
   if (existing) {
     logger.info(
-      { eventMessageId: EventMessageId, eventType: EventType },
+      { eventMessageId: eventMessageId, eventType: eventType, source: event.source },
       'event_already_recorded',
     );
     return { eventLog: existing, company, isDuplicate: true };
@@ -42,10 +43,11 @@ export async function recordIncomingEvent(event: AlisEvent): Promise<RecordedEve
   const created = await prisma.eventLog.create({
     data: {
       companyId: company.id,
-      communityId: CommunityId ?? null,
-      eventType: EventType,
-      eventMessageId: EventMessageId,
-      payload: event,
+      source: event.source,
+      communityId: communityId ?? null,
+      eventType,
+      eventMessageId,
+      payload: event as unknown as Prisma.InputJsonValue,
       status: 'received',
     },
   });
@@ -62,18 +64,22 @@ type EventIdentity = {
   companyId: number;
   eventType: string;
   eventMessageId: string;
+  source?: EhrSource;
 };
 
 function toCompositeEventWhere(identity: EventIdentity): {
-  companyId_eventType_eventMessageId: {
+  companyId_source_eventType_eventMessageId: {
     companyId: number;
+    source: string;
     eventType: string;
     eventMessageId: string;
   };
 } {
+  const source = identity.source ?? 'alis';
   return {
-    companyId_eventType_eventMessageId: {
+    companyId_source_eventType_eventMessageId: {
       companyId: identity.companyId,
+      source,
       eventType: identity.eventType,
       eventMessageId: identity.eventMessageId,
     },

@@ -44,7 +44,9 @@ model AlisCredential {
 model Resident {
   id             Int       @id @default(autoincrement())
   companyId      Int
-  alisResidentId Int       @unique
+  source         String    @default("alis")
+  externalResidentId String
+  alisResidentId Int?      @unique
   status         String
   productType    String?
   classification String?
@@ -65,11 +67,14 @@ model Resident {
   company Company @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
+  @@index([companyId, source])
+  @@unique([companyId, source, externalResidentId])
 }
 
 model EventLog {
   id             Int       @id @default(autoincrement())
   companyId      Int
+  source         String    @default("alis")
   communityId    Int?
   eventType      String
   eventMessageId String
@@ -81,6 +86,6 @@ model EventLog {
 
   company Company @relation(fields: [companyId], references: [id])
 
-  @@unique([companyId, eventType, eventMessageId])
-  @@index([companyId, eventType])
+  @@unique([companyId, source, eventType, eventMessageId])
+  @@index([companyId, source, eventType])
 }

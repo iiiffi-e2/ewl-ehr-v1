@@ -1,4 +1,7 @@
+import type { EhrSource } from '../integrations/ehr/types.js';
+
 export type ProcessAlisEventJobData = {
+  source: EhrSource;
   eventMessageId: string;
   eventType: string;
   companyKey: string;

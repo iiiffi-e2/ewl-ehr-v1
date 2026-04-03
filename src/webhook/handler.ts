@@ -6,48 +6,63 @@ import {
   markEventQueued,
   recordIncomingEvent,
 } from '../domains/events.js';
+import { resolveEhrAdapter } from '../integrations/ehr/registry.js';
+import type { CanonicalInboundEvent, EhrSource } from '../integrations/ehr/types.js';
 import { processAlisEventQueue } from '../workers/queue.js';
 import type { ProcessAlisEventJobData } from '../workers/types.js';
 
-import { AlisEventSchema, isSupportedEventType } from './schemas.js';
-
 export async function alisWebhookHandler(req: Request, res: Response): Promise<Response> {
-  const parsed = AlisEventSchema.safeParse(req.body);
+  return handleWebhookBySource('alis', req, res);
+}
 
-  if (!parsed.success) {
-    logger.warn({ issues: parsed.error.issues }, 'webhook_validation_failed');
+export async function handleWebhookBySource(
+  source: EhrSource,
+  req: Request,
+  res: Response,
+): Promise<Response> {
+  const adapter = resolveEhrAdapter(source);
+  let event: CanonicalInboundEvent;
+  try {
+    event = adapter.parseInboundEvent(req.body);
+  } catch (error) {
+    logger.warn(
+      {
+        source,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'webhook_validation_failed',
+    );
     return res.status(400).json({
       error: 'Invalid payload',
-      details: parsed.error.flatten(),
+      details: error instanceof Error ? error.message : 'schema_parse_failed',
     });
   }
-
-  const event = parsed.data;
-
   const { eventLog, company, isDuplicate } = await recordIncomingEvent(event);
 
   if (isDuplicate) {
     return res.status(200).json({ status: 'duplicate' });
   }
 
-  if (!isSupportedEventType(event.EventType)) {
+  if (!adapter.supportsEventType(event.eventType)) {
     await markEventIgnored(
       {
         companyId: company.id,
-        eventType: event.EventType,
-        eventMessageId: event.EventMessageId,
+        eventType: event.eventType,
+        eventMessageId: event.eventMessageId,
+        source: event.source,
       },
-      `Unsupported event type ${event.EventType as string}`,
+      `Unsupported event type ${event.eventType as string}`,
     );
     return res.status(202).json({ status: 'ignored' });
   }
 
-  if (event.EventType === 'test.event') {
+  if (event.eventType === 'test.event') {
     await markEventIgnored(
       {
         companyId: company.id,
-        eventType: event.EventType,
-        eventMessageId: event.EventMessageId,
+        eventType: event.eventType,
+        eventMessageId: event.eventMessageId,
+        source: event.source,
       },
       'Test event acknowledged',
     );
@@ -55,31 +70,33 @@ export async function alisWebhookHandler(req: Request, res: Response): Promise<R
   }
 
   const jobData: ProcessAlisEventJobData = {
-    eventMessageId: event.EventMessageId,
-    eventType: event.EventType,
-    companyKey: event.CompanyKey,
+    source,
+    eventMessageId: event.eventMessageId,
+    eventType: event.eventType,
+    companyKey: event.companyKey,
     companyId: company.id,
-    communityId: event.CommunityId ?? null,
-    notificationData: event.NotificationData ?? {},
-    eventMessageDate: event.EventMessageDate,
+    communityId: event.communityId ?? null,
+    notificationData: event.notificationData ?? {},
+    eventMessageDate: event.eventMessageDate,
   };
 
   try {
     await processAlisEventQueue.add('process-alis-event', jobData, {
-      jobId: `event-${event.EventType}-${event.EventMessageId}`,
+      jobId: `event-${source}-${event.eventType}-${event.eventMessageId}`,
       removeOnComplete: true,
       removeOnFail: false,
     });
 
     await markEventQueued({
       companyId: company.id,
-      eventType: event.EventType,
-      eventMessageId: event.EventMessageId,
+      eventType: event.eventType,
+      eventMessageId: event.eventMessageId,
+      source,
     });
   } catch (queueError) {
     logger.error(
       {
-        jobId: event.EventMessageId,
+        jobId: event.eventMessageId,
         error: queueError instanceof Error ? queueError.message : String(queueError),
       },
       'queue_enqueue_failed',
@@ -89,8 +106,9 @@ export async function alisWebhookHandler(req: Request, res: Response): Promise<R
 
   logger.info(
     {
-      eventMessageId: event.EventMessageId,
-      eventType: event.EventType,
+      eventMessageId: event.eventMessageId,
+      eventType: event.eventType,
+      source,
       companyId: company.id,
     },
     'webhook_event_enqueued',

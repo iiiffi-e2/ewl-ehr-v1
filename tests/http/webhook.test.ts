@@ -72,16 +72,18 @@ describe('POST /webhook/alis', () => {
     expect(queueAddMock).toHaveBeenCalledWith(
       'process-alis-event',
       expect.objectContaining({
+        source: 'alis',
         eventMessageId: 'evt-123',
         eventType: 'residents.move_in',
         companyId: 10,
       }),
-      expect.objectContaining({ jobId: 'event-residents.move_in-evt-123' }),
+      expect.objectContaining({ jobId: 'event-alis-residents.move_in-evt-123' }),
     );
     expect(markEventQueuedMock).toHaveBeenCalledWith({
       companyId: 10,
       eventType: 'residents.move_in',
       eventMessageId: 'evt-123',
+      source: 'alis',
     });
   });
 
@@ -135,6 +137,7 @@ describe('POST /webhook/alis', () => {
         companyId: 10,
         eventType: 'unsupported.event',
         eventMessageId: 'evt-unsupported',
+        source: 'alis',
       },
       expect.stringContaining('Unsupported event type'),
     );

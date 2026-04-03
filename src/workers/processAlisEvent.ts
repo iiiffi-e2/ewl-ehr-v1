@@ -2,13 +2,9 @@ import { Job, Worker } from 'bullmq';
 
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import {
-  createAlisClient,
-  fetchAllResidentData,
-  resolveAlisCredentials,
-} from '../integrations/alisClient.js';
-import { normalizeResident } from '../integrations/mappers.js';
-import { handleAlisEvent } from '../integrations/caspio/eventOrchestrator.js';
+import { resolveEhrAdapter } from '../integrations/ehr/registry.js';
+import { handleEhrEvent } from '../integrations/ehr/orchestrator.js';
+import type { CanonicalInboundEvent } from '../integrations/ehr/types.js';
 import {
   findByPatientNumber,
   findRecordByFields,
@@ -16,8 +12,6 @@ import {
 import { getCommunityEnrichment } from '../integrations/caspio/caspioCommunityEnrichment.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
-import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js';
-import type { AlisEvent } from '../webhook/schemas.js';
 
 import { getRedisConnection } from './connection.js';
 import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
@@ -75,6 +69,7 @@ export function startProcessAlisEventWorker(): Worker<ProcessAlisEventJobData> {
 
 async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
   const {
+    source,
     eventMessageId,
     eventType,
     companyKey,
@@ -84,20 +79,46 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     eventMessageDate,
   } = job.data;
 
-  logger.info({ eventMessageId, eventType, companyKey }, 'worker_processing_event');
+  logger.info({ source, eventMessageId, eventType, companyKey }, 'worker_processing_event');
 
   try {
-    if (!requiresResidentFetch(eventType)) {
-      logger.info({ eventMessageId, eventType }, 'event_does_not_require_processing');
-      await markEventProcessed({ companyId, eventType, eventMessageId });
+    if (!env.EHR_ADAPTER_ENABLED && source !== 'alis') {
+      logger.info({ source, eventMessageId, eventType }, 'ehr_adapter_disabled_skipping_event');
+      await markEventProcessed({ companyId, eventType, eventMessageId, source });
+      return;
+    }
+    if (
+      source !== 'alis' &&
+      env.ehrEnabledCommunityIds.length > 0 &&
+      (communityId === null || !env.ehrEnabledCommunityIds.includes(communityId))
+    ) {
+      logger.info(
+        { source, eventMessageId, eventType, communityId },
+        'ehr_source_not_enabled_for_community_skipping_event',
+      );
+      await markEventProcessed({ companyId, eventType, eventMessageId, source });
       return;
     }
 
-    const residentId = extractNumeric(notificationData, ['ResidentId', 'residentId']);
-
-    if (!residentId) {
-      throw new Error('ResidentId missing from NotificationData');
+    const adapter = resolveEhrAdapter(source);
+    if (!adapter.requiresResidentFetch(eventType)) {
+      logger.info({ eventMessageId, eventType }, 'event_does_not_require_processing');
+      await markEventProcessed({ companyId, eventType, eventMessageId, source });
+      return;
     }
+
+    const canonicalEvent: CanonicalInboundEvent = {
+      source,
+      companyKey,
+      communityId: communityId ?? null,
+      eventType,
+      eventMessageId,
+      eventMessageDate,
+      lifecycleKind: 'unknown',
+      notificationData: notificationData ?? {},
+      raw: notificationData ?? {},
+    };
+    const residentId = adapter.resolveResidentId({ event: canonicalEvent });
 
     const isContactEvent =
       eventType === 'resident.contact.created' ||
@@ -139,82 +160,65 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       }
     }
 
-    const credentials = await resolveAlisCredentials(companyId, companyKey);
-    const alisClient = createAlisClient(credentials);
-
-    const [residentDetail, residentBasicInfo] = await Promise.all([
-      alisClient.getResident(residentId),
-      alisClient.getResidentBasicInfo(residentId),
-    ]);
-
-    let leaveData = null;
-    if (requiresLeaveFetch(eventType)) {
-      const leaveId = extractNumeric(notificationData, ['LeaveId', 'leaveId']);
-      if (leaveId) {
-        leaveData = await alisClient.getLeave(leaveId);
-      } else {
-        const leaves = await alisClient.getResidentLeaves(residentId);
-        leaveData = leaves.find((leave) => {
-          const id = extractNumeric(leave, ['LeaveId', 'leaveId']);
-          return Boolean(id);
-        }) ?? null;
-      }
-    }
+    const residentBundle = await adapter.fetchResidentBundle({
+      companyId,
+      companyKey,
+      residentId,
+      event: canonicalEvent,
+    });
 
     if (!isContactEvent || shouldProcessCaspio) {
-      // Fetch all resident data for Caspio push
-      try {
-        const allResidentData = await fetchAllResidentData(
-          credentials,
-          residentId,
-          communityId ?? null,
-        );
+      const maybeFullData = (residentBundle.vendorPayload as { fullResidentData?: any } | undefined)
+        ?.fullResidentData;
+      if (maybeFullData) {
         logger.info(
           {
             eventMessageId,
             residentId,
             communityId,
-            insuranceCount: allResidentData.insurance.length,
-            roomAssignmentsCount: allResidentData.roomAssignments.length,
-            diagnosesAndAllergiesCount: allResidentData.diagnosesAndAllergies.length,
-            contactsCount: allResidentData.contacts.length,
-            hasCommunity: !!allResidentData.community,
-            errors: allResidentData.errors,
+            insuranceCount: maybeFullData.insurance?.length ?? 0,
+            roomAssignmentsCount: maybeFullData.roomAssignments?.length ?? 0,
+            diagnosesAndAllergiesCount: maybeFullData.diagnosesAndAllergies?.length ?? 0,
+            contactsCount: maybeFullData.contacts?.length ?? 0,
+            hasCommunity: !!maybeFullData.community,
+            errors: maybeFullData.errors,
           },
           'resident_data_fetched_for_caspio',
-        );
-      } catch (error) {
-        logger.error(
-          {
-            eventMessageId,
-            residentId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'failed_to_fetch_all_resident_data_for_caspio',
         );
       }
     }
 
-    const normalized = normalizeResident({
-      detail: residentDetail,
-      basicInfo: residentBasicInfo,
+    const normalized = residentBundle.demographics;
+    await upsertResident(companyId, {
+      source,
+      externalResidentId: normalized.externalResidentId,
+      alisResidentId: residentId,
+      status: normalized.status ?? 'unknown',
+      productType: normalized.productType ?? null,
+      classification: normalized.classification ?? null,
+      firstName: normalized.firstName ?? null,
+      lastName: normalized.lastName ?? null,
+      dateOfBirth: normalized.dateOfBirth ? new Date(normalized.dateOfBirth) : null,
+      roomNumber: normalized.roomNumber ?? null,
+      bed: normalized.bed ?? null,
+      room: normalized.room ?? null,
+      updatedAtUtc: normalized.updatedAtUtc ? new Date(normalized.updatedAtUtc) : null,
+      onPrem: normalized.onPrem ?? null,
+      onPremDate: normalized.onPremDate ? new Date(normalized.onPremDate) : null,
+      offPrem: normalized.offPrem ?? null,
+      offPremDate: normalized.offPremDate ? new Date(normalized.offPremDate) : null,
     });
 
-    await upsertResident(companyId, normalized);
+    const shouldShadowOnly = env.EHR_SHADOW_MODE && source !== 'alis';
 
-    // Construct AlisEvent for Caspio event orchestrator
-    const event: AlisEvent = {
-      EventType: eventType,
-      CompanyKey: companyKey,
-      CommunityId: communityId ?? null,
-      EventMessageId: eventMessageId,
-      EventMessageDate: eventMessageDate,
-      NotificationData: notificationData,
-    };
-
-    if (shouldProcessCaspio) {
+    if (shouldProcessCaspio && !shouldShadowOnly) {
       try {
-        await handleAlisEvent(event, companyId, companyKey);
+        await handleEhrEvent({
+          source,
+          companyId,
+          companyKey,
+          event: residentBundle.event,
+        });
       } catch (caspioError) {
         logger.error(
           {
@@ -226,9 +230,19 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         );
         throw caspioError;
       }
+    } else if (shouldProcessCaspio && shouldShadowOnly) {
+      logger.info(
+        {
+          source,
+          eventMessageId,
+          eventType,
+          residentId,
+        },
+        'ehr_shadow_mode_enabled_caspio_write_skipped',
+      );
     }
 
-    await markEventProcessed({ companyId, eventType, eventMessageId });
+    await markEventProcessed({ companyId, eventType, eventMessageId, source });
 
     logger.info({ eventMessageId, eventType, companyKey }, 'event_processed_successfully');
   } catch (error) {
@@ -241,27 +255,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       },
       'event_processing_failed',
     );
-    await markEventFailed({ companyId, eventType, eventMessageId }, error);
+    await markEventFailed({ companyId, eventType, eventMessageId, source }, error);
     throw error;
   }
-}
-
-function extractNumeric(
-  payload: Record<string, unknown> | undefined,
-  keys: string[],
-): number | undefined {
-  if (!payload) return undefined;
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === 'string' && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-  return undefined;
 }

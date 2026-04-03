@@ -18,7 +18,7 @@ export type NormalizeResidentInput = {
 export type CaspioResidentPayload = {
   companyKey: string;
   communityId: number | null;
-  alisResidentId: number;
+  alisResidentId: number | null;
   status: string;
   productType: string | null;
   classification: string | null;
@@ -132,6 +132,8 @@ export function normalizeResident({
   const offPremDate = isOnLeave === true && onLeaveStartDateString ? safeParseDate(onLeaveStartDateString) : null;
 
   return {
+    source: 'alis',
+    externalResidentId: String(alisResidentId),
     alisResidentId,
     status: normalizeStatus(statusRaw),
     productType: productType ?? null,
@@ -164,7 +166,7 @@ export function buildCaspioPayload(params: {
   return {
     companyKey: params.companyKey,
     communityId: params.communityId,
-    alisResidentId: resident.alisResidentId,
+    alisResidentId: resident.alisResidentId ?? null,
     status: resident.status,
     productType: resident.productType ?? null,
     classification: resident.classification ?? null,

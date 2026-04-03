@@ -39,11 +39,37 @@ const EnvSchema = z
     IP_ALLOWLIST: z.string().optional(),
     WORKER_CONCURRENCY: z.coerce.number().default(5),
     REQUEST_TIMEOUT_MS: z.coerce.number().default(15000),
+    EHR_SOURCE: z.enum(['alis', 'yardi-fhir', 'yardi-hl7']).default('alis'),
+    EHR_ADAPTER_ENABLED: z
+      .union([z.string(), z.boolean()])
+      .default('true')
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        return val.toLowerCase() === 'true';
+      }),
+    EHR_SHADOW_MODE: z
+      .union([z.string(), z.boolean()])
+      .default('false')
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        return val.toLowerCase() === 'true';
+      }),
+    YARDI_FHIR_TOKEN_URL: z.string().url().optional(),
+    YARDI_FHIR_API_BASE_URL: z.string().url().optional(),
+    YARDI_FHIR_CLIENT_ID: z.string().optional(),
+    YARDI_FHIR_CLIENT_SECRET: z.string().optional(),
+    YARDI_FHIR_SCOPE: z.string().default('APIvR4'),
+    EHR_ENABLED_COMMUNITY_IDS: z.string().optional(),
   })
   .transform((values) => ({
     ...values,
     ipAllowlist: values.IP_ALLOWLIST
       ? values.IP_ALLOWLIST.split(',').map((ip) => ip.trim()).filter(Boolean)
+      : [],
+    ehrEnabledCommunityIds: values.EHR_ENABLED_COMMUNITY_IDS
+      ? values.EHR_ENABLED_COMMUNITY_IDS.split(',')
+          .map((value) => Number(value.trim()))
+          .filter((value) => Number.isFinite(value))
       : [],
   }));
 

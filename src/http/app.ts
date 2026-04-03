@@ -2,15 +2,11 @@ import express from 'express';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 import { logger } from '../config/logger.js';
 
 import { router } from './routes.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export function createApp() {
   const app = express();
@@ -53,17 +49,18 @@ export function createApp() {
   // So we need to go up two levels: ../../public
   
   // Check if we're in production (dist folder) or development (src folder)
-  const isProduction = __dirname.includes('/dist/') || __dirname.includes('\\dist\\');
-  const publicPath = isProduction 
-    ? path.join(__dirname, '../public')  // dist/http -> dist/public
-    : path.join(__dirname, '../../public'); // src/http -> public
+  const cwd = process.cwd();
+  const distPublicPath = path.join(cwd, 'dist', 'public');
+  const projectPublicPath = path.join(cwd, 'public');
+  const publicPath = fs.existsSync(distPublicPath) ? distPublicPath : projectPublicPath;
+  const isProduction = publicPath === distPublicPath;
   
   const publicExists = fs.existsSync(publicPath);
   
   logger.info({ 
     publicPath, 
     publicExists,
-    __dirname,
+    cwd,
     isProduction,
     resolvedPath: path.resolve(publicPath)
   }, 'static_files_configuration');
