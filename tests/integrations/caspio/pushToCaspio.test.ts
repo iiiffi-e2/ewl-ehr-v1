@@ -97,10 +97,7 @@ describe('pushToCaspio new-table routing', () => {
 
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'CarePatientTable_API',
-      [
-        { field: 'PatientNumber', value: '12345' },
-        { field: 'CUID', value: '259' },
-      ],
+      [{ field: 'PatientNumber', value: '12345' }],
       expect.objectContaining({
         PatientNumber: '12345',
         CUID: '259',
@@ -131,10 +128,7 @@ describe('pushToCaspio new-table routing', () => {
 
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'CarePatientTable_API',
-      [
-        { field: 'PatientNumber', value: '12345' },
-        { field: 'CUID', value: '259' },
-      ],
+      [{ field: 'PatientNumber', value: '12345' }],
       expect.objectContaining({
         PatientNumber: '12345',
         CUID: '259',

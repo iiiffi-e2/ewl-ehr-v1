@@ -115,6 +115,24 @@ describe('caspioMapper new table mappings', () => {
     expect(record.Diagnosis2).toBe('Diabetes');
   });
 
+  it('sanitizes diagnosis fields to a safe compact value', () => {
+    const payload = buildPayload();
+    payload.data.diagnosesAndAllergiesFull = {
+      primaryDiagnoses: 'F01 Vascular dementia' + '\u0007' + '   with extra spacing',
+      secondaryDiagnoses:
+        'E78.5 Hyperlipidemia, unspecified, I10 Essential (primary) hypertension, F33 Major depressive disorder, recurrent',
+    } as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '259',
+      CommunityName: 'Sunset Manor',
+    });
+
+    expect(record.Diagnosis1).toBe('F01 Vascular dementia with extra spacing');
+    expect(record.Diagnosis2).toBe('E78.5 Hyperlipidemia');
+    expect((record.Diagnosis2 ?? '').length).toBeLessThanOrEqual(120);
+  });
+
   it('prefers resident/basic address fields over community location', () => {
     const payload = buildPayload();
     (payload.data.resident as Record<string, unknown>).Address = '200 Resident Way';

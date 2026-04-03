@@ -112,12 +112,7 @@ export async function pushToCaspio(
     const result = await caspioRequestWithRetry(() =>
       upsertByFields(
         env.CASPIO_TABLE_NAME,
-        patientRecord.CUID
-          ? [
-              { field: 'PatientNumber', value: patientRecord.PatientNumber! },
-              { field: 'CUID', value: patientRecord.CUID },
-            ]
-          : [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
+        [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
         patientRecord as Record<string, unknown>,
       ),
     );
