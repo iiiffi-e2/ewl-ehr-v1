@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import {
@@ -17,6 +19,19 @@ import type { AlisPayload } from '../alis/types.js';
 type PushToCaspioOptions = {
   skipServiceUpsert?: boolean;
 };
+
+function isCommunityCuidConflict(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+    return false;
+  }
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const code = typeof data?.Code === 'string' ? data.Code : '';
+  const message = typeof data?.Message === 'string' ? data.Message : '';
+  return (
+    code === 'SqlServerError' &&
+    message.includes("duplicate or blank values are not allowed in field 'CUID'")
+  );
+}
 
 /**
  * Push ALIS payload to Caspio table
@@ -62,13 +77,28 @@ export async function pushToCaspio(
     };
 
     if (communityRecord.CommunityID) {
-      await caspioRequestWithRetry(() =>
-        upsertByFields(
-          env.CASPIO_COMMUNITY_TABLE_NAME,
-          [{ field: 'CommunityID', value: String(communityRecord.CommunityID) }],
-          communityRecord,
-        ),
-      );
+      try {
+        await caspioRequestWithRetry(() =>
+          upsertByFields(
+            env.CASPIO_COMMUNITY_TABLE_NAME,
+            [{ field: 'CommunityID', value: String(communityRecord.CommunityID) }],
+            communityRecord,
+          ),
+        );
+      } catch (error) {
+        if (!isCommunityCuidConflict(error)) {
+          throw error;
+        }
+        logger.warn(
+          {
+            residentId,
+            communityId: communityRecord.CommunityID,
+            cuid: communityRecord.CUID,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          'caspio_community_upsert_skipped_cuid_conflict',
+        );
+      }
     }
 
     const patientRecord = mapPatientRecord(payload, {

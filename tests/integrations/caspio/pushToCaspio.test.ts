@@ -147,4 +147,41 @@ describe('pushToCaspio new-table routing', () => {
       expect.anything(),
     );
   });
+
+  it('continues with patient upsert when community upsert hits CUID uniqueness conflict', async () => {
+    upsertByFieldsMock.mockImplementation(
+      async (tableName: string) => {
+        if (tableName === 'CommunityTable_API') {
+          const error = new Error('Request failed with status code 400') as Error & {
+            isAxiosError?: boolean;
+            response?: {
+              status?: number;
+              data?: Record<string, unknown>;
+            };
+          };
+          error.isAxiosError = true;
+          error.response = {
+            status: 400,
+            data: {
+              Code: 'SqlServerError',
+              Message: "Cannot perform operation because duplicate or blank values are not allowed in field 'CUID'.",
+            },
+          };
+          throw error;
+        }
+        return { action: 'update', id: 'id-1' };
+      },
+    );
+
+    await expect(pushToCaspio(buildPayload(), { skipServiceUpsert: true }))
+      .resolves.toEqual({ action: 'update', id: 'id-1' });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '12345',
+      }),
+    );
+  });
 });
