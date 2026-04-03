@@ -14,12 +14,17 @@ import {
 
 import type { AlisPayload } from '../alis/types.js';
 
+type PushToCaspioOptions = {
+  skipServiceUpsert?: boolean;
+};
+
 /**
  * Push ALIS payload to Caspio table
  * Validates payload, maps to new Caspio API table shapes, and upserts by PatientNumber/CUID
  */
 export async function pushToCaspio(
   payload: AlisPayload,
+  options: PushToCaspioOptions = {},
 ): Promise<{ action: 'insert' | 'update'; id?: string }> {
   // Validate payload
   if (payload.success !== true) {
@@ -87,26 +92,28 @@ export async function pushToCaspio(
       ),
     );
 
-    const serviceType = payload.data.resident
-      ? ((payload.data.resident as Record<string, unknown>).Classification ??
-          (payload.data.resident as Record<string, unknown>).ProductType)
-      : undefined;
-    const serviceRecord = mapServiceRecord({
-      patientNumber: patientRecord.PatientNumber!,
-      cuid: patientRecord.CUID,
-      serviceType: typeof serviceType === 'string' ? serviceType : undefined,
-      startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
-      endDate: patientRecord.Service_End_Date,
-      communityName: patientRecord.CommunityName,
-    });
+    if (!options.skipServiceUpsert) {
+      const serviceType = payload.data.resident
+        ? ((payload.data.resident as Record<string, unknown>).Classification ??
+            (payload.data.resident as Record<string, unknown>).ProductType)
+        : undefined;
+      const serviceRecord = mapServiceRecord({
+        patientNumber: patientRecord.PatientNumber!,
+        cuid: patientRecord.CUID,
+        serviceType: typeof serviceType === 'string' ? serviceType : undefined,
+        startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
+        endDate: patientRecord.Service_End_Date,
+        communityName: patientRecord.CommunityName,
+      });
 
-    await caspioRequestWithRetry(() =>
-      upsertByFields(
-        env.CASPIO_SERVICE_TABLE_NAME,
-        [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
-        serviceRecord,
-      ),
-    );
+      await caspioRequestWithRetry(() =>
+        upsertByFields(
+          env.CASPIO_SERVICE_TABLE_NAME,
+          [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
+          serviceRecord,
+        ),
+      );
+    }
 
     logger.info(
       {

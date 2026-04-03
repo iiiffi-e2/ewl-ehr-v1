@@ -117,4 +117,34 @@ describe('pushToCaspio new-table routing', () => {
       }),
     );
   });
+
+  it('skips service upsert when requested while still writing community/patient', async () => {
+    await pushToCaspio(buildPayload(), { skipServiceUpsert: true });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CommunityTable_API',
+      [{ field: 'CommunityID', value: '113' }],
+      expect.objectContaining({
+        CommunityID: '113',
+      }),
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [
+        { field: 'PatientNumber', value: '12345' },
+        { field: 'CUID', value: '259' },
+      ],
+      expect.objectContaining({
+        PatientNumber: '12345',
+        CUID: '259',
+      }),
+    );
+
+    expect(upsertByFieldsMock).not.toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 });
