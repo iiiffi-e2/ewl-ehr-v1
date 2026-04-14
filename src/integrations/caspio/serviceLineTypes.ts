@@ -4,5 +4,11 @@
  */
 export const ROOM_VACANCY_SERVICE_TYPE = 'Vacant';
 
-/** Resident service line after permanent move-out from the community. */
-export const POST_MOVE_OUT_RESIDENT_SERVICE_TYPE = 'Vacay';
+/** Service line ServiceType when ALIS has no Classification (never use ALIS ServiceType / ProductType here). */
+export const SERVICE_LINE_DECLINED_CLASSIFICATION = 'Declined';
+
+/**
+ * Resident service line after permanent move-out from the community.
+ * Uses the same Caspio label as room vacancy (historically misspelled as "Vacay" in code).
+ */
+export const POST_MOVE_OUT_RESIDENT_SERVICE_TYPE = ROOM_VACANCY_SERVICE_TYPE;

@@ -13,12 +13,28 @@ import {
   mapServiceRecord,
   redactForLogs,
 } from './caspioMapper.js';
+import { SERVICE_LINE_DECLINED_CLASSIFICATION } from './serviceLineTypes.js';
 
 import type { AlisPayload } from '../alis/types.js';
 
 type PushToCaspioOptions = {
   skipServiceUpsert?: boolean;
 };
+
+function classificationForServiceLineFromPayload(payload: AlisPayload): string {
+  const resident = payload.data.resident as Record<string, unknown> | undefined;
+  const basicInfo = payload.data.basicInfo as Record<string, unknown> | undefined;
+  for (const record of [resident, basicInfo]) {
+    if (!record) continue;
+    for (const key of ['Classification', 'classification'] as const) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+  }
+  return SERVICE_LINE_DECLINED_CLASSIFICATION;
+}
 
 function isCommunityCuidConflict(error: unknown): boolean {
   if (!axios.isAxiosError(error) || error.response?.status !== 400) {
@@ -118,14 +134,11 @@ export async function pushToCaspio(
     );
 
     if (!options.skipServiceUpsert) {
-      const serviceType = payload.data.resident
-        ? ((payload.data.resident as Record<string, unknown>).Classification ??
-            (payload.data.resident as Record<string, unknown>).ProductType)
-        : undefined;
+      const serviceType = classificationForServiceLineFromPayload(payload);
       const serviceRecord = mapServiceRecord({
         patientNumber: patientRecord.PatientNumber!,
         cuid: patientRecord.CUID,
-        serviceType: typeof serviceType === 'string' ? serviceType : undefined,
+        serviceType,
         startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
         endDate: patientRecord.Service_End_Date,
         communityName: patientRecord.CommunityName,

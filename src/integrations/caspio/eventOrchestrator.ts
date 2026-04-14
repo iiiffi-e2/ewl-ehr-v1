@@ -30,6 +30,7 @@ import {
 import {
   POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
   ROOM_VACANCY_SERVICE_TYPE,
+  SERVICE_LINE_DECLINED_CLASSIFICATION,
 } from './serviceLineTypes.js';
 
 /** Prefer NotificationData room over stale API data for these event types. */
@@ -406,28 +407,19 @@ async function findExistingPatient(
   };
 }
 
+/** ALIS "ServiceType" (e.g. MC, AL) is a different concept from Caspio service-line classification — do not use it here. */
 function getClassification(
   event: AlisEvent,
   residentData?: Record<string, unknown>,
   basicInfoData?: Record<string, unknown>,
 ): string | undefined {
+  const classificationKeys = ['Classification', 'classification'];
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   return (
-    extractStringValue(notificationData, ['Classification', 'classification', 'ServiceType', 'serviceType']) ??
-    extractNestedStringValue(notificationData, [
-      'Classification',
-      'classification',
-      'ServiceType',
-      'serviceType',
-      'ProductType',
-      'productType',
-    ]) ??
-    (residentData
-      ? extractStringValue(residentData, ['Classification', 'classification', 'ProductType', 'productType'])
-      : undefined) ??
-    (basicInfoData
-      ? extractStringValue(basicInfoData, ['Classification', 'classification', 'ProductType', 'productType'])
-      : undefined)
+    extractStringValue(notificationData, classificationKeys) ??
+    extractNestedStringValue(notificationData, classificationKeys) ??
+    (residentData ? extractStringValue(residentData, classificationKeys) : undefined) ??
+    (basicInfoData ? extractStringValue(basicInfoData, classificationKeys) : undefined)
   );
 }
 
@@ -742,31 +734,8 @@ async function applyRoomTransferServiceTable(params: {
     incomingServiceType = getClassification(params.event, resident, basicInfo);
   }
 
-  const oldServiceRow = await findActiveOrLatestServiceRow({
-    patientNumber: params.patientNumber,
-    cuid: params.previousCuid,
-  });
-  const carriedServiceType =
-    oldServiceRow.found &&
-    oldServiceRow.record &&
-    typeof oldServiceRow.record.ServiceType === 'string'
-      ? oldServiceRow.record.ServiceType
-      : undefined;
-  const resolvedServiceType = incomingServiceType ?? carriedServiceType;
-  if (!resolvedServiceType) {
-    logger.warn(
-      {
-        eventMessageId: params.event.EventMessageId,
-        eventType: params.event.EventType,
-        residentId: params.residentId,
-        communityId: params.communityId,
-        previousCuid: params.previousCuid,
-        nextCuid: params.nextCuid,
-      },
-      'room_transfer_service_skipped_missing_service_type',
-    );
-    return;
-  }
+  const resolvedServiceType =
+    incomingServiceType ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
 
   const previousRoomTrimmed = trimNonEmpty(params.previousRoom);
   const oldRoomEnrichment = previousRoomTrimmed
@@ -918,7 +887,8 @@ async function handleMoveInEvent(
 
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
-  const serviceType = getClassification(event, resident, basicInfo);
+  const serviceType =
+    getClassification(event, resident, basicInfo) ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
@@ -1171,7 +1141,7 @@ async function handleUpdateEvent(
 
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
-  let incomingServiceType = getClassification(event, resident, basicInfo);
+  let classificationForService = getClassification(event, resident, basicInfo);
   const caspioRowLooksMovedOut = isPatientRecordMovedOut(existing.record);
   const roomEventAllowsServiceDespiteMoveOutFields =
     caspioRowLooksMovedOut && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType);
@@ -1210,7 +1180,7 @@ async function handleUpdateEvent(
       nextCuid: nextCuid,
       previousRoom,
       nextCommunityName: patientRecord.CommunityName ?? communityContext.CommunityName,
-      incomingServiceType,
+      incomingServiceType: classificationForService,
     });
   } else {
     const serviceRoomFallback =
@@ -1236,11 +1206,11 @@ async function handleUpdateEvent(
 
       let hasChanged =
         !currentServiceType ||
-        normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+        normalizeServiceType(currentServiceType) !== normalizeServiceType(classificationForService);
 
       if (
         event.EventType === 'residents.basic_info_updated' &&
-        (!incomingServiceType || !hasChanged)
+        (!classificationForService || !hasChanged)
       ) {
         const refreshedResidentData = await fetchFullResidentDataIfNeeded(
           companyId,
@@ -1252,24 +1222,17 @@ async function handleUpdateEvent(
         const refreshedBasicInfo = refreshedResidentData.basicInfo as Record<string, unknown>;
         const refreshedServiceType = getClassification(event, refreshedResident, refreshedBasicInfo);
         if (refreshedServiceType) {
-          incomingServiceType = refreshedServiceType;
+          classificationForService = refreshedServiceType;
           hasChanged =
             !currentServiceType ||
-            normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
+            normalizeServiceType(currentServiceType) !== normalizeServiceType(classificationForService);
         }
       }
 
-      if (!incomingServiceType) {
-        logger.info(
-          {
-            eventMessageId: event.EventMessageId,
-            eventType: event.EventType,
-            residentId,
-            communityId,
-          },
-          'service_write_skipped_missing_classification',
-        );
-      } else if (!existingService.found || !existingService.id || !existingService.record) {
+      const incomingServiceType =
+        classificationForService ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
+
+      if (!existingService.found || !existingService.id || !existingService.record) {
         logger.info(
           {
             eventMessageId: event.EventMessageId,

@@ -228,11 +228,11 @@ describe('eventOrchestrator service-table scenarios', () => {
           { field: 'CUID', value: '259' },
           { field: 'StartDate', value: '01/21/2026 14:00:00' },
           { field: 'PatientNumber', value: '70508' },
-          { field: 'ServiceType', value: 'Vacay' },
+          { field: 'ServiceType', value: 'Vacant' },
         ],
         expect.objectContaining({
           CUID: '259',
-          ServiceType: 'Vacay',
+          ServiceType: 'Vacant',
           StartDate: '01/21/2026 14:00:00',
           PatientNumber: '70508',
         }),
@@ -250,11 +250,13 @@ describe('eventOrchestrator service-table scenarios', () => {
           StartDate: '01/21/2026 14:00:00',
         }),
       );
-      const vacantPayload = upsertByFieldsMock.mock.calls.find(
-        (call) =>
-          call[0] === 'Service_Table_API' &&
-          (call[2] as Record<string, unknown>)?.ServiceType === 'Vacant',
-      )?.[2] as Record<string, unknown> | undefined;
+      const vacantPayload = upsertByFieldsMock.mock.calls.find((call) => {
+        if (call[0] !== 'Service_Table_API') return false;
+        const row = call[2] as Record<string, unknown>;
+        if (row?.ServiceType !== 'Vacant') return false;
+        const pn = row.PatientNumber;
+        return pn === undefined || pn === null || String(pn).trim() === '';
+      })?.[2] as Record<string, unknown> | undefined;
       expect(vacantPayload).toBeDefined();
       expect(vacantPayload).not.toHaveProperty('PatientNumber');
     } finally {
