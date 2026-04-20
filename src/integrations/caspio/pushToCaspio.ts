@@ -13,7 +13,7 @@ import {
   mapServiceRecord,
   redactForLogs,
 } from './caspioMapper.js';
-import { SERVICE_LINE_DECLINED_CLASSIFICATION } from './serviceLineTypes.js';
+import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from './serviceLineTypes.js';
 
 import type { AlisPayload } from '../alis/types.js';
 
@@ -33,7 +33,7 @@ function classificationForServiceLineFromPayload(payload: AlisPayload): string {
       }
     }
   }
-  return SERVICE_LINE_DECLINED_CLASSIFICATION;
+  return SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
 }
 
 function isCommunityCuidConflict(error: unknown): boolean {

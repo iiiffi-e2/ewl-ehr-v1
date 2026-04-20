@@ -30,7 +30,7 @@ import {
 import {
   POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
   ROOM_VACANCY_SERVICE_TYPE,
-  SERVICE_LINE_DECLINED_CLASSIFICATION,
+  SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
 } from './serviceLineTypes.js';
 
 /** Prefer NotificationData room over stale API data for these event types. */
@@ -735,7 +735,7 @@ async function applyRoomTransferServiceTable(params: {
   }
 
   const resolvedServiceType =
-    incomingServiceType ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
+    incomingServiceType ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
 
   const previousRoomTrimmed = trimNonEmpty(params.previousRoom);
   const oldRoomEnrichment = previousRoomTrimmed
@@ -888,7 +888,7 @@ async function handleMoveInEvent(
   const resident = fullResidentData.resident as Record<string, unknown>;
   const basicInfo = fullResidentData.basicInfo as Record<string, unknown>;
   const serviceType =
-    getClassification(event, resident, basicInfo) ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
+    getClassification(event, resident, basicInfo) ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
     residentId,
@@ -1230,7 +1230,7 @@ async function handleUpdateEvent(
       }
 
       const incomingServiceType =
-        classificationForService ?? SERVICE_LINE_DECLINED_CLASSIFICATION;
+        classificationForService ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
 
       if (!existingService.found || !existingService.id || !existingService.record) {
         logger.info(

@@ -30,7 +30,7 @@ jest.mock('../../../src/config/logger.js', () => ({
 }));
 
 import { pushToCaspio } from '../../../src/integrations/caspio/pushToCaspio.js';
-import { SERVICE_LINE_DECLINED_CLASSIFICATION } from '../../../src/integrations/caspio/serviceLineTypes.js';
+import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../../../src/integrations/caspio/serviceLineTypes.js';
 import type { AlisPayload } from '../../../src/integrations/alis/types.js';
 
 function buildPayload(): AlisPayload {
@@ -117,7 +117,7 @@ describe('pushToCaspio new-table routing', () => {
     );
   });
 
-  it('writes Declined to service table when Classification is missing (does not use ProductType)', async () => {
+  it('writes Unassigned to service table when Classification is missing (does not use ProductType)', async () => {
     const payload = buildPayload();
     (payload.data.resident as Record<string, unknown>).Classification = undefined;
     (payload.data.resident as Record<string, unknown>).classification = undefined;
@@ -127,7 +127,7 @@ describe('pushToCaspio new-table routing', () => {
       'Service_Table_API',
       [{ field: 'Service_ID', value: expect.any(String) }],
       expect.objectContaining({
-        ServiceType: SERVICE_LINE_DECLINED_CLASSIFICATION,
+        ServiceType: SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
       }),
     );
   });

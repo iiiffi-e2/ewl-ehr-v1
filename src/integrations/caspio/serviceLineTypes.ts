@@ -5,7 +5,7 @@
 export const ROOM_VACANCY_SERVICE_TYPE = 'Vacant';
 
 /** Service line ServiceType when ALIS has no Classification (never use ALIS ServiceType / ProductType here). */
-export const SERVICE_LINE_DECLINED_CLASSIFICATION = 'Declined';
+export const SERVICE_LINE_UNASSIGNED_CLASSIFICATION = 'Unassigned';
 
 /**
  * Resident service line after permanent move-out from the community.
