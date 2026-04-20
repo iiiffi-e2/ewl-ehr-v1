@@ -1204,13 +1204,15 @@ async function handleUpdateEvent(
           ? existingService.record.ServiceType
           : undefined;
 
-      let hasChanged =
+      const preliminaryIncoming =
+        classificationForService ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
+      const preliminaryHasChanged =
         !currentServiceType ||
-        normalizeServiceType(currentServiceType) !== normalizeServiceType(classificationForService);
+        normalizeServiceType(currentServiceType) !== normalizeServiceType(preliminaryIncoming);
 
       if (
         event.EventType === 'residents.basic_info_updated' &&
-        (!classificationForService || !hasChanged)
+        (!classificationForService || !preliminaryHasChanged)
       ) {
         const refreshedResidentData = await fetchFullResidentDataIfNeeded(
           companyId,
@@ -1223,14 +1225,15 @@ async function handleUpdateEvent(
         const refreshedServiceType = getClassification(event, refreshedResident, refreshedBasicInfo);
         if (refreshedServiceType) {
           classificationForService = refreshedServiceType;
-          hasChanged =
-            !currentServiceType ||
-            normalizeServiceType(currentServiceType) !== normalizeServiceType(classificationForService);
         }
       }
 
       const incomingServiceType =
         classificationForService ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
+
+      const hasChanged =
+        !currentServiceType ||
+        normalizeServiceType(currentServiceType) !== normalizeServiceType(incomingServiceType);
 
       if (!existingService.found || !existingService.id || !existingService.record) {
         logger.info(
@@ -1314,7 +1317,7 @@ async function handleUpdateEvent(
             communityId,
             source: 'update_event_classification_change',
           });
-        } else if (!active) {
+        } else if (!active && hasChanged) {
           await createServiceRow({
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
@@ -1327,6 +1330,21 @@ async function handleUpdateEvent(
             communityId,
             source: 'update_event_existing_closed_row',
           });
+        } else if (!hasChanged) {
+          logger.info(
+            {
+              eventMessageId: event.EventMessageId,
+              eventType: event.EventType,
+              residentId,
+              communityId,
+              patientNumber: String(residentId),
+              cuid: serviceCommunity.cuid,
+              currentServiceType: currentServiceType ?? null,
+              incomingServiceType,
+              active,
+            },
+            'service_row_unchanged_no_write',
+          );
         }
       }
     }

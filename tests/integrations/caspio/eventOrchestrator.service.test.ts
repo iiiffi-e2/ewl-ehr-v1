@@ -315,6 +315,89 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('basic_info_updated skips service table when classification matches active row', async () => {
+    const residentPayload = {
+      resident: { Classification: 'Assisted Living', ProductType: 'Assisted Living' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    };
+    fetchAllResidentDataMock
+      .mockResolvedValueOnce({ ...residentPayload })
+      .mockResolvedValueOnce({ ...residentPayload });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-same',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-no-svc-change-active',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
+    expect(serviceWrites).toHaveLength(0);
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.any(Object),
+    );
+  });
+
+  it('basic_info_updated skips service table when latest row is closed and classification unchanged', async () => {
+    const residentPayload = {
+      resident: { Classification: 'Assisted Living', ProductType: 'Assisted Living' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    };
+    fetchAllResidentDataMock
+      .mockResolvedValueOnce({ ...residentPayload })
+      .mockResolvedValueOnce({ ...residentPayload });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-closed',
+      record: {
+        ServiceType: 'Assisted Living',
+        StartDate: '2026-01-01',
+        EndDate: '01/15/2026 12:00:00',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-no-svc-change-closed',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
+    expect(serviceWrites).toHaveLength(0);
+  });
+
   it('basic_info_updated re-fetches classification when first read is unchanged', async () => {
     fetchAllResidentDataMock
       // initial fetch in handleUpdateEvent returns stale/old classification
