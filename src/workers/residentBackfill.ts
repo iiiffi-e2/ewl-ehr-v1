@@ -150,7 +150,7 @@ async function processJob(job: Job<ResidentBackfillJobData>): Promise<BackfillSu
           },
         };
 
-        await pushToCaspio(alisPayload);
+        await pushToCaspio(alisPayload, { skipServiceUpsert: true });
         summary.succeeded += 1;
       } catch (error) {
         summary.failed += 1;

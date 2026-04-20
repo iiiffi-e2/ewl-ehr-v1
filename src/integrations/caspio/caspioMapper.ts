@@ -366,6 +366,23 @@ function getPatientAddressField(
   );
 }
 
+function sanitizeDiagnosisValue(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const firstDiagnosis = value.split(',')[0] ?? value;
+  const withoutControlChars = firstDiagnosis.replace(/[\u0000-\u001f\u007f]/g, ' ');
+  const collapsed = withoutControlChars.replace(/\s+/g, ' ').trim();
+  if (!collapsed) {
+    return undefined;
+  }
+
+  // Keep values compact and safe for strict Caspio text columns.
+  const MAX_DIAGNOSIS_LENGTH = 120;
+  return collapsed.slice(0, MAX_DIAGNOSIS_LENGTH);
+}
+
 export function mapCommunityRecord(payload: AlisPayload): CommunityTableApiRecord {
   const resident = getResidentRecord(payload);
   const basicInfo = getBasicInfoRecord(payload);
@@ -462,22 +479,24 @@ export function mapPatientRecord(
   ]);
 
   const diagnosesFull = payload.data.diagnosesAndAllergiesFull as Record<string, unknown> | undefined | null;
-  const diagnosis1 =
+  const diagnosis1 = sanitizeDiagnosisValue(
     getStringValue(diagnosesFull ?? undefined, ['primaryDiagnoses', 'PrimaryDiagnoses']) ??
-    getStringValue((payload.data.diagnosesAndAllergies?.[0] as Record<string, unknown>) ?? undefined, [
-      'Description',
-      'description',
-      'Code',
-      'code',
-    ]);
-  const diagnosis2 =
+      getStringValue((payload.data.diagnosesAndAllergies?.[0] as Record<string, unknown>) ?? undefined, [
+        'Description',
+        'description',
+        'Code',
+        'code',
+      ]),
+  );
+  const diagnosis2 = sanitizeDiagnosisValue(
     getStringValue(diagnosesFull ?? undefined, ['secondaryDiagnoses', 'SecondaryDiagnoses']) ??
-    getStringValue((payload.data.diagnosesAndAllergies?.[1] as Record<string, unknown>) ?? undefined, [
-      'Description',
-      'description',
-      'Code',
-      'code',
-    ]);
+      getStringValue((payload.data.diagnosesAndAllergies?.[1] as Record<string, unknown>) ?? undefined, [
+        'Description',
+        'description',
+        'Code',
+        'code',
+      ]),
+  );
 
   const { slot1, slot2 } = normalizeMedicalInsurances(payload.data.insurance ?? []);
 

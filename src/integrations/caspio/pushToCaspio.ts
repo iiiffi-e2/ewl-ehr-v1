@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import {
@@ -11,8 +13,41 @@ import {
   mapServiceRecord,
   redactForLogs,
 } from './caspioMapper.js';
+import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from './serviceLineTypes.js';
 
 import type { AlisPayload } from '../alis/types.js';
+
+type PushToCaspioOptions = {
+  skipServiceUpsert?: boolean;
+};
+
+function classificationForServiceLineFromPayload(payload: AlisPayload): string {
+  const resident = payload.data.resident as Record<string, unknown> | undefined;
+  const basicInfo = payload.data.basicInfo as Record<string, unknown> | undefined;
+  for (const record of [resident, basicInfo]) {
+    if (!record) continue;
+    for (const key of ['Classification', 'classification'] as const) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+  }
+  return SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
+}
+
+function isCommunityCuidConflict(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+    return false;
+  }
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const code = typeof data?.Code === 'string' ? data.Code : '';
+  const message = typeof data?.Message === 'string' ? data.Message : '';
+  return (
+    code === 'SqlServerError' &&
+    message.includes("duplicate or blank values are not allowed in field 'CUID'")
+  );
+}
 
 /**
  * Push ALIS payload to Caspio table
@@ -20,6 +55,7 @@ import type { AlisPayload } from '../alis/types.js';
  */
 export async function pushToCaspio(
   payload: AlisPayload,
+  options: PushToCaspioOptions = {},
 ): Promise<{ action: 'insert' | 'update'; id?: string }> {
   // Validate payload
   if (payload.success !== true) {
@@ -57,13 +93,28 @@ export async function pushToCaspio(
     };
 
     if (communityRecord.CommunityID) {
-      await caspioRequestWithRetry(() =>
-        upsertByFields(
-          env.CASPIO_COMMUNITY_TABLE_NAME,
-          [{ field: 'CommunityID', value: String(communityRecord.CommunityID) }],
-          communityRecord,
-        ),
-      );
+      try {
+        await caspioRequestWithRetry(() =>
+          upsertByFields(
+            env.CASPIO_COMMUNITY_TABLE_NAME,
+            [{ field: 'CommunityID', value: String(communityRecord.CommunityID) }],
+            communityRecord,
+          ),
+        );
+      } catch (error) {
+        if (!isCommunityCuidConflict(error)) {
+          throw error;
+        }
+        logger.warn(
+          {
+            residentId,
+            communityId: communityRecord.CommunityID,
+            cuid: communityRecord.CUID,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          'caspio_community_upsert_skipped_cuid_conflict',
+        );
+      }
     }
 
     const patientRecord = mapPatientRecord(payload, {
@@ -77,36 +128,30 @@ export async function pushToCaspio(
     const result = await caspioRequestWithRetry(() =>
       upsertByFields(
         env.CASPIO_TABLE_NAME,
-        patientRecord.CUID
-          ? [
-              { field: 'PatientNumber', value: patientRecord.PatientNumber! },
-              { field: 'CUID', value: patientRecord.CUID },
-            ]
-          : [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
+        [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
         patientRecord as Record<string, unknown>,
       ),
     );
 
-    const serviceType = payload.data.resident
-      ? ((payload.data.resident as Record<string, unknown>).Classification ??
-          (payload.data.resident as Record<string, unknown>).ProductType)
-      : undefined;
-    const serviceRecord = mapServiceRecord({
-      patientNumber: patientRecord.PatientNumber!,
-      cuid: patientRecord.CUID,
-      serviceType: typeof serviceType === 'string' ? serviceType : undefined,
-      startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
-      endDate: patientRecord.Service_End_Date,
-      communityName: patientRecord.CommunityName,
-    });
+    if (!options.skipServiceUpsert) {
+      const serviceType = classificationForServiceLineFromPayload(payload);
+      const serviceRecord = mapServiceRecord({
+        patientNumber: patientRecord.PatientNumber!,
+        cuid: patientRecord.CUID,
+        serviceType,
+        startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
+        endDate: patientRecord.Service_End_Date,
+        communityName: patientRecord.CommunityName,
+      });
 
-    await caspioRequestWithRetry(() =>
-      upsertByFields(
-        env.CASPIO_SERVICE_TABLE_NAME,
-        [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
-        serviceRecord,
-      ),
-    );
+      await caspioRequestWithRetry(() =>
+        upsertByFields(
+          env.CASPIO_SERVICE_TABLE_NAME,
+          [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
+          serviceRecord,
+        ),
+      );
+    }
 
     logger.info(
       {

@@ -30,6 +30,7 @@ jest.mock('../../../src/config/logger.js', () => ({
 }));
 
 import { pushToCaspio } from '../../../src/integrations/caspio/pushToCaspio.js';
+import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../../../src/integrations/caspio/serviceLineTypes.js';
 import type { AlisPayload } from '../../../src/integrations/alis/types.js';
 
 function buildPayload(): AlisPayload {
@@ -97,10 +98,7 @@ describe('pushToCaspio new-table routing', () => {
 
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'CarePatientTable_API',
-      [
-        { field: 'PatientNumber', value: '12345' },
-        { field: 'CUID', value: '259' },
-      ],
+      [{ field: 'PatientNumber', value: '12345' }],
       expect.objectContaining({
         PatientNumber: '12345',
         CUID: '259',
@@ -114,6 +112,86 @@ describe('pushToCaspio new-table routing', () => {
         PatientNumber: '12345',
         CUID: '259',
         CommunityName: 'Sunset Manor',
+        ServiceType: 'Assisted Living',
+      }),
+    );
+  });
+
+  it('writes Unassigned to service table when Classification is missing (does not use ProductType)', async () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).Classification = undefined;
+    (payload.data.resident as Record<string, unknown>).classification = undefined;
+    await pushToCaspio(payload);
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      [{ field: 'Service_ID', value: expect.any(String) }],
+      expect.objectContaining({
+        ServiceType: SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
+      }),
+    );
+  });
+
+  it('skips service upsert when requested while still writing community/patient', async () => {
+    await pushToCaspio(buildPayload(), { skipServiceUpsert: true });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CommunityTable_API',
+      [{ field: 'CommunityID', value: '113' }],
+      expect.objectContaining({
+        CommunityID: '113',
+      }),
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [{ field: 'PatientNumber', value: '12345' }],
+      expect.objectContaining({
+        PatientNumber: '12345',
+        CUID: '259',
+      }),
+    );
+
+    expect(upsertByFieldsMock).not.toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('continues with patient upsert when community upsert hits CUID uniqueness conflict', async () => {
+    upsertByFieldsMock.mockImplementation(
+      async (tableName: string) => {
+        if (tableName === 'CommunityTable_API') {
+          const error = new Error('Request failed with status code 400') as Error & {
+            isAxiosError?: boolean;
+            response?: {
+              status?: number;
+              data?: Record<string, unknown>;
+            };
+          };
+          error.isAxiosError = true;
+          error.response = {
+            status: 400,
+            data: {
+              Code: 'SqlServerError',
+              Message: "Cannot perform operation because duplicate or blank values are not allowed in field 'CUID'.",
+            },
+          };
+          throw error;
+        }
+        return { action: 'update', id: 'id-1' };
+      },
+    );
+
+    await expect(pushToCaspio(buildPayload(), { skipServiceUpsert: true }))
+      .resolves.toEqual({ action: 'update', id: 'id-1' });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientNumber: '12345',
       }),
     );
   });
