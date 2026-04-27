@@ -1159,18 +1159,6 @@ async function handleMoveOutEvent(
       communityId,
       source: 'move_out_resident_post_exit',
     });
-    await createServiceRow({
-      cuid: serviceCommunity.cuid,
-      communityName: serviceCommunity.communityName,
-      roomNumber: serviceCommunity.roomNumber,
-      serviceType: ROOM_VACANCY_SERVICE_TYPE,
-      startDate: serviceBoundaryDate,
-      eventMessageId: event.EventMessageId,
-      eventType: event.EventType,
-      residentId,
-      communityId,
-      source: 'move_out_room_vacancy',
-    });
   }
 
   await closeOpenOffPremEpisode({

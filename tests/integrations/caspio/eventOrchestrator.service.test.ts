@@ -239,19 +239,6 @@ describe('eventOrchestrator service-table scenarios', () => {
           PatientNumber: '70508',
         }),
       );
-      expect(upsertByFieldsMock).toHaveBeenCalledWith(
-        'Service_Table_API',
-        [
-          { field: 'CUID', value: '259' },
-          { field: 'StartDate', value: '01/21/2026 14:00:00' },
-          { field: 'ServiceType', value: 'Vacant' },
-        ],
-        expect.objectContaining({
-          CUID: '259',
-          ServiceType: 'Vacant',
-          StartDate: '01/21/2026 14:00:00',
-        }),
-      );
       const vacantPayload = upsertByFieldsMock.mock.calls.find((call) => {
         if (call[0] !== 'Service_Table_API') return false;
         const row = call[2] as Record<string, unknown>;
@@ -259,8 +246,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         const pn = row.PatientNumber;
         return pn === undefined || pn === null || String(pn).trim() === '';
       })?.[2] as Record<string, unknown> | undefined;
-      expect(vacantPayload).toBeDefined();
-      expect(vacantPayload).not.toHaveProperty('PatientNumber');
+      expect(vacantPayload).toBeUndefined();
     } finally {
       jest.useRealTimers();
     }
