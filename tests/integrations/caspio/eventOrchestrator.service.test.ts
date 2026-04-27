@@ -53,6 +53,7 @@ describe('eventOrchestrator service-table scenarios', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resolveAlisCredentialsMock.mockResolvedValue({ username: 'u', password: 'p' });
+    fetchAllResidentDataMock.mockReset();
     fetchAllResidentDataMock.mockResolvedValue({
       resident: {
         Classification: 'Assisted Living',
@@ -1161,6 +1162,129 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(findActiveOrLatestServiceRowMock).not.toHaveBeenCalled();
+    const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'Service_Table_API',
+    );
+    expect(serviceUpserts).toHaveLength(0);
+  });
+
+  it('move_in_out_info_updated does not transition service rows after move-out without room movement data', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '392350',
+        CUID: '965',
+        CommunityName: 'YourLife Pensacola',
+        ApartmentNumber: '218',
+        Move_Out_Date: '04/22/2026',
+        Service_End_Date: '04/22/2026',
+      },
+    });
+    fetchAllResidentDataMock.mockReset();
+    fetchAllResidentDataMock.mockResolvedValue({
+      resident: {
+        ProductType: '',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-vacant',
+      record: {
+        PatientNumber: '392350',
+        CUID: '965',
+        ServiceType: 'Vacant',
+        StartDate: '04/24/2026 19:35:23',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.move_in_out_info_updated',
+      EventMessageId: 'evt-delayed-move-in-out-info',
+      EventMessageDate: '2026-04-24T19:35:17.6921976Z',
+      NotificationData: {
+        ResidentId: 392350,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findActiveOrLatestServiceRowMock).not.toHaveBeenCalled();
+    expect(updateRecordByIdMock).not.toHaveBeenCalledWith('Service_Table_API', expect.any(String), expect.any(Object));
+    const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'Service_Table_API',
+    );
+    expect(serviceUpserts).toHaveLength(0);
+  });
+
+  it('skips stale fallback Unassigned transition when active row is later Vacant', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '392350',
+        CUID: '965',
+        CommunityName: 'YourLife Pensacola',
+        ApartmentNumber: '218',
+      },
+    });
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '965',
+      CommunityName: 'YourLife Pensacola',
+    });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: { CUID: '965', CommunityName: 'YourLife Pensacola', RoomNumber: '218' },
+    });
+    fetchAllResidentDataMock.mockReset();
+    fetchAllResidentDataMock.mockResolvedValue({
+      resident: {
+        ProductType: '',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-vacant',
+      record: {
+        PatientNumber: '392350',
+        CUID: '965',
+        ServiceType: 'Vacant',
+        StartDate: '04/24/2026 19:35:23',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-stale-unassigned-after-vacant',
+      EventMessageDate: '2026-04-24T19:35:17.6921976Z',
+      NotificationData: {
+        ResidentId: 392350,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findActiveOrLatestServiceRowMock).toHaveBeenCalledWith({
+      patientNumber: '392350',
+      cuid: '965',
+    });
+    expect(updateRecordByIdMock).not.toHaveBeenCalledWith('Service_Table_API', 'svc-vacant', expect.any(Object));
     const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
       (call) => call[0] === 'Service_Table_API',
     );

@@ -66,6 +66,33 @@ function isPatientRecordMovedOut(record?: CarePatientTableApiRecord): boolean {
   );
 }
 
+function parseServiceDate(value: unknown): number {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const trimmed = value.trim();
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) {
+    return parsed;
+  }
+  const mdYDateTimeMatch = trimmed.match(
+    /^(\d{1,2})[/:](\d{1,2})[/:](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
+  );
+  if (!mdYDateTimeMatch) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const [, month, day, year, hour, minute, second] = mdYDateTimeMatch;
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    0,
+  );
+}
+
 function stripPremFieldsFromPatch(patch: Partial<CarePatientTableApiRecord>): void {
   delete patch.On_Prem;
   delete patch.Off_Prem;
@@ -252,6 +279,42 @@ function extractRoomNumber(event: AlisEvent): string | undefined {
   }
 
   return undefined;
+}
+
+function hasRoomMovementData(event: AlisEvent): boolean {
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  if (!notificationData) return false;
+  if (extractAssignedRoom(event) || extractUnassignedRoom(event)) {
+    return true;
+  }
+  if (event.EventType === 'resident.room_assigned' || event.EventType === 'resident.room_changed') {
+    return Boolean(
+      extractStringValue(notificationData, [
+        'RoomNumber',
+        'roomNumber',
+        'Room',
+        'room',
+        'ApartmentNumber',
+        'apartmentNumber',
+      ]),
+    );
+  }
+  for (const key of ['RoomsAssigned', 'roomsAssigned', 'RoomsUnassigned', 'roomsUnassigned']) {
+    const value = notificationData[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return true;
+    }
+    if (Array.isArray(value)) {
+      const hasRoom = value.some((item) => {
+        if (!item || typeof item !== 'object') return false;
+        return Boolean(extractStringValue(item as Record<string, unknown>, ['RoomNumber', 'Room', 'roomNumber', 'room']));
+      });
+      if (hasRoom) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function selectValidDateString(params: {
@@ -1218,9 +1281,10 @@ async function handleUpdateEvent(
   let classificationForService = getClassification(event, resident, basicInfo);
   const caspioRowLooksMovedOut = isPatientRecordMovedOut(existing.record);
   const roomEventAllowsServiceDespiteMoveOutFields =
-    caspioRowLooksMovedOut && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType);
-  const skipServiceTransitions =
-    caspioRowLooksMovedOut && !ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType);
+    caspioRowLooksMovedOut &&
+    ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType) &&
+    hasRoomMovementData(event);
+  const skipServiceTransitions = caspioRowLooksMovedOut && !roomEventAllowsServiceDespiteMoveOutFields;
   if (roomEventAllowsServiceDespiteMoveOutFields) {
     logger.info(
       {
@@ -1307,6 +1371,7 @@ async function handleUpdateEvent(
 
       const incomingServiceType =
         classificationForService ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
+      const isFallbackUnassigned = classificationForService === undefined;
 
       const hasChanged =
         !currentServiceType ||
@@ -1364,6 +1429,40 @@ async function handleUpdateEvent(
           },
           'service_transition_evaluated',
         );
+
+        const currentStartDateMs = parseServiceDate(existingService.record.StartDate);
+        const boundaryDateMs = parseServiceDate(boundaryDate);
+        const staleFallbackUnassignedAfterVacant =
+          active &&
+          hasChanged &&
+          isFallbackUnassigned &&
+          normalizeServiceType(currentServiceType) === normalizeServiceType(ROOM_VACANCY_SERVICE_TYPE) &&
+          normalizeServiceType(incomingServiceType) ===
+            normalizeServiceType(SERVICE_LINE_UNASSIGNED_CLASSIFICATION) &&
+          currentStartDateMs !== Number.NEGATIVE_INFINITY &&
+          boundaryDateMs !== Number.NEGATIVE_INFINITY &&
+          boundaryDateMs <= currentStartDateMs;
+
+        if (staleFallbackUnassignedAfterVacant) {
+          logger.info(
+            {
+              eventMessageId: event.EventMessageId,
+              eventType: event.EventType,
+              residentId,
+              communityId,
+              source: 'update_event_stale_unassigned_after_vacant',
+              serviceRowId: existingService.id,
+              patientNumber: String(residentId),
+              cuid: serviceCommunity.cuid,
+              currentServiceType: currentServiceType ?? null,
+              incomingServiceType,
+              currentStartDate: existingService.record.StartDate ?? null,
+              boundaryDate,
+            },
+            'service_transition_skipped_stale_unassigned_after_vacant',
+          );
+          return;
+        }
 
         if (active && hasChanged) {
           await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, existingService.id, {
