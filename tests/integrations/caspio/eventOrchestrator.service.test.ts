@@ -357,7 +357,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('basic_info_updated skips service table when latest row is closed and classification unchanged', async () => {
+  it('basic_info_updated creates service row when latest matching CUID row is closed', async () => {
     const residentPayload = {
       resident: { Classification: 'Assisted Living', ProductType: 'Assisted Living' },
       basicInfo: {},
@@ -395,7 +395,21 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
-    expect(serviceWrites).toHaveLength(0);
+    expect(serviceWrites).toHaveLength(1);
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '259' },
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'ServiceType', value: 'Assisted Living' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '259',
+        ServiceType: 'Assisted Living',
+        StartDate: '01/22/2026 12:00:00',
+      }),
+    );
   });
 
   it('basic_info_updated re-fetches classification when first read is unchanged', async () => {
@@ -609,6 +623,65 @@ describe('eventOrchestrator service-table scenarios', () => {
     expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
   });
 
+  it('basic_info_updated uses matching patient CUID when room lookup is missing', async () => {
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '111', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '70508',
+        CUID: '259',
+        CommunityName: 'Test Community',
+        ApartmentNumber: '111',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({ found: false });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-unassigned',
+      record: { ServiceType: 'Unassigned', StartDate: '2026-01-10' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-service-change-room-missing',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-unassigned', {
+      EndDate: '01/22/2026 12:00:00',
+    });
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '259' },
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'ServiceType', value: 'Memory Care' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '259',
+        ServiceType: 'Memory Care',
+        StartDate: '01/22/2026 12:00:00',
+      }),
+    );
+  });
+
   it('does not create patient/service rows for residents.created when patient does not exist', async () => {
     findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
     findByPatientNumberMock.mockResolvedValueOnce({ found: false });
@@ -665,7 +738,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     expect(serviceUpserts).toHaveLength(0);
   });
 
-  it('resident.room_assigned prefers notification room over stale API assignment', async () => {
+  it('resident.room_assigned prefers and normalizes notification room over stale API assignment', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: {
         Classification: 'Assisted Living',
@@ -688,7 +761,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       EventMessageDate: '2026-01-22T12:00:00Z',
       NotificationData: {
         ResidentId: 70508,
-        RoomNumber: '2',
+        RoomNumber: '2 A',
       },
     };
 
@@ -698,9 +771,10 @@ describe('eventOrchestrator service-table scenarios', () => {
       'CarePatientTable_API',
       'patient-1',
       expect.objectContaining({
-        ApartmentNumber: '2',
+        ApartmentNumber: '2A',
       }),
     );
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '2A');
   });
 
   it('room change when CUID changes closes old service, vacant old room, opens line on new CUID', async () => {

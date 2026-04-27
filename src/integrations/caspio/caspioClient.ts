@@ -327,6 +327,15 @@ function normalizeComparable(value: unknown): string | undefined {
   return undefined;
 }
 
+function normalizeRoomNumberForMatch(value: unknown): string | undefined {
+  const normalized = normalizeComparable(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const compact = normalized.replace(/\s+/g, '');
+  return compact.length > 0 ? compact : undefined;
+}
+
 function normalizeFieldKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -837,10 +846,14 @@ export async function findCommunityByIdAndRoomNumber(
 
     try {
       const normalizedRoom = roomNumber.trim();
-      const roomAsNumber = Number(normalizedRoom);
-      const roomFilterValues: Array<string | number> = Number.isFinite(roomAsNumber)
-        ? [normalizedRoom, roomAsNumber]
-        : [normalizedRoom];
+      const normalizedRoomForMatch = normalizeRoomNumberForMatch(normalizedRoom) ?? normalizedRoom;
+      const roomAsNumber = Number(normalizedRoomForMatch);
+      const roomFilterValues: Array<string | number> = Array.from(
+        new Set([normalizedRoom, normalizedRoomForMatch]),
+      );
+      if (Number.isFinite(roomAsNumber)) {
+        roomFilterValues.push(roomAsNumber);
+      }
 
       const communityFilterValues: Array<string | number> = [communityId, String(communityId)];
 
@@ -926,7 +939,7 @@ export async function findCommunityByIdAndRoomNumber(
           ]);
           return (
             recordCommunityId === String(communityId) &&
-            recordRoomNumber === normalizedRoom
+            normalizeRoomNumberForMatch(recordRoomNumber) === normalizedRoomForMatch
           );
         }) as CommunityTableRecord[];
 

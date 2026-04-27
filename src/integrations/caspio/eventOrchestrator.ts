@@ -46,6 +46,13 @@ function trimNonEmpty(value: string | undefined): string | undefined {
   return t.length > 0 ? t : undefined;
 }
 
+function normalizeRoomIdentifier(value: string | undefined): string | undefined {
+  const trimmed = trimNonEmpty(value);
+  if (!trimmed) return undefined;
+  const compact = trimmed.replace(/\s+/g, '');
+  return compact.length > 0 ? compact : undefined;
+}
+
 function hasMeaningfulCaspioDate(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === 'string' && value.trim().length === 0) return false;
@@ -71,12 +78,13 @@ function applyPreferredApartmentFromEvent(
   patientRecord: CarePatientTableApiRecord,
   roomNumber: string | undefined,
 ): void {
-  if (roomNumber && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
-    patientRecord.ApartmentNumber = roomNumber;
+  const normalizedRoom = normalizeRoomIdentifier(roomNumber);
+  if (normalizedRoom && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
+    patientRecord.ApartmentNumber = normalizedRoom;
     return;
   }
-  if (!patientRecord.ApartmentNumber && roomNumber) {
-    patientRecord.ApartmentNumber = roomNumber;
+  if (!patientRecord.ApartmentNumber && normalizedRoom) {
+    patientRecord.ApartmentNumber = normalizedRoom;
   }
 }
 
@@ -100,7 +108,10 @@ async function resolveCuidForCommunityRoom(
 ): Promise<string | undefined> {
   const normalized = trimNonEmpty(room);
   if (!normalized) return undefined;
-  const match = await findCommunityByIdAndRoomNumber(communityId, normalized);
+  const match = await findCommunityByIdAndRoomNumber(
+    communityId,
+    normalizeRoomIdentifier(normalized) ?? normalized,
+  );
   if (!match.found || !match.record) return undefined;
   const raw = match.record.CUID;
   if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim();
@@ -488,9 +499,34 @@ async function resolveServiceCommunityContext(params: {
   residentId: number;
   communityId: number;
   fallbackRoomNumber?: string;
+  fallbackCuid?: string;
+  fallbackCommunityName?: string;
 }): Promise<{ matched: boolean; cuid?: string; communityName?: string }> {
-  const roomNumber = extractRoomNumber(params.event) ?? params.fallbackRoomNumber;
+  const fallbackCuid = trimNonEmpty(params.fallbackCuid);
+  const fallbackCommunityName = trimNonEmpty(params.fallbackCommunityName);
+  const resolveFromFallbackCuid = (reason: string) => {
+    if (!fallbackCuid) {
+      return undefined;
+    }
+    logger.info(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        fallbackCuid,
+        fallbackCommunityName: fallbackCommunityName ?? null,
+        reason,
+      },
+      'service_community_context_resolved_from_fallback_cuid',
+    );
+    return { matched: true, cuid: fallbackCuid, communityName: fallbackCommunityName };
+  };
+
+  const roomNumber = normalizeRoomIdentifier(extractRoomNumber(params.event) ?? params.fallbackRoomNumber);
   if (!roomNumber) {
+    const fallback = resolveFromFallbackCuid('missing_room_number');
+    if (fallback) return fallback;
     logger.warn(
       {
         eventMessageId: params.event.EventMessageId,
@@ -505,6 +541,8 @@ async function resolveServiceCommunityContext(params: {
 
   const communityMatch = await findCommunityByIdAndRoomNumber(params.communityId, roomNumber);
   if (!communityMatch.found || !communityMatch.record) {
+    const fallback = resolveFromFallbackCuid('community_room_not_found');
+    if (fallback) return fallback;
     logger.warn(
       {
         eventMessageId: params.event.EventMessageId,
@@ -737,7 +775,7 @@ async function applyRoomTransferServiceTable(params: {
   const resolvedServiceType =
     incomingServiceType ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
 
-  const previousRoomTrimmed = trimNonEmpty(params.previousRoom);
+  const previousRoomTrimmed = normalizeRoomIdentifier(params.previousRoom);
   const oldRoomEnrichment = previousRoomTrimmed
     ? await getCommunityEnrichment(params.communityId, previousRoomTrimmed)
     : undefined;
@@ -863,7 +901,7 @@ async function handleMoveInEvent(
   );
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
-  const roomNumber = extractRoomNumber(event);
+  const roomNumber = normalizeRoomIdentifier(extractRoomNumber(event));
   const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const patientRecord = mapPatientRecord(payload, communityContext);
   patientRecord.PatientNumber = String(residentId);
@@ -893,7 +931,7 @@ async function handleMoveInEvent(
     event,
     residentId,
     communityId,
-    fallbackRoomNumber: trimNonEmpty(patientRecord.ApartmentNumber),
+    fallbackRoomNumber: normalizeRoomIdentifier(patientRecord.ApartmentNumber),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await createServiceRow({
@@ -937,7 +975,7 @@ async function handleMoveOutEvent(
     'handling_move_out_event',
   );
 
-  const roomNumber = extractRoomNumber(event);
+  const roomNumber = normalizeRoomIdentifier(extractRoomNumber(event));
   const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
@@ -999,10 +1037,7 @@ async function handleMoveOutEvent(
     event,
     residentId,
     communityId,
-    fallbackRoomNumber:
-      typeof existing.record?.ApartmentNumber === 'string'
-        ? existing.record.ApartmentNumber
-        : undefined,
+    fallbackRoomNumber: normalizeRoomIdentifier(existing.record?.ApartmentNumber),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await closeLatestServiceRow({
@@ -1063,7 +1098,7 @@ async function handleUpdateEvent(
     'handling_update_event',
   );
 
-  const roomNumber = extractRoomNumber(event);
+  const roomNumber = normalizeRoomIdentifier(extractRoomNumber(event));
   let communityContext = await applyCommunityEnrichment(communityId, roomNumber);
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
@@ -1090,7 +1125,11 @@ async function handleUpdateEvent(
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const patientRecord = mapPatientRecord(payload, communityContext);
   applyPreferredApartmentFromEvent(event, patientRecord, roomNumber);
-  const effectiveRoom = trimNonEmpty(patientRecord.ApartmentNumber) ?? roomNumber;
+  const normalizedApartmentNumber = normalizeRoomIdentifier(patientRecord.ApartmentNumber);
+  if (normalizedApartmentNumber) {
+    patientRecord.ApartmentNumber = normalizedApartmentNumber;
+  }
+  const effectiveRoom = normalizedApartmentNumber ?? roomNumber;
   communityContext = await applyCommunityEnrichment(communityId, effectiveRoom);
   patientRecord.CUID = communityContext.CUID ?? patientRecord.CUID;
   patientRecord.CommunityName = communityContext.CommunityName ?? patientRecord.CommunityName;
@@ -1131,7 +1170,7 @@ async function handleUpdateEvent(
   const previousCuid =
     previousCuidFromUnassignedRoom ?? trimNonEmpty(existing.record?.CUID);
   const previousRoom =
-    trimNonEmpty(unassignedRoomStr) ?? trimNonEmpty(existing.record?.ApartmentNumber);
+    normalizeRoomIdentifier(unassignedRoomStr) ?? normalizeRoomIdentifier(existing.record?.ApartmentNumber);
   const nextCuid = trimNonEmpty(patientRecord.CUID);
   const isCuidRoomTransfer = Boolean(
     previousCuid && nextCuid && previousCuid !== nextCuid,
@@ -1184,13 +1223,16 @@ async function handleUpdateEvent(
     });
   } else {
     const serviceRoomFallback =
-      trimNonEmpty(patientRecord.ApartmentNumber) ??
-      trimNonEmpty(existing.record?.ApartmentNumber);
+      normalizeRoomIdentifier(patientRecord.ApartmentNumber) ??
+      normalizeRoomIdentifier(existing.record?.ApartmentNumber);
     const serviceCommunity = await resolveServiceCommunityContext({
       event,
       residentId,
       communityId,
       fallbackRoomNumber: serviceRoomFallback,
+      fallbackCuid: trimNonEmpty(patientRecord.CUID) ?? trimNonEmpty(existing.record?.CUID),
+      fallbackCommunityName:
+        trimNonEmpty(patientRecord.CommunityName) ?? trimNonEmpty(existing.record?.CommunityName),
     });
     if (serviceCommunity.matched && serviceCommunity.cuid) {
       const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
@@ -1317,7 +1359,7 @@ async function handleUpdateEvent(
             communityId,
             source: 'update_event_classification_change',
           });
-        } else if (!active && hasChanged) {
+        } else if (!active) {
           await createServiceRow({
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,

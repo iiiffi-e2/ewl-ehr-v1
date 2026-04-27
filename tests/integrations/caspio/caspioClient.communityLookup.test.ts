@@ -28,6 +28,7 @@ jest.mock('../../../src/config/logger.js', () => ({
 describe('caspioClient community lookup exact matching', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.resetModules();
   });
 
   it('selects exact CommunityID + RoomNumber match from noisy results', async () => {
@@ -219,6 +220,43 @@ describe('caspioClient community lookup exact matching', () => {
     );
   });
 
+  it('matches room numbers regardless of embedded spaces', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest
+      .fn()
+      // filtered attempts miss because Caspio stores this room with a space
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [] })
+      // fallback full scan includes the same room formatted differently
+      .mockResolvedValueOnce({
+        data: [{ CommunityID: 113, RoomNumber: '112 A', CUID: '259', CommunityName: 'EyeWatch LIVE' }],
+      });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(113, '112A');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        RoomNumber: '112 A',
+        CUID: '259',
+      }),
+    );
+  });
+
   it('continues lookup when one filter variant gets SQL conversion 400', async () => {
     const axios = require('axios');
     (axios.isAxiosError as jest.Mock).mockImplementation((err: unknown) => {
@@ -249,6 +287,7 @@ describe('caspioClient community lookup exact matching', () => {
       // CommunityID number + RoomNumber string
       .mockResolvedValueOnce({ data: [] })
       // CommunityID number + RoomNumber number (fails on mixed-type room column)
+      .mockRejectedValueOnce(conversionError)
       .mockRejectedValueOnce(conversionError)
       // CommunityID string + RoomNumber string
       .mockResolvedValueOnce({
