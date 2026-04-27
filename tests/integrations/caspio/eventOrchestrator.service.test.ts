@@ -72,7 +72,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValue({
       found: true,
-      record: { CUID: '259', CommunityName: 'Test Community' },
+      record: { CUID: '259', CommunityName: 'Test Community', RoomNumber: '101' },
     });
     findActiveOrLatestServiceRowMock.mockResolvedValue({
       found: true,
@@ -115,6 +115,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
+        Room: '101',
         CommunityName: 'Test Community',
         ServiceType: 'Assisted Living',
         StartDate: '01/10/2026 00:00:00',
@@ -309,6 +310,8 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
+        Room: '101',
+        CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
       }),
@@ -472,6 +475,8 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
+        Room: '53',
+        CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
       }),
@@ -676,6 +681,8 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
+        Room: '111',
+        CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
       }),

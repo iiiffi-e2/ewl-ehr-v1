@@ -118,6 +118,13 @@ async function resolveCuidForCommunityRoom(
   return undefined;
 }
 
+type ServiceCommunityContext = {
+  matched: boolean;
+  cuid?: string;
+  communityName?: string;
+  roomNumber?: string;
+};
+
 /**
  * Extract numeric value from object with fallback keys
  */
@@ -501,9 +508,12 @@ async function resolveServiceCommunityContext(params: {
   fallbackRoomNumber?: string;
   fallbackCuid?: string;
   fallbackCommunityName?: string;
-}): Promise<{ matched: boolean; cuid?: string; communityName?: string }> {
+}): Promise<ServiceCommunityContext> {
   const fallbackCuid = trimNonEmpty(params.fallbackCuid);
   const fallbackCommunityName = trimNonEmpty(params.fallbackCommunityName);
+  const requestedRoomNumber = normalizeRoomIdentifier(
+    extractRoomNumber(params.event) ?? params.fallbackRoomNumber,
+  );
   const resolveFromFallbackCuid = (reason: string) => {
     if (!fallbackCuid) {
       return undefined;
@@ -516,14 +526,20 @@ async function resolveServiceCommunityContext(params: {
         communityId: params.communityId,
         fallbackCuid,
         fallbackCommunityName: fallbackCommunityName ?? null,
+        roomNumber: requestedRoomNumber ?? null,
         reason,
       },
       'service_community_context_resolved_from_fallback_cuid',
     );
-    return { matched: true, cuid: fallbackCuid, communityName: fallbackCommunityName };
+    return {
+      matched: true,
+      cuid: fallbackCuid,
+      communityName: fallbackCommunityName,
+      roomNumber: requestedRoomNumber,
+    };
   };
 
-  const roomNumber = normalizeRoomIdentifier(extractRoomNumber(params.event) ?? params.fallbackRoomNumber);
+  const roomNumber = requestedRoomNumber;
   if (!roomNumber) {
     const fallback = resolveFromFallbackCuid('missing_room_number');
     if (fallback) return fallback;
@@ -564,6 +580,17 @@ async function resolveServiceCommunityContext(params: {
     typeof communityMatch.record.CommunityName === 'string' && communityMatch.record.CommunityName.trim().length > 0
       ? communityMatch.record.CommunityName.trim()
       : undefined;
+  const matchedRoomNumber =
+    normalizeRoomIdentifier(
+      extractStringValue(communityMatch.record as Record<string, unknown>, [
+        'RoomNumber',
+        'roomNumber',
+        'Room',
+        'room',
+        'ApartmentNumber',
+        'Apartment',
+      ]),
+    ) ?? roomNumber;
 
   if (!cuid) {
     logger.warn(
@@ -585,20 +612,21 @@ async function resolveServiceCommunityContext(params: {
       eventType: params.event.EventType,
       residentId: params.residentId,
       communityId: params.communityId,
-      roomNumber,
+      roomNumber: matchedRoomNumber,
       resolvedCuid: cuid,
       resolvedCommunityName: communityName ?? null,
     },
     'service_community_context_resolved',
   );
 
-  return { matched: true, cuid, communityName };
+  return { matched: true, cuid, communityName, roomNumber: matchedRoomNumber };
 }
 
 async function createServiceRow(params: {
   patientNumber?: string;
   cuid: string;
   communityName?: string;
+  roomNumber?: string;
   serviceType?: string;
   startDate: string;
   endDate?: string;
@@ -612,6 +640,7 @@ async function createServiceRow(params: {
     patientNumber: params.patientNumber,
     cuid: params.cuid,
     communityName: params.communityName,
+    roomNumber: params.roomNumber,
     serviceType: params.serviceType,
     startDate: params.startDate,
     endDate: params.endDate,
@@ -642,6 +671,7 @@ async function createServiceRow(params: {
       source: params.source,
       patientNumber: params.patientNumber ?? null,
       cuid: params.cuid,
+      roomNumber: params.roomNumber ?? null,
       serviceType: params.serviceType ?? null,
       startDate: params.startDate,
       endDate: params.endDate ?? null,
@@ -795,6 +825,7 @@ async function applyRoomTransferServiceTable(params: {
     await createServiceRow({
       cuid: params.previousCuid,
       communityName: oldRoomEnrichment?.CommunityName ?? undefined,
+      roomNumber: previousRoomTrimmed,
       serviceType: ROOM_VACANCY_SERVICE_TYPE,
       startDate: boundaryDate,
       eventMessageId: params.event.EventMessageId,
@@ -820,6 +851,7 @@ async function applyRoomTransferServiceTable(params: {
     patientNumber: params.patientNumber,
     cuid: params.nextCuid,
     communityName: params.nextCommunityName,
+    roomNumber: normalizeRoomIdentifier(extractAssignedRoom(params.event) ?? extractRoomNumber(params.event)),
     serviceType: resolvedServiceType,
     startDate: boundaryDate,
     eventMessageId: params.event.EventMessageId,
@@ -938,6 +970,7 @@ async function handleMoveInEvent(
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
+      roomNumber: serviceCommunity.roomNumber,
       serviceType,
       startDate: normalizeScenarioDateTime(patientRecord.Move_in_Date, event.EventMessageDate),
       eventMessageId: event.EventMessageId,
@@ -1054,6 +1087,7 @@ async function handleMoveOutEvent(
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
+      roomNumber: serviceCommunity.roomNumber,
       serviceType: POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
       startDate: serviceBoundaryDate,
       eventMessageId: event.EventMessageId,
@@ -1065,6 +1099,7 @@ async function handleMoveOutEvent(
     await createServiceRow({
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
+      roomNumber: serviceCommunity.roomNumber,
       serviceType: ROOM_VACANCY_SERVICE_TYPE,
       startDate: serviceBoundaryDate,
       eventMessageId: event.EventMessageId,
@@ -1298,6 +1333,7 @@ async function handleUpdateEvent(
           patientNumber: String(residentId),
           cuid: serviceCommunity.cuid,
           communityName: serviceCommunity.communityName,
+          roomNumber: serviceCommunity.roomNumber,
           serviceType: incomingServiceType,
           startDate: boundaryDate,
           eventMessageId: event.EventMessageId,
@@ -1351,6 +1387,7 @@ async function handleUpdateEvent(
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
             communityName: serviceCommunity.communityName,
+            roomNumber: serviceCommunity.roomNumber,
             serviceType: incomingServiceType,
             startDate: boundaryDate,
             eventMessageId: event.EventMessageId,
@@ -1364,6 +1401,7 @@ async function handleUpdateEvent(
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
             communityName: serviceCommunity.communityName,
+            roomNumber: serviceCommunity.roomNumber,
             serviceType: incomingServiceType,
             startDate: boundaryDate,
             eventMessageId: event.EventMessageId,

@@ -122,6 +122,7 @@ export type ServiceTableApiRecord = {
   Service_ID: string;
   PatientNumber?: string;
   CUID?: string;
+  Room?: string;
   ServiceType?: string;
   StartDate?: string;
   EndDate?: string;
@@ -588,6 +589,7 @@ export function mapPatientRecord(
 export function mapServiceRecord(params: {
   patientNumber?: string | number;
   cuid?: string;
+  roomNumber?: string;
   serviceType?: string;
   startDate?: string;
   endDate?: string;
@@ -606,6 +608,7 @@ export function mapServiceRecord(params: {
     Service_ID: params.serviceId ?? deterministicServiceId,
     PatientNumber: patientNumber,
     CUID: params.cuid,
+    Room: params.roomNumber,
     ServiceType: params.serviceType,
     StartDate: params.startDate,
     EndDate: params.endDate,

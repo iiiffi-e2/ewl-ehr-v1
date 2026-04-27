@@ -29,6 +29,7 @@ export type ServiceTableRecord = {
   Service_ID?: string;
   PatientNumber?: string;
   CUID?: string;
+  Room?: string;
   ServiceType?: string;
   StartDate?: string;
   EndDate?: string;
