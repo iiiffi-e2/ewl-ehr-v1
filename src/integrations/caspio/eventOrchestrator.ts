@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { errorToIssueDetails, recordEventIssue } from '../../domains/eventIssues.js';
 import {
   fetchAllResidentData,
   resolveAlisCredentials,
@@ -566,6 +567,7 @@ function isOpenServiceRow(endDate: unknown): boolean {
 
 async function resolveServiceCommunityContext(params: {
   event: AlisEvent;
+  companyId: number;
   residentId: number;
   communityId: number;
   fallbackRoomNumber?: string;
@@ -606,6 +608,18 @@ async function resolveServiceCommunityContext(params: {
   if (!roomNumber) {
     const fallback = resolveFromFallbackCuid('missing_room_number');
     if (fallback) return fallback;
+    await recordEventIssue({
+      companyId: params.companyId,
+      eventType: params.event.EventType,
+      eventMessageId: params.event.EventMessageId,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      stage: 'caspio_service_precheck',
+      severity: 'warning',
+      message: 'Service write skipped because room number could not be resolved',
+      details: { reason: 'missing_room_number' },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: params.event.EventMessageId,
@@ -622,6 +636,18 @@ async function resolveServiceCommunityContext(params: {
   if (!communityMatch.found || !communityMatch.record) {
     const fallback = resolveFromFallbackCuid('community_room_not_found');
     if (fallback) return fallback;
+    await recordEventIssue({
+      companyId: params.companyId,
+      eventType: params.event.EventType,
+      eventMessageId: params.event.EventMessageId,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      stage: 'caspio_community_lookup',
+      severity: 'warning',
+      message: 'Service write skipped because community room was not found in Caspio',
+      details: { roomNumber },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: params.event.EventMessageId,
@@ -656,6 +682,18 @@ async function resolveServiceCommunityContext(params: {
     ) ?? roomNumber;
 
   if (!cuid) {
+    await recordEventIssue({
+      companyId: params.companyId,
+      eventType: params.event.EventType,
+      eventMessageId: params.event.EventMessageId,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      stage: 'caspio_community_lookup',
+      severity: 'warning',
+      message: 'Service write skipped because matched community row has no CUID',
+      details: { roomNumber },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: params.event.EventMessageId,
@@ -746,6 +784,7 @@ async function createServiceRow(params: {
 }
 
 async function closeLatestServiceRow(params: {
+  companyId: number;
   patientNumber: string;
   cuid: string;
   endDate: string;
@@ -761,6 +800,22 @@ async function closeLatestServiceRow(params: {
   });
 
   if (!serviceRow.found || !serviceRow.id) {
+    await recordEventIssue({
+      companyId: params.companyId,
+      eventType: params.eventType ?? 'unknown',
+      eventMessageId: String(params.eventMessageId ?? ''),
+      residentId: params.residentId,
+      communityId: params.communityId,
+      stage: 'caspio_service_lookup',
+      severity: 'warning',
+      message: 'Service close skipped because no existing service row was found',
+      details: {
+        source: params.source ?? null,
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+      },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: params.eventMessageId,
@@ -874,6 +929,7 @@ async function applyRoomTransferServiceTable(params: {
     : undefined;
 
   await closeLatestServiceRow({
+    companyId: params.companyId,
     patientNumber: params.patientNumber,
     cuid: params.previousCuid,
     endDate: boundaryDate,
@@ -1024,6 +1080,7 @@ async function handleMoveInEvent(
     getClassification(event, resident, basicInfo) ?? SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
+    companyId,
     residentId,
     communityId,
     fallbackRoomNumber: normalizeRoomIdentifier(patientRecord.ApartmentNumber),
@@ -1076,6 +1133,21 @@ async function handleMoveOutEvent(
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
   if (!existing.found || !existing.id) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'caspio_patient_lookup',
+      severity: 'warning',
+      message: 'Move-out event skipped because resident was not found in Caspio',
+      details: {
+        requestedCuid: communityContext.CUID ?? null,
+        roomNumber: roomNumber ?? null,
+      },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: event.EventMessageId,
@@ -1131,12 +1203,14 @@ async function handleMoveOutEvent(
 
   const serviceCommunity = await resolveServiceCommunityContext({
     event,
+    companyId,
     residentId,
     communityId,
     fallbackRoomNumber: normalizeRoomIdentifier(existing.record?.ApartmentNumber),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await closeLatestServiceRow({
+      companyId,
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       endDate: serviceBoundaryDate,
@@ -1189,6 +1263,21 @@ async function handleUpdateEvent(
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
 
   if (!existing.found || !existing.id) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'caspio_patient_lookup',
+      severity: 'warning',
+      message: 'Update event skipped because resident was not found in Caspio',
+      details: {
+        requestedCuid: communityContext.CUID ?? null,
+        roomNumber: roomNumber ?? null,
+      },
+      retryable: false,
+    });
     logger.info(
       {
         eventMessageId: event.EventMessageId,
@@ -1314,6 +1403,7 @@ async function handleUpdateEvent(
       normalizeRoomIdentifier(existing.record?.ApartmentNumber);
     const serviceCommunity = await resolveServiceCommunityContext({
       event,
+      companyId,
       residentId,
       communityId,
       fallbackRoomNumber: serviceRoomFallback,
@@ -1534,6 +1624,7 @@ async function handleUpdateEvent(
  */
 async function handleLeaveStartEvent(
   event: AlisEvent,
+  companyId: number,
   communityId: number,
 ): Promise<void> {
   const notificationData = event.NotificationData || {};
@@ -1541,6 +1632,17 @@ async function handleLeaveStartEvent(
   const leaveId = extractNumericValue(notificationData, ['LeaveId', 'leaveId']);
 
   if (!residentId) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      communityId,
+      stage: 'webhook_payload',
+      severity: 'warning',
+      message: 'Leave start event skipped because ResidentId was missing',
+      details: { leaveId: leaveId ?? null },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: event.EventMessageId,
@@ -1571,6 +1673,21 @@ async function handleLeaveStartEvent(
   const communityContext = await applyCommunityEnrichment(communityId, undefined);
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
   if (!existing.found || !existing.id) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'caspio_patient_lookup',
+      severity: 'warning',
+      message: 'Leave start event skipped because resident was not found in Caspio',
+      details: {
+        leaveId: leaveId ?? null,
+        requestedCuid: communityContext.CUID ?? null,
+      },
+      retryable: false,
+    });
     logger.info(
       {
         eventMessageId: event.EventMessageId,
@@ -1620,6 +1737,7 @@ async function handleLeaveStartEvent(
  */
 async function handleLeaveEndEvent(
   event: AlisEvent,
+  companyId: number,
   communityId: number,
 ): Promise<void> {
   const notificationData = event.NotificationData || {};
@@ -1627,6 +1745,17 @@ async function handleLeaveEndEvent(
   const leaveId = extractNumericValue(notificationData, ['LeaveId', 'leaveId']);
 
   if (!residentId) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      communityId,
+      stage: 'webhook_payload',
+      severity: 'warning',
+      message: 'Leave end event skipped because ResidentId was missing',
+      details: { leaveId: leaveId ?? null },
+      retryable: false,
+    });
     logger.warn(
       {
         eventMessageId: event.EventMessageId,
@@ -1657,6 +1786,21 @@ async function handleLeaveEndEvent(
   const communityContext = await applyCommunityEnrichment(communityId, undefined);
   const existing = await findExistingPatient(String(residentId), communityContext.CUID);
   if (!existing.found || !existing.id) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'caspio_patient_lookup',
+      severity: 'warning',
+      message: 'Leave end event skipped because resident was not found in Caspio',
+      details: {
+        leaveId: leaveId ?? null,
+        requestedCuid: communityContext.CUID ?? null,
+      },
+      retryable: false,
+    });
     logger.info(
       {
         eventMessageId: event.EventMessageId,
@@ -1720,6 +1864,16 @@ export async function handleAlisEvent(
     const communityId = event.CommunityId;
 
     if (!communityId) {
+      await recordEventIssue({
+        companyId,
+        eventType,
+        eventMessageId,
+        stage: 'webhook_payload',
+        severity: 'warning',
+        message: 'Event skipped before Caspio processing because CommunityId was missing',
+        details: { companyKey },
+        retryable: false,
+      });
       logger.warn(
         { eventMessageId, eventType },
         'event_missing_community_id_skipping',
@@ -1731,29 +1885,29 @@ export async function handleAlisEvent(
     switch (eventType) {
       case 'residents.move_in':
         {
-          const residentId = extractResidentId(event);
+          const residentId = await extractResidentIdOrRecordIssue(event, companyId, communityId);
           await handleMoveInEvent(event, companyId, companyKey, residentId, communityId);
         }
         break;
 
       case 'residents.leave_start':
-        await handleLeaveStartEvent(event, communityId);
+        await handleLeaveStartEvent(event, companyId, communityId);
         break;
 
       case 'residents.leave_end':
-        await handleLeaveEndEvent(event, communityId);
+        await handleLeaveEndEvent(event, companyId, communityId);
         break;
 
       case 'residents.move_out':
         {
-          const residentId = extractResidentId(event);
+          const residentId = await extractResidentIdOrRecordIssue(event, companyId, communityId);
           await handleMoveOutEvent(event, companyId, companyKey, residentId, communityId);
         }
         break;
 
       default:
         {
-          const residentId = extractResidentId(event);
+          const residentId = await extractResidentIdOrRecordIssue(event, companyId, communityId);
           // All other event types (basic_info_updated, created, contact.updated, etc.)
           await handleUpdateEvent(event, companyId, companyKey, residentId, communityId);
         }

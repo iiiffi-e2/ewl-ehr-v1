@@ -737,6 +737,115 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
 const DEFAULT_WEBHOOK_EVENTS_LIMIT = 50;
 const MAX_WEBHOOK_EVENTS_LIMIT = 500;
 
+router.get('/admin/event-issues', authAdmin, async (req, res) => {
+  try {
+    const requestedLimit = req.query.limit ? Number(req.query.limit) : DEFAULT_WEBHOOK_EVENTS_LIMIT;
+    const limit = Math.min(Math.max(1, Math.floor(requestedLimit)), MAX_WEBHOOK_EVENTS_LIMIT);
+    const severity = req.query.severity as string | undefined;
+    const stage = req.query.stage as string | undefined;
+    const eventType = req.query.eventType as string | undefined;
+    const eventMessageId = req.query.eventMessageId as string | undefined;
+    const residentId = req.query.residentId ? Number(req.query.residentId) : undefined;
+    const unresolvedOnly = req.query.unresolvedOnly === 'true';
+
+    logger.info(
+      { limit, severity, stage, eventType, eventMessageId, residentId, unresolvedOnly },
+      'admin_event_issues_called',
+    );
+
+    const where: {
+      severity?: string;
+      stage?: string;
+      eventType?: string;
+      eventMessageId?: string;
+      residentId?: number;
+      resolvedAt?: null;
+    } = {};
+    if (severity) {
+      where.severity = severity;
+    }
+    if (stage) {
+      where.stage = stage;
+    }
+    if (eventType) {
+      where.eventType = eventType;
+    }
+    if (eventMessageId) {
+      where.eventMessageId = eventMessageId;
+    }
+    if (residentId !== undefined && Number.isFinite(residentId)) {
+      where.residentId = residentId;
+    }
+    if (unresolvedOnly) {
+      where.resolvedAt = null;
+    }
+
+    const issues = await prisma.eventProcessingIssue.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        company: {
+          select: {
+            companyKey: true,
+          },
+        },
+        eventLog: {
+          select: {
+            status: true,
+            receivedAt: true,
+            processedAt: true,
+          },
+        },
+      },
+    });
+
+    const summary = await prisma.eventProcessingIssue.groupBy({
+      by: ['severity'],
+      _count: true,
+      where: unresolvedOnly ? { resolvedAt: null } : undefined,
+    });
+
+    return res.json({
+      success: true,
+      count: issues.length,
+      timestamp: new Date().toISOString(),
+      filters: { severity, stage, eventType, eventMessageId, residentId, unresolvedOnly, limit },
+      summary: summary.map((s) => ({
+        severity: s.severity,
+        count: s._count,
+      })),
+      issues: issues.map((issue) => ({
+        id: issue.id,
+        eventLogId: issue.eventLogId,
+        eventMessageId: issue.eventMessageId,
+        eventType: issue.eventType,
+        companyKey: issue.company.companyKey,
+        communityId: issue.communityId,
+        residentId: issue.residentId,
+        stage: issue.stage,
+        severity: issue.severity,
+        message: issue.message,
+        details: issue.details,
+        retryable: issue.retryable,
+        resolvedAt: issue.resolvedAt,
+        createdAt: issue.createdAt,
+        eventStatus: issue.eventLog?.status ?? null,
+        eventReceivedAt: issue.eventLog?.receivedAt ?? null,
+        eventProcessedAt: issue.eventLog?.processedAt ?? null,
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, 'event_issues_retrieval_failed');
+
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 router.get('/admin/webhook-events', authAdmin, async (req, res) => {
   try {
     const requestedLimit = req.query.limit ? Number(req.query.limit) : DEFAULT_WEBHOOK_EVENTS_LIMIT;
