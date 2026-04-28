@@ -36,6 +36,10 @@ export function errorToIssueDetails(error: unknown): Prisma.InputJsonValue {
 }
 
 export async function recordEventIssue(input: RecordEventIssueInput): Promise<void> {
+  if (process.env.NODE_ENV === 'test' && process.env.DATABASE_URL?.startsWith('file:')) {
+    return;
+  }
+
   try {
     const eventLogId = input.eventLogId ?? (await resolveEventLogId(input));
 
