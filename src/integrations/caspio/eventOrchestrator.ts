@@ -237,6 +237,34 @@ function extractResidentId(event: AlisEvent): number {
   throw new Error('ResidentId is required in NotificationData');
 }
 
+async function extractResidentIdOrRecordIssue(
+  event: AlisEvent,
+  companyId: number,
+  communityId: number,
+): Promise<number> {
+  const residentId = extractNumericValue(event.NotificationData, ['ResidentId', 'residentId']);
+
+  if (residentId !== undefined) {
+    return residentId;
+  }
+
+  await recordEventIssue({
+    companyId,
+    eventType: event.EventType,
+    eventMessageId: event.EventMessageId,
+    communityId,
+    stage: 'webhook_payload',
+    severity: 'error',
+    message: 'ResidentId is required in NotificationData',
+    details: {
+      notificationData: event.NotificationData ?? null,
+    },
+    retryable: false,
+  });
+
+  throw new Error('ResidentId is required in NotificationData');
+}
+
 function extractRoomNumber(event: AlisEvent): string | undefined {
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
   if (!notificationData) return undefined;

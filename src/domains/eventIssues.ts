@@ -98,7 +98,7 @@ function extractHttpErrorDetails(error: Error): Record<string, Prisma.InputJsonV
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
   if (value === undefined) {
-    return Prisma.JsonNull;
+    return null as unknown as Prisma.InputJsonValue;
   }
 
   try {
