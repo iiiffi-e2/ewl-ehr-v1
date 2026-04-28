@@ -45,11 +45,14 @@ export async function getCommunityEnrichment(
   roomNumber?: string | number | null,
 ): Promise<CommunityEnrichment> {
   const enrichment: CommunityEnrichment = {};
+  const normalizedRoom = normalizeRoomNumber(roomNumber);
 
   const communityLookup = await findCommunityById(communityId);
   if (communityLookup.found) {
     const record = communityLookup.record;
-    enrichment.CUID = getStringField(record, 'CUID');
+    if (!normalizedRoom) {
+      enrichment.CUID = getStringField(record, 'CUID');
+    }
     enrichment.CommunityID = getStringField(record, 'CommunityID');
     enrichment.CommunityGroup = getStringField(record, 'CommunityGroup');
     enrichment.CommunityName = getStringField(record, 'CommunityName');
@@ -60,7 +63,6 @@ export async function getCommunityEnrichment(
     enrichment.Sector = getStringField(record, 'Sector');
   }
 
-  const normalizedRoom = normalizeRoomNumber(roomNumber);
   if (normalizedRoom) {
     const roomLookup = await findCommunityByIdAndRoomNumber(communityId, normalizedRoom);
     if (roomLookup.found) {

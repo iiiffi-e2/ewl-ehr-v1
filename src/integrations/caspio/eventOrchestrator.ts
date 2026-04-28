@@ -599,43 +599,13 @@ async function resolveServiceCommunityContext(params: {
   residentId: number;
   communityId: number;
   fallbackRoomNumber?: string;
-  fallbackCuid?: string;
-  fallbackCommunityName?: string;
 }): Promise<ServiceCommunityContext> {
-  const fallbackCuid = trimNonEmpty(params.fallbackCuid);
-  const fallbackCommunityName = trimNonEmpty(params.fallbackCommunityName);
   const requestedRoomNumber = normalizeRoomIdentifier(
     extractRoomNumber(params.event) ?? params.fallbackRoomNumber,
   );
-  const resolveFromFallbackCuid = (reason: string) => {
-    if (!fallbackCuid) {
-      return undefined;
-    }
-    logger.info(
-      {
-        eventMessageId: params.event.EventMessageId,
-        eventType: params.event.EventType,
-        residentId: params.residentId,
-        communityId: params.communityId,
-        fallbackCuid,
-        fallbackCommunityName: fallbackCommunityName ?? null,
-        roomNumber: requestedRoomNumber ?? null,
-        reason,
-      },
-      'service_community_context_resolved_from_fallback_cuid',
-    );
-    return {
-      matched: true,
-      cuid: fallbackCuid,
-      communityName: fallbackCommunityName,
-      roomNumber: requestedRoomNumber,
-    };
-  };
 
   const roomNumber = requestedRoomNumber;
   if (!roomNumber) {
-    const fallback = resolveFromFallbackCuid('missing_room_number');
-    if (fallback) return fallback;
     await recordEventIssue({
       companyId: params.companyId,
       eventType: params.event.EventType,
@@ -662,8 +632,6 @@ async function resolveServiceCommunityContext(params: {
 
   const communityMatch = await findCommunityByIdAndRoomNumber(params.communityId, roomNumber);
   if (!communityMatch.found || !communityMatch.record) {
-    const fallback = resolveFromFallbackCuid('community_room_not_found');
-    if (fallback) return fallback;
     await recordEventIssue({
       companyId: params.companyId,
       eventType: params.event.EventType,
@@ -1435,9 +1403,6 @@ async function handleUpdateEvent(
       residentId,
       communityId,
       fallbackRoomNumber: serviceRoomFallback,
-      fallbackCuid: trimNonEmpty(patientRecord.CUID) ?? trimNonEmpty(existing.record?.CUID),
-      fallbackCommunityName:
-        trimNonEmpty(patientRecord.CommunityName) ?? trimNonEmpty(existing.record?.CommunityName),
     });
     if (serviceCommunity.matched && serviceCommunity.cuid) {
       const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);

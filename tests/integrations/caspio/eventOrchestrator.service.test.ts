@@ -9,6 +9,7 @@ const updateRecordByIdMock = jest.fn();
 const getCommunityEnrichmentMock = jest.fn();
 const fetchAllResidentDataMock = jest.fn();
 const resolveAlisCredentialsMock = jest.fn();
+const recordEventIssueMock = jest.fn();
 
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findRecordByFields: findRecordByFieldsMock,
@@ -45,6 +46,11 @@ jest.mock('../../../src/config/logger.js', () => ({
     warn: jest.fn(),
     error: jest.fn(),
   },
+}));
+
+jest.mock('../../../src/domains/eventIssues.js', () => ({
+  errorToIssueDetails: jest.fn((error: unknown) => error),
+  recordEventIssue: recordEventIssueMock,
 }));
 
 import { handleAlisEvent } from '../../../src/integrations/caspio/eventOrchestrator.js';
@@ -615,7 +621,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
   });
 
-  it('basic_info_updated uses matching patient CUID when room lookup is missing', async () => {
+  it('basic_info_updated skips service write and logs issue when room lookup is missing', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
       basicInfo: {},
@@ -655,23 +661,25 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-unassigned', {
-      EndDate: '01/22/2026 12:00:00',
-    });
-    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+    expect(updateRecordByIdMock).not.toHaveBeenCalledWith(
       'Service_Table_API',
-      expect.arrayContaining([
-        { field: 'CUID', value: '259' },
-        { field: 'PatientNumber', value: '70508' },
-        { field: 'ServiceType', value: 'Memory Care' },
-      ]),
+      expect.any(String),
+      expect.any(Object),
+    );
+    const serviceUpserts = upsertByFieldsMock.mock.calls.filter(
+      (call) => call[0] === 'Service_Table_API',
+    );
+    expect(serviceUpserts).toHaveLength(0);
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        PatientNumber: '70508',
-        CUID: '259',
-        Room: '111',
-        CommunityName: 'Test Community',
-        ServiceType: 'Memory Care',
-        StartDate: '01/22/2026 12:00:00',
+        companyId: 10,
+        eventType: 'residents.basic_info_updated',
+        eventMessageId: 'evt-service-change-room-missing',
+        residentId: 70508,
+        communityId: 113,
+        stage: 'caspio_community_lookup',
+        severity: 'warning',
+        details: { roomNumber: '111' },
       }),
     );
   });
