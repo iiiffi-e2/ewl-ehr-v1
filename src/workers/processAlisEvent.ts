@@ -14,6 +14,7 @@ import {
   findRecordByFields,
 } from '../integrations/caspio/caspioClient.js';
 import { getCommunityEnrichment } from '../integrations/caspio/caspioCommunityEnrichment.js';
+import { errorToIssueDetails, recordEventIssue } from '../domains/eventIssues.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
 import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js';
@@ -96,6 +97,17 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     const residentId = extractNumeric(notificationData, ['ResidentId', 'residentId']);
 
     if (!residentId) {
+      await recordEventIssue({
+        companyId,
+        eventType,
+        eventMessageId,
+        communityId,
+        stage: 'webhook_payload',
+        severity: 'error',
+        message: 'ResidentId missing from NotificationData',
+        details: { notificationData },
+        retryable: false,
+      });
       throw new Error('ResidentId missing from NotificationData');
     }
 
@@ -120,6 +132,20 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
         }
         if (!lookup.found) {
+          await recordEventIssue({
+            companyId,
+            eventType,
+            eventMessageId,
+            residentId,
+            communityId,
+            stage: 'caspio_patient_lookup',
+            severity: 'warning',
+            message: 'Contact event skipped because resident was not found in Caspio',
+            details: {
+              reason: 'contact_event_resident_not_found',
+            },
+            retryable: false,
+          });
           logger.info(
             { eventMessageId, residentId, communityId },
             'contact_event_resident_not_found_skipping_caspio',
@@ -127,6 +153,18 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           shouldProcessCaspio = false;
         }
       } catch (error) {
+        await recordEventIssue({
+          companyId,
+          eventType,
+          eventMessageId,
+          residentId,
+          communityId,
+          stage: 'caspio_patient_lookup',
+          severity: 'warning',
+          message: error instanceof Error ? error.message : String(error),
+          details: errorToIssueDetails(error),
+          retryable: true,
+        });
         logger.warn(
           {
             eventMessageId,
@@ -184,6 +222,18 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           'resident_data_fetched_for_caspio',
         );
       } catch (error) {
+        await recordEventIssue({
+          companyId,
+          eventType,
+          eventMessageId,
+          residentId,
+          communityId,
+          stage: 'alis_full_data_fetch',
+          severity: 'warning',
+          message: error instanceof Error ? error.message : String(error),
+          details: errorToIssueDetails(error),
+          retryable: true,
+        });
         logger.error(
           {
             eventMessageId,
@@ -216,6 +266,18 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       try {
         await handleAlisEvent(event, companyId, companyKey);
       } catch (caspioError) {
+        await recordEventIssue({
+          companyId,
+          eventType,
+          eventMessageId,
+          residentId,
+          communityId,
+          stage: 'caspio_processing',
+          severity: 'error',
+          message: caspioError instanceof Error ? caspioError.message : String(caspioError),
+          details: errorToIssueDetails(caspioError),
+          retryable: true,
+        });
         logger.error(
           {
             eventMessageId,
@@ -232,6 +294,17 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
 
     logger.info({ eventMessageId, eventType, companyKey }, 'event_processed_successfully');
   } catch (error) {
+    await recordEventIssue({
+      companyId,
+      eventType,
+      eventMessageId,
+      communityId,
+      stage: 'event_processing',
+      severity: 'error',
+      message: error instanceof Error ? error.message : String(error),
+      details: errorToIssueDetails(error),
+      retryable: true,
+    });
     logger.error(
       {
         eventMessageId,

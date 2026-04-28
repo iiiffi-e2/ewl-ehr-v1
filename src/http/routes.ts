@@ -42,6 +42,16 @@ router.get('/admin/backfill-residents', authAdmin, (_req, res) => {
   res.redirect('/public/resident-backfill.html');
 });
 
+// Admin page: Event issue troubleshooting
+router.get('/admin/event-issues-page', authAdmin, (_req, res) => {
+  res.redirect('/public/event-issues.html');
+});
+
+// Admin page: Event processing issues
+router.get('/admin/event-issues-dashboard', authAdmin, (_req, res) => {
+  res.redirect('/public/event-issues.html');
+});
+
 router.get('/health/deps', async (_req, res) => {
   const result = await healthCheck();
   const statusCode = result.status === 'ok' ? 200 : 503;
@@ -736,6 +746,187 @@ router.post('/admin/residents/:residentId/push-to-caspio', authAdmin, async (req
 // View all received webhook events (default: last 50, max 500)
 const DEFAULT_WEBHOOK_EVENTS_LIMIT = 50;
 const MAX_WEBHOOK_EVENTS_LIMIT = 500;
+
+function parseDateQuery(value: unknown): Date | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+router.get('/admin/event-issues', authAdmin, async (req, res) => {
+  try {
+    const requestedLimit = req.query.limit ? Number(req.query.limit) : DEFAULT_WEBHOOK_EVENTS_LIMIT;
+    const limit = Math.min(Math.max(1, Math.floor(requestedLimit)), MAX_WEBHOOK_EVENTS_LIMIT);
+    const severity = req.query.severity as string | undefined;
+    const stage = req.query.stage as string | undefined;
+    const eventType = req.query.eventType as string | undefined;
+    const eventMessageId = req.query.eventMessageId as string | undefined;
+    const residentId = req.query.residentId ? Number(req.query.residentId) : undefined;
+    const unresolvedOnly = req.query.unresolvedOnly === 'true';
+    const from = parseDateQuery(req.query.from);
+    const to = parseDateQuery(req.query.to);
+    const hours = req.query.hours ? Number(req.query.hours) : undefined;
+    const windowStart =
+      from ?? (hours && Number.isFinite(hours) && hours > 0 ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined);
+
+    logger.info(
+      {
+        limit,
+        severity,
+        stage,
+        eventType,
+        eventMessageId,
+        residentId,
+        unresolvedOnly,
+        from: windowStart?.toISOString(),
+        to: to?.toISOString(),
+      },
+      'admin_event_issues_called',
+    );
+
+    const where: {
+      severity?: string;
+      stage?: string;
+      eventType?: string;
+      eventMessageId?: string;
+      residentId?: number;
+      resolvedAt?: null;
+      createdAt?: {
+        gte?: Date;
+        lte?: Date;
+      };
+    } = {};
+    if (severity) {
+      where.severity = severity;
+    }
+    if (stage) {
+      where.stage = stage;
+    }
+    if (eventType) {
+      where.eventType = eventType;
+    }
+    if (eventMessageId) {
+      where.eventMessageId = eventMessageId;
+    }
+    if (residentId !== undefined && Number.isFinite(residentId)) {
+      where.residentId = residentId;
+    }
+    if (unresolvedOnly) {
+      where.resolvedAt = null;
+    }
+    if (windowStart || to) {
+      where.createdAt = {
+        ...(windowStart ? { gte: windowStart } : {}),
+        ...(to ? { lte: to } : {}),
+      };
+    }
+
+    const [issues, severitySummary, stageSummary, totalCount, unresolvedCount] = await Promise.all([
+      prisma.eventProcessingIssue.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: {
+          company: {
+            select: {
+              companyKey: true,
+            },
+          },
+          eventLog: {
+            select: {
+              status: true,
+              receivedAt: true,
+              processedAt: true,
+            },
+          },
+        },
+      }),
+      prisma.eventProcessingIssue.groupBy({
+        by: ['severity'],
+        _count: true,
+        where,
+      }),
+      prisma.eventProcessingIssue.groupBy({
+        by: ['stage'],
+        _count: true,
+        where,
+        orderBy: {
+          _count: {
+            stage: 'desc',
+          },
+        },
+        take: 10,
+      }),
+      prisma.eventProcessingIssue.count({ where }),
+      prisma.eventProcessingIssue.count({
+        where: {
+          ...where,
+          resolvedAt: null,
+        },
+      }),
+    ]);
+
+    return res.json({
+      success: true,
+      count: issues.length,
+      totalCount,
+      unresolvedCount,
+      timestamp: new Date().toISOString(),
+      filters: {
+        severity,
+        stage,
+        eventType,
+        eventMessageId,
+        residentId,
+        unresolvedOnly,
+        from: windowStart?.toISOString(),
+        to: to?.toISOString(),
+        hours,
+        limit,
+      },
+      summary: {
+        severity: severitySummary.map((s) => ({
+          severity: s.severity,
+          count: s._count,
+        })),
+        stage: stageSummary.map((s) => ({
+          stage: s.stage,
+          count: s._count,
+        })),
+      },
+      issues: issues.map((issue) => ({
+        id: issue.id,
+        eventLogId: issue.eventLogId,
+        eventMessageId: issue.eventMessageId,
+        eventType: issue.eventType,
+        companyKey: issue.company.companyKey,
+        communityId: issue.communityId,
+        residentId: issue.residentId,
+        stage: issue.stage,
+        severity: issue.severity,
+        message: issue.message,
+        details: issue.details,
+        retryable: issue.retryable,
+        resolvedAt: issue.resolvedAt,
+        createdAt: issue.createdAt,
+        eventStatus: issue.eventLog?.status ?? null,
+        eventReceivedAt: issue.eventLog?.receivedAt ?? null,
+        eventProcessedAt: issue.eventLog?.processedAt ?? null,
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, 'event_issues_retrieval_failed');
+
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
 
 router.get('/admin/webhook-events', authAdmin, async (req, res) => {
   try {
