@@ -353,7 +353,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('basic_info_updated skips service row when latest matching CUID row is closed with same service type', async () => {
+  it('basic_info_updated creates service row when latest matching CUID row is closed with same service type', async () => {
     const residentPayload = {
       resident: { Classification: 'Assisted Living', ProductType: 'Assisted Living' },
       basicInfo: {},
@@ -391,7 +391,21 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
-    expect(serviceWrites).toHaveLength(0);
+    expect(serviceWrites).toHaveLength(1);
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '259' },
+        { field: 'PatientNumber', value: '70508' },
+        { field: 'ServiceType', value: 'Assisted Living' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '70508',
+        CUID: '259',
+        ServiceType: 'Assisted Living',
+        StartDate: '01/22/2026 12:00:00',
+      }),
+    );
   });
 
   it('basic_info_updated creates service row when latest matching CUID row is closed with different service type', async () => {
