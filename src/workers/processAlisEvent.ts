@@ -122,12 +122,15 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         let lookup;
         if (communityId) {
           const enrichment = await getCommunityEnrichment(communityId);
-          lookup = enrichment.CUID
-            ? await findRecordByFields(env.CASPIO_TABLE_NAME, [
-                { field: 'PatientNumber', value: String(residentId) },
-                { field: 'CUID', value: enrichment.CUID },
-              ])
-            : await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+          if (enrichment.CUID) {
+            lookup = await findRecordByFields(env.CASPIO_TABLE_NAME, [
+              { field: 'PatientNumber', value: String(residentId) },
+              { field: 'CUID', value: enrichment.CUID },
+            ]);
+          }
+          if (!lookup?.found) {
+            lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+          }
         } else {
           lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
         }
