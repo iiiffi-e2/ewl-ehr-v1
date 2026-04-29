@@ -101,29 +101,33 @@ function stripPremFieldsFromPatch(patch: Partial<CarePatientTableApiRecord>): vo
   delete patch.Off_Prem_Date;
 }
 
-function applyPreferredApartmentFromEvent(
+function getPatientRoomNumber(record?: CarePatientTableApiRecord): string | undefined {
+  return record?.RoomNumber ?? record?.ApartmentNumber;
+}
+
+function applyPreferredRoomFromEvent(
   event: AlisEvent,
   patientRecord: CarePatientTableApiRecord,
   roomNumber: string | undefined,
 ): void {
   const normalizedRoom = normalizeRoomIdentifier(roomNumber);
   if (normalizedRoom && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
-    patientRecord.ApartmentNumber = normalizedRoom;
+    patientRecord.RoomNumber = normalizedRoom;
     return;
   }
-  if (!patientRecord.ApartmentNumber && normalizedRoom) {
-    patientRecord.ApartmentNumber = normalizedRoom;
+  if (!getPatientRoomNumber(patientRecord) && normalizedRoom) {
+    patientRecord.RoomNumber = normalizedRoom;
   }
 }
 
-function chooseApartmentNumberForUpdate(
+function chooseRoomNumberForUpdate(
   event: AlisEvent,
-  mappedApartmentNumber: string | undefined,
-  existingApartmentNumber: string | undefined,
+  mappedRoomNumber: string | undefined,
+  existingRoomNumber: string | undefined,
   roomNumber: string | undefined,
 ): string | undefined {
-  const normalizedMapped = normalizeRoomIdentifier(mappedApartmentNumber);
-  const normalizedExisting = normalizeRoomIdentifier(existingApartmentNumber);
+  const normalizedMapped = normalizeRoomIdentifier(mappedRoomNumber);
+  const normalizedExisting = normalizeRoomIdentifier(existingRoomNumber);
   const normalizedEventRoom = normalizeRoomIdentifier(roomNumber);
 
   if (normalizedEventRoom && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
@@ -1089,7 +1093,7 @@ async function handleMoveInEvent(
   const patientRecord = mapPatientRecord(payload, communityContext);
   patientRecord.PatientNumber = String(residentId);
   if (roomNumber) {
-    patientRecord.ApartmentNumber = roomNumber;
+    patientRecord.RoomNumber = roomNumber;
   }
   if (!patientRecord.Service_Start_Date) {
     patientRecord.Service_Start_Date = patientRecord.Move_in_Date ?? getTodayDateString();
@@ -1115,7 +1119,7 @@ async function handleMoveInEvent(
     companyId,
     residentId,
     communityId,
-    fallbackRoomNumber: normalizeRoomIdentifier(patientRecord.ApartmentNumber),
+    fallbackRoomNumber: normalizeRoomIdentifier(getPatientRoomNumber(patientRecord)),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await createServiceRow({
@@ -1238,7 +1242,7 @@ async function handleMoveOutEvent(
     companyId,
     residentId,
     communityId,
-    fallbackRoomNumber: normalizeRoomIdentifier(existing.record?.ApartmentNumber),
+    fallbackRoomNumber: normalizeRoomIdentifier(getPatientRoomNumber(existing.record)),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await closeLatestServiceRow({
@@ -1331,17 +1335,17 @@ async function handleUpdateEvent(
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const patientRecord = mapPatientRecord(payload, communityContext);
-  applyPreferredApartmentFromEvent(event, patientRecord, roomNumber);
-  const selectedApartmentNumber = chooseApartmentNumberForUpdate(
+  applyPreferredRoomFromEvent(event, patientRecord, roomNumber);
+  const selectedRoomNumber = chooseRoomNumberForUpdate(
     event,
-    patientRecord.ApartmentNumber,
-    existing.record?.ApartmentNumber,
+    getPatientRoomNumber(patientRecord),
+    getPatientRoomNumber(existing.record),
     roomNumber,
   );
-  if (selectedApartmentNumber) {
-    patientRecord.ApartmentNumber = selectedApartmentNumber;
+  if (selectedRoomNumber) {
+    patientRecord.RoomNumber = selectedRoomNumber;
   }
-  const effectiveRoom = selectedApartmentNumber ?? roomNumber;
+  const effectiveRoom = selectedRoomNumber ?? roomNumber;
   communityContext = await applyCommunityEnrichment(communityId, effectiveRoom);
   patientRecord.CUID = communityContext.CUID ?? patientRecord.CUID;
   patientRecord.CommunityName = communityContext.CommunityName ?? patientRecord.CommunityName;
@@ -1382,7 +1386,7 @@ async function handleUpdateEvent(
   const previousCuid =
     previousCuidFromUnassignedRoom ?? trimNonEmpty(existing.record?.CUID);
   const previousRoom =
-    normalizeRoomIdentifier(unassignedRoomStr) ?? normalizeRoomIdentifier(existing.record?.ApartmentNumber);
+    normalizeRoomIdentifier(unassignedRoomStr) ?? normalizeRoomIdentifier(getPatientRoomNumber(existing.record));
   const nextCuid = trimNonEmpty(patientRecord.CUID);
   const isCuidRoomTransfer = Boolean(
     previousCuid && nextCuid && previousCuid !== nextCuid,
@@ -1436,8 +1440,8 @@ async function handleUpdateEvent(
     });
   } else {
     const serviceRoomFallback =
-      normalizeRoomIdentifier(patientRecord.ApartmentNumber) ??
-      normalizeRoomIdentifier(existing.record?.ApartmentNumber);
+      normalizeRoomIdentifier(getPatientRoomNumber(patientRecord)) ??
+      normalizeRoomIdentifier(getPatientRoomNumber(existing.record));
     const serviceCommunity = await resolveServiceCommunityContext({
       event,
       companyId,

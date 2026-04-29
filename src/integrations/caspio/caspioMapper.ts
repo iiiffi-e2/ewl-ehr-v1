@@ -78,6 +78,8 @@ export type CarePatientTableApiRecord = {
   PatientDOB?: string;
   PatientCommunity?: string;
   PatientAddress?: string;
+  RoomNumber?: string;
+  // Legacy Caspio column name kept for reading older rows during transition.
   ApartmentNumber?: string;
   PatientAddressCity?: string;
   PatientAddressState?: string;
@@ -122,6 +124,8 @@ export type ServiceTableApiRecord = {
   Service_ID: string;
   PatientNumber?: string;
   CUID?: string;
+  RoomNumber?: string;
+  // Legacy Caspio column name kept for reading older rows during transition.
   Room?: string;
   ServiceType?: string;
   StartDate?: string;
@@ -550,7 +554,7 @@ export function mapPatientRecord(
     FirstName: firstName,
     PatientDOB: dob,
     PatientCommunity: community.CommunityName ?? getStringValue(communityPayload, ['CommunityName', 'communityName']),
-    ApartmentNumber: apartmentNumber,
+    RoomNumber: apartmentNumber,
     PatientAddress: patientAddress,
     PatientAddressCity: patientAddressCity,
     PatientAddressState: patientAddressState,
@@ -624,7 +628,7 @@ export function mapServiceRecord(params: {
     Service_ID: params.serviceId ?? deterministicServiceId,
     PatientNumber: patientNumber,
     CUID: params.cuid,
-    Room: params.roomNumber,
+    RoomNumber: params.roomNumber,
     ServiceType: params.serviceType,
     StartDate: params.startDate,
     EndDate: params.endDate,

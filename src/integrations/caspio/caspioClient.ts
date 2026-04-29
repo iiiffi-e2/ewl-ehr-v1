@@ -29,6 +29,8 @@ export type ServiceTableRecord = {
   Service_ID?: string;
   PatientNumber?: string;
   CUID?: string;
+  RoomNumber?: string;
+  // Legacy service column name kept for reading older rows during transition.
   Room?: string;
   ServiceType?: string;
   StartDate?: string;

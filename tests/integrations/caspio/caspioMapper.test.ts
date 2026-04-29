@@ -110,7 +110,7 @@ describe('caspioMapper new table mappings', () => {
     expect(record.PatientNumber).not.toContain('_');
     expect(record.CUID).toBe('259');
     expect(record.PatientCommunity).toBe('Sunset Manor');
-    expect(record.ApartmentNumber).toBe('101');
+    expect(record.RoomNumber).toBe('101');
     expect(record.Diagnosis1).toBe('Hypertension');
     expect(record.Diagnosis2).toBe('Diabetes');
   });
@@ -130,7 +130,7 @@ describe('caspioMapper new table mappings', () => {
       CommunityName: 'YourLife Pensacola',
     });
 
-    expect(record.ApartmentNumber).toBe('303B');
+    expect(record.RoomNumber).toBe('303B');
   });
 
   it('does not duplicate bed letter when room number is already combined', () => {
@@ -148,7 +148,7 @@ describe('caspioMapper new table mappings', () => {
       CommunityName: 'YourLife Pensacola',
     });
 
-    expect(record.ApartmentNumber).toBe('303B');
+    expect(record.RoomNumber).toBe('303B');
   });
 
   it('sanitizes diagnosis fields to a safe compact value', () => {

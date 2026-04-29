@@ -122,7 +122,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
-        Room: '101',
+        RoomNumber: '101',
         CommunityName: 'Test Community',
         ServiceType: 'Assisted Living',
         StartDate: '01/10/2026 00:00:00',
@@ -170,7 +170,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('move_in uses event room number fallback for ApartmentNumber', async () => {
+  it('move_in uses event room number fallback for RoomNumber', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: {
         Classification: 'Assisted Living',
@@ -204,7 +204,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.any(Array),
       expect.objectContaining({
         PatientNumber: '70508',
-        ApartmentNumber: '49',
+        RoomNumber: '49',
       }),
     );
   });
@@ -303,7 +303,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
-        Room: '101',
+        RoomNumber: '101',
         CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
@@ -488,7 +488,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: 'patient-1',
-      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+      record: { PatientNumber: '70508', CUID: '259', RoomNumber: '53' },
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
       found: true,
@@ -522,7 +522,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
-        Room: '53',
+        RoomNumber: '53',
         CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
@@ -582,7 +582,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('basic_info_updated uses existing ApartmentNumber when event has no room', async () => {
+  it('basic_info_updated uses existing RoomNumber when event has no room', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
       basicInfo: {},
@@ -595,7 +595,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: 'patient-1',
-      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+      record: { PatientNumber: '70508', CUID: '259', RoomNumber: '53' },
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
       found: true,
@@ -646,7 +646,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
       id: 'patient-1',
-      record: { PatientNumber: '70508', CUID: '259', ApartmentNumber: '53' },
+      record: { PatientNumber: '70508', CUID: '259', RoomNumber: '53' },
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
       found: true,
@@ -703,7 +703,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '306636',
         CUID: '893',
         CommunityName: 'YourLife Pensacola',
-        ApartmentNumber: '303',
+        RoomNumber: '303',
       },
     });
     findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
@@ -743,7 +743,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'CarePatientTable_API',
       'patient-306636',
       expect.objectContaining({
-        ApartmentNumber: '303B',
+        RoomNumber: '303B',
       }),
     );
     expect(recordEventIssueMock).not.toHaveBeenCalledWith(
@@ -762,7 +762,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '306636',
         CUID: '893',
-        Room: '303B',
+        RoomNumber: '303B',
         CommunityName: 'YourLife Pensacola',
         ServiceType: 'Detect',
       }),
@@ -790,7 +790,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '419598',
         CUID: '935',
         CommunityName: 'YourLife Coconut Creek',
-        ApartmentNumber: '111 B',
+        RoomNumber: '111 B',
       },
     });
     findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
@@ -831,7 +831,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'CarePatientTable_API',
       'patient-1',
       expect.objectContaining({
-        ApartmentNumber: '111B',
+        RoomNumber: '111B',
       }),
     );
     expect(recordEventIssueMock).not.toHaveBeenCalledWith(
@@ -850,7 +850,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '419598',
         CUID: '935',
-        Room: '111B',
+        RoomNumber: '111B',
         CommunityName: 'YourLife Coconut Creek',
         ServiceType: 'Detect',
       }),
@@ -874,7 +874,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '70508',
         CUID: '259',
         CommunityName: 'Test Community',
-        ApartmentNumber: '111',
+        RoomNumber: '111',
       },
     });
     findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({ found: false });
@@ -1009,7 +1009,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'CarePatientTable_API',
       'patient-1',
       expect.objectContaining({
-        ApartmentNumber: '2A',
+        RoomNumber: '2A',
       }),
     );
     expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '2A');
@@ -1023,7 +1023,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       raw: {
         PatientNumber: '70508',
         CUID: '111',
-        ApartmentNumber: '1',
+        RoomNumber: '1',
       },
     });
     getCommunityEnrichmentMock.mockImplementation((_communityId: number, room?: string | number | null) => {
@@ -1105,7 +1105,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       raw: {
         PatientNumber: '71703',
         CUID: '111',
-        ApartmentNumber: '54',
+        RoomNumber: '54',
       },
     });
     findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
@@ -1176,7 +1176,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'CarePatientTable_API',
       'patient-1',
       expect.objectContaining({
-        ApartmentNumber: '53',
+        RoomNumber: '53',
         CUID: '222',
       }),
     );
@@ -1219,7 +1219,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       raw: {
         PatientNumber: '71703',
         CUID: '111',
-        ApartmentNumber: '54',
+        RoomNumber: '54',
         Move_Out_Date: '2026-01-01',
         Service_End_Date: '2026-01-01',
       },
@@ -1406,7 +1406,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '392350',
         CUID: '965',
         CommunityName: 'YourLife Pensacola',
-        ApartmentNumber: '218',
+        RoomNumber: '218',
         Move_Out_Date: '04/22/2026',
         Service_End_Date: '04/22/2026',
       },
@@ -1463,7 +1463,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '392350',
         CUID: '965',
         CommunityName: 'YourLife Pensacola',
-        ApartmentNumber: '218',
+        RoomNumber: '218',
       },
     });
     getCommunityEnrichmentMock.mockResolvedValue({
