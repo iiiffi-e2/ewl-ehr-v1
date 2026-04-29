@@ -115,6 +115,42 @@ describe('caspioMapper new table mappings', () => {
     expect(record.Diagnosis2).toBe('Diabetes');
   });
 
+  it('combines room number and bed letter for patient apartment mapping', () => {
+    const payload = buildPayload();
+    payload.data.roomAssignments = [
+      {
+        roomNumber: '303',
+        bedLetter: 'B',
+        isActiveAssignment: true,
+      },
+    ] as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+
+    expect(record.ApartmentNumber).toBe('303B');
+  });
+
+  it('does not duplicate bed letter when room number is already combined', () => {
+    const payload = buildPayload();
+    payload.data.roomAssignments = [
+      {
+        roomNumber: '303B',
+        bedLetter: 'B',
+        isActiveAssignment: true,
+      },
+    ] as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+
+    expect(record.ApartmentNumber).toBe('303B');
+  });
+
   it('sanitizes diagnosis fields to a safe compact value', () => {
     const payload = buildPayload();
     payload.data.diagnosesAndAllergiesFull = {

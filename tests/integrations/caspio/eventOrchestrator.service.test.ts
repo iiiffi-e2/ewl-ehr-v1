@@ -675,6 +675,100 @@ describe('eventOrchestrator service-table scenarios', () => {
     expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
   });
 
+  it('basic_info_updated combines fetched room number and bed letter before service lookup', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Detect', ProductType: 'Detect' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [
+        {
+          roomNumber: '303',
+          bedLetter: 'B',
+          occupantType: 'Primary',
+          isActiveAssignment: true,
+        },
+      ],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-306636',
+      record: {
+        PatientNumber: '306636',
+        CUID: '893',
+        CommunityName: 'YourLife Pensacola',
+        ApartmentNumber: '303',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
+      if (room === '303B') {
+        return Promise.resolve({
+          found: true,
+          record: {
+            CUID: '893',
+            CommunityName: 'YourLife Pensacola',
+            RoomNumber: '303 B',
+          },
+        });
+      }
+      return Promise.resolve({ found: false });
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-intervene',
+      record: { ServiceType: 'Intervene 12', StartDate: '2026-04-23T04:00:00' },
+    });
+
+    const event = {
+      CompanyKey: 'yourlife',
+      CommunityId: 932,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-room-bed-letter',
+      EventMessageDate: '2026-04-29T17:47:48Z',
+      NotificationData: {
+        ResidentId: 306636,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'yourlife');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(932, '303B');
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-306636',
+      expect.objectContaining({
+        ApartmentNumber: '303B',
+      }),
+    );
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'caspio_community_lookup',
+        eventMessageId: 'evt-room-bed-letter',
+      }),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '893' },
+        { field: 'PatientNumber', value: '306636' },
+        { field: 'ServiceType', value: 'Detect' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '306636',
+        CUID: '893',
+        Room: '303B',
+        CommunityName: 'YourLife Pensacola',
+        ServiceType: 'Detect',
+      }),
+    );
+  });
+
   it('basic_info_updated preserves event lettered room when fetched assignment only has base room', async () => {
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: '935',

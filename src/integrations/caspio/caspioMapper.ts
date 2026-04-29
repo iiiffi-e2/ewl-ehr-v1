@@ -198,6 +198,22 @@ function getBooleanValue(
   return undefined;
 }
 
+function combineRoomNumberAndBedLetter(record: Record<string, unknown> | undefined): string | undefined {
+  const roomNumber = getStringValue(record, ['RoomNumber', 'roomNumber']);
+  if (!roomNumber) return undefined;
+
+  const compactRoomNumber = roomNumber.replace(/\s+/g, '');
+  if (/[A-Za-z]+$/.test(compactRoomNumber)) {
+    return compactRoomNumber;
+  }
+
+  const bedLetter = getStringValue(record, ['BedLetter', 'bedLetter']);
+  if (!bedLetter) return compactRoomNumber;
+
+  const compactBedLetter = bedLetter.replace(/\s+/g, '').toUpperCase();
+  return compactBedLetter ? `${compactRoomNumber}${compactBedLetter}` : compactRoomNumber;
+}
+
 /**
  * Get active room assignment room number
  */
@@ -213,11 +229,11 @@ function getActiveRoomNumber(
         getBooleanValue(ra, ['IsActiveAssignment', 'isActiveAssignment']) === true,
     );
     if (activeAssignment) {
-      const roomNum = getStringValue(activeAssignment, ['RoomNumber', 'roomNumber']);
+      const roomNum = combineRoomNumberAndBedLetter(activeAssignment);
       if (roomNum) return roomNum;
     }
     // Fallback to first assignment
-    const firstRoomNum = getStringValue(roomAssignments[0], ['RoomNumber', 'roomNumber']);
+    const firstRoomNum = combineRoomNumberAndBedLetter(roomAssignments[0]);
     if (firstRoomNum) return firstRoomNum;
   }
 
@@ -227,11 +243,11 @@ function getActiveRoomNumber(
       (r) => getBooleanValue(r, ['IsPrimary', 'isPrimary']) === true,
     );
     if (primaryRoom) {
-      const roomNum = getStringValue(primaryRoom, ['RoomNumber', 'roomNumber']);
+      const roomNum = combineRoomNumberAndBedLetter(primaryRoom);
       if (roomNum) return roomNum;
     }
     // Fallback to first room
-    const firstRoomNum = getStringValue(rooms[0], ['RoomNumber', 'roomNumber']);
+    const firstRoomNum = combineRoomNumberAndBedLetter(rooms[0]);
     if (firstRoomNum) return firstRoomNum;
   }
 
