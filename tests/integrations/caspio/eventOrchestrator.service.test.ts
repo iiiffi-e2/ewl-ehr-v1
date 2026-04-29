@@ -633,9 +633,9 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('basic_info_updated prefers fetched resident room assignment when event has no room', async () => {
+  it('basic_info_updated ignores fetched room assignment when resident rooms is null', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
-      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care', rooms: null },
       basicInfo: {},
       insurance: [],
       roomAssignments: [{ RoomNumber: '77', IsPrimary: true }],
@@ -672,22 +672,27 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
+    expect(findCommunityByIdAndRoomNumberMock).not.toHaveBeenCalledWith(113, '77');
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '53');
   });
 
-  it('basic_info_updated combines fetched room number and bed letter before service lookup', async () => {
+  it('basic_info_updated uses resident rooms room value before room assignment bed letter', async () => {
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: '893',
       CommunityName: 'YourLife Pensacola',
     });
     fetchAllResidentDataMock.mockResolvedValueOnce({
-      resident: { Classification: 'Detect', ProductType: 'Detect' },
+      resident: {
+        Classification: 'Detect',
+        ProductType: 'Detect',
+        rooms: [{ roomNumber: '303', bed: 'A', room: '303' }],
+      },
       basicInfo: {},
       insurance: [],
       roomAssignments: [
         {
           roomNumber: '303',
-          bedLetter: 'B',
+          bedLetter: 'A',
           occupantType: 'Primary',
           isActiveAssignment: true,
         },
@@ -707,13 +712,13 @@ describe('eventOrchestrator service-table scenarios', () => {
       },
     });
     findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
-      if (room === '303B') {
+      if (room === '303') {
         return Promise.resolve({
           found: true,
           record: {
             CUID: '893',
             CommunityName: 'YourLife Pensacola',
-            RoomNumber: '303 B',
+            RoomNumber: '303',
           },
         });
       }
@@ -729,7 +734,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       CompanyKey: 'yourlife',
       CommunityId: 932,
       EventType: 'residents.basic_info_updated',
-      EventMessageId: 'evt-room-bed-letter',
+      EventMessageId: 'evt-main-resident-room',
       EventMessageDate: '2026-04-29T17:47:48Z',
       NotificationData: {
         ResidentId: 306636,
@@ -738,18 +743,18 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     await handleAlisEvent(event, 10, 'yourlife');
 
-    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(932, '303B');
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(932, '303');
     expect(updateRecordByIdMock).toHaveBeenCalledWith(
       'CarePatientTable_API',
       'patient-306636',
       expect.objectContaining({
-        RoomNumber: '303B',
+        RoomNumber: '303',
       }),
     );
     expect(recordEventIssueMock).not.toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'caspio_community_lookup',
-        eventMessageId: 'evt-room-bed-letter',
+        eventMessageId: 'evt-main-resident-room',
       }),
     );
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
@@ -762,7 +767,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         PatientNumber: '306636',
         CUID: '893',
-        RoomNumber: '303B',
+        RoomNumber: '303',
         CommunityName: 'YourLife Pensacola',
         ServiceType: 'Detect',
       }),

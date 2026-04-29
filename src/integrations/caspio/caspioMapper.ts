@@ -202,56 +202,35 @@ function getBooleanValue(
   return undefined;
 }
 
-function combineRoomNumberAndBedLetter(record: Record<string, unknown> | undefined): string | undefined {
-  const roomNumber = getStringValue(record, ['RoomNumber', 'roomNumber']);
-  if (!roomNumber) return undefined;
+function normalizeRoomValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, '');
+  return compact.length > 0 ? compact : undefined;
+}
 
-  const compactRoomNumber = roomNumber.replace(/\s+/g, '');
-  if (/[A-Za-z]+$/.test(compactRoomNumber)) {
-    return compactRoomNumber;
-  }
+function getRoomValue(record: Record<string, unknown> | undefined): string | undefined {
+  const combinedRoom = normalizeRoomValue(getStringValue(record, ['Room', 'room']));
+  if (combinedRoom) return combinedRoom;
 
-  const bedLetter = getStringValue(record, ['BedLetter', 'bedLetter']);
-  if (!bedLetter) return compactRoomNumber;
-
-  const compactBedLetter = bedLetter.replace(/\s+/g, '').toUpperCase();
-  return compactBedLetter ? `${compactRoomNumber}${compactBedLetter}` : compactRoomNumber;
+  return normalizeRoomValue(getStringValue(record, ['RoomNumber', 'roomNumber']));
 }
 
 /**
  * Get active room assignment room number
  */
 function getActiveRoomNumber(
-  roomAssignments: Array<Record<string, unknown>> | undefined,
+  _roomAssignments: Array<Record<string, unknown>> | undefined,
   rooms: Array<Record<string, unknown>> | undefined,
 ): string | undefined {
-  // Prefer active room assignment
-  if (roomAssignments && roomAssignments.length > 0) {
-    const activeAssignment = roomAssignments.find(
-      (ra) =>
-        getBooleanValue(ra, ['IsPrimary', 'isPrimary']) === true ||
-        getBooleanValue(ra, ['IsActiveAssignment', 'isActiveAssignment']) === true,
-    );
-    if (activeAssignment) {
-      const roomNum = combineRoomNumberAndBedLetter(activeAssignment);
-      if (roomNum) return roomNum;
-    }
-    // Fallback to first assignment
-    const firstRoomNum = combineRoomNumberAndBedLetter(roomAssignments[0]);
-    if (firstRoomNum) return firstRoomNum;
-  }
-
-  // Fallback to rooms array
   if (rooms && rooms.length > 0) {
     const primaryRoom = rooms.find(
       (r) => getBooleanValue(r, ['IsPrimary', 'isPrimary']) === true,
     );
     if (primaryRoom) {
-      const roomNum = combineRoomNumberAndBedLetter(primaryRoom);
+      const roomNum = getRoomValue(primaryRoom);
       if (roomNum) return roomNum;
     }
-    // Fallback to first room
-    const firstRoomNum = combineRoomNumberAndBedLetter(rooms[0]);
+    const firstRoomNum = getRoomValue(rooms[0]);
     if (firstRoomNum) return firstRoomNum;
   }
 
