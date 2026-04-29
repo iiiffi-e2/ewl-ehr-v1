@@ -1566,7 +1566,7 @@ async function handleUpdateEvent(
             communityId,
             source: 'update_event_classification_change',
           });
-        } else if (!active) {
+        } else if (!active && hasChanged) {
           await createServiceRow({
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,

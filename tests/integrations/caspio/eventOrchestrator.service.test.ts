@@ -353,7 +353,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
-  it('basic_info_updated creates service row when latest matching CUID row is closed', async () => {
+  it('basic_info_updated skips service row when latest matching CUID row is closed with same service type', async () => {
     const residentPayload = {
       resident: { Classification: 'Assisted Living', ProductType: 'Assisted Living' },
       basicInfo: {},
@@ -391,18 +391,58 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
+    expect(serviceWrites).toHaveLength(0);
+  });
+
+  it('basic_info_updated creates service row when latest matching CUID row is closed with different service type', async () => {
+    const residentPayload = {
+      resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    };
+    fetchAllResidentDataMock.mockResolvedValueOnce({ ...residentPayload });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-closed',
+      record: {
+        ServiceType: 'Assisted Living',
+        StartDate: '2026-01-01',
+        EndDate: '01/15/2026 12:00:00',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-svc-change-closed',
+      EventMessageDate: '2026-01-22T12:00:00Z',
+      NotificationData: {
+        ResidentId: 70508,
+        RoomNumber: '101',
+        Classification: 'Memory Care',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    const serviceWrites = upsertByFieldsMock.mock.calls.filter((c) => c[0] === 'Service_Table_API');
     expect(serviceWrites).toHaveLength(1);
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
       expect.arrayContaining([
         { field: 'CUID', value: '259' },
         { field: 'PatientNumber', value: '70508' },
-        { field: 'ServiceType', value: 'Assisted Living' },
+        { field: 'ServiceType', value: 'Memory Care' },
       ]),
       expect.objectContaining({
         PatientNumber: '70508',
         CUID: '259',
-        ServiceType: 'Assisted Living',
+        ServiceType: 'Memory Care',
         StartDate: '01/22/2026 12:00:00',
       }),
     );
