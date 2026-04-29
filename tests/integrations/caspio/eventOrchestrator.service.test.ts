@@ -675,6 +675,94 @@ describe('eventOrchestrator service-table scenarios', () => {
     expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '77');
   });
 
+  it('basic_info_updated preserves event lettered room when fetched assignment only has base room', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '935',
+      CommunityName: 'YourLife Coconut Creek',
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: { Classification: 'Detect', ProductType: 'Detect' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '111', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '419598',
+        CUID: '935',
+        CommunityName: 'YourLife Coconut Creek',
+        ApartmentNumber: '111 B',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
+      if (room === '111B') {
+        return Promise.resolve({
+          found: true,
+          record: {
+            CUID: '935',
+            CommunityName: 'YourLife Coconut Creek',
+            RoomNumber: '111 B',
+          },
+        });
+      }
+      return Promise.resolve({ found: false });
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-old',
+      record: { ServiceType: 'Intervene 12', StartDate: '2026-04-23T04:00:00' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 935,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-lettered-room-base-only',
+      EventMessageDate: '2026-04-29T10:57:34Z',
+      NotificationData: {
+        ResidentId: 419598,
+        RoomNumber: '111 B',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(935, '111B');
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        ApartmentNumber: '111B',
+      }),
+    );
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'caspio_community_lookup',
+        eventMessageId: 'evt-lettered-room-base-only',
+      }),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '935' },
+        { field: 'PatientNumber', value: '419598' },
+        { field: 'ServiceType', value: 'Detect' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '419598',
+        CUID: '935',
+        Room: '111B',
+        CommunityName: 'YourLife Coconut Creek',
+        ServiceType: 'Detect',
+      }),
+    );
+  });
+
   it('basic_info_updated skips service write and logs issue when room lookup is missing', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },

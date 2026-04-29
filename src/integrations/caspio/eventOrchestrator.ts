@@ -116,6 +116,42 @@ function applyPreferredApartmentFromEvent(
   }
 }
 
+function chooseApartmentNumberForUpdate(
+  event: AlisEvent,
+  mappedApartmentNumber: string | undefined,
+  existingApartmentNumber: string | undefined,
+  roomNumber: string | undefined,
+): string | undefined {
+  const normalizedMapped = normalizeRoomIdentifier(mappedApartmentNumber);
+  const normalizedExisting = normalizeRoomIdentifier(existingApartmentNumber);
+  const normalizedEventRoom = normalizeRoomIdentifier(roomNumber);
+
+  if (normalizedEventRoom && ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType)) {
+    return normalizedEventRoom;
+  }
+
+  if (
+    normalizedEventRoom &&
+    normalizedMapped &&
+    /^\d+$/.test(normalizedMapped) &&
+    new RegExp(`^${normalizedMapped}[A-Za-z]+$`).test(normalizedEventRoom)
+  ) {
+    return normalizedEventRoom;
+  }
+
+  if (
+    !normalizedEventRoom &&
+    normalizedMapped &&
+    normalizedExisting &&
+    /^\d+$/.test(normalizedMapped) &&
+    new RegExp(`^${normalizedMapped}[A-Za-z]+$`).test(normalizedExisting)
+  ) {
+    return normalizedExisting;
+  }
+
+  return normalizedMapped ?? normalizedEventRoom;
+}
+
 /** New room after a move (ALIS `resident.room_changed`, etc.). */
 function extractAssignedRoom(event: AlisEvent): string | undefined {
   const notificationData = event.NotificationData as Record<string, unknown> | undefined;
@@ -1296,11 +1332,16 @@ async function handleUpdateEvent(
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const patientRecord = mapPatientRecord(payload, communityContext);
   applyPreferredApartmentFromEvent(event, patientRecord, roomNumber);
-  const normalizedApartmentNumber = normalizeRoomIdentifier(patientRecord.ApartmentNumber);
-  if (normalizedApartmentNumber) {
-    patientRecord.ApartmentNumber = normalizedApartmentNumber;
+  const selectedApartmentNumber = chooseApartmentNumberForUpdate(
+    event,
+    patientRecord.ApartmentNumber,
+    existing.record?.ApartmentNumber,
+    roomNumber,
+  );
+  if (selectedApartmentNumber) {
+    patientRecord.ApartmentNumber = selectedApartmentNumber;
   }
-  const effectiveRoom = normalizedApartmentNumber ?? roomNumber;
+  const effectiveRoom = selectedApartmentNumber ?? roomNumber;
   communityContext = await applyCommunityEnrichment(communityId, effectiveRoom);
   patientRecord.CUID = communityContext.CUID ?? patientRecord.CUID;
   patientRecord.CommunityName = communityContext.CommunityName ?? patientRecord.CommunityName;
