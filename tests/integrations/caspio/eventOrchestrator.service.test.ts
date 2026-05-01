@@ -774,6 +774,84 @@ describe('eventOrchestrator service-table scenarios', () => {
     );
   });
 
+  it('basic_info_updated writes matched base room when lettered single room falls back', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '154-cuid',
+      CommunityName: 'Single Room Community',
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Detect',
+        ProductType: 'Detect',
+        rooms: [{ roomNumber: '154', bed: 'A', room: '154A' }],
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-154',
+      record: {
+        PatientNumber: '154001',
+        CUID: '154-cuid',
+        CommunityName: 'Single Room Community',
+        RoomNumber: '154',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
+      if (room === '154A') {
+        return Promise.resolve({
+          found: true,
+          record: {
+            CUID: '154-cuid',
+            CommunityName: 'Single Room Community',
+            RoomNumber: '154',
+          },
+        });
+      }
+      return Promise.resolve({ found: false });
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-single-room',
+      record: { ServiceType: 'Intervene 12', StartDate: '2026-04-23T04:00:00' },
+    });
+
+    const event = {
+      CompanyKey: 'yourlife',
+      CommunityId: 932,
+      EventType: 'residents.basic_info_updated',
+      EventMessageId: 'evt-single-room-letter-fallback',
+      EventMessageDate: '2026-04-29T17:47:48Z',
+      NotificationData: {
+        ResidentId: 154001,
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'yourlife');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(932, '154A');
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '154-cuid' },
+        { field: 'PatientNumber', value: '154001' },
+        { field: 'ServiceType', value: 'Detect' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '154001',
+        CUID: '154-cuid',
+        RoomNumber: '154',
+        CommunityName: 'Single Room Community',
+        ServiceType: 'Detect',
+      }),
+    );
+  });
+
   it('basic_info_updated preserves event lettered room when fetched assignment only has base room', async () => {
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: '935',

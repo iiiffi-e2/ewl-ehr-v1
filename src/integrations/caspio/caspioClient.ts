@@ -339,6 +339,12 @@ function normalizeRoomNumberForMatch(value: unknown): string | undefined {
   return compact.length > 0 ? compact : undefined;
 }
 
+function getBaseRoomNumberForMatch(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/^(\d+)[A-Za-z]$/);
+  return match?.[1];
+}
+
 function normalizeFieldKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -850,6 +856,11 @@ export async function findCommunityByIdAndRoomNumber(
     try {
       const normalizedRoom = roomNumber.trim();
       const normalizedRoomForMatch = normalizeRoomNumberForMatch(normalizedRoom) ?? normalizedRoom;
+      const baseRoomForMatch = getBaseRoomNumberForMatch(normalizedRoomForMatch);
+      const roomMatchCandidates = [
+        normalizedRoomForMatch,
+        ...(baseRoomForMatch && baseRoomForMatch !== normalizedRoomForMatch ? [baseRoomForMatch] : []),
+      ];
       const roomAsNumber = Number(normalizedRoomForMatch);
       const roomFilterValues: Array<string | number> = Array.from(
         new Set([normalizedRoom, normalizedRoomForMatch]),
@@ -923,7 +934,7 @@ export async function findCommunityByIdAndRoomNumber(
         await appendFallbackScanRecords();
       }
 
-      const getExactMatches = () =>
+      const getExactMatches = (targetRoomNumber: string) =>
         records.filter((rec) => {
           const record = rec as Record<string, unknown>;
           const recordCommunityId = readComparableField(record, [
@@ -942,14 +953,14 @@ export async function findCommunityByIdAndRoomNumber(
           ]);
           return (
             recordCommunityId === String(communityId) &&
-            normalizeRoomNumberForMatch(recordRoomNumber) === normalizedRoomForMatch
+            normalizeRoomNumberForMatch(recordRoomNumber) === targetRoomNumber
           );
         }) as CommunityTableRecord[];
 
-      let exactMatches = getExactMatches();
+      let exactMatches = roomMatchCandidates.flatMap((candidate) => getExactMatches(candidate));
       if (exactMatches.length === 0 && !didFallbackScan) {
         await appendFallbackScanRecords();
-        exactMatches = getExactMatches();
+        exactMatches = roomMatchCandidates.flatMap((candidate) => getExactMatches(candidate));
       }
 
       if (exactMatches.length === 0) {

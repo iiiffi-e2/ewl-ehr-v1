@@ -257,6 +257,43 @@ describe('caspioClient community lookup exact matching', () => {
     );
   });
 
+  it('falls back to base room when lettered room has no exact community match', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest
+      .fn()
+      // filtered attempts for 154A miss
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [] })
+      // fallback full scan includes only the base single-room record
+      .mockResolvedValueOnce({
+        data: [{ CommunityID: 113, RoomNumber: '154', CUID: '154-cuid', CommunityName: 'Single Room' }],
+      });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(113, '154A');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        RoomNumber: '154',
+        CUID: '154-cuid',
+      }),
+    );
+  });
+
   it('continues lookup when one filter variant gets SQL conversion 400', async () => {
     const axios = require('axios');
     (axios.isAxiosError as jest.Mock).mockImplementation((err: unknown) => {
