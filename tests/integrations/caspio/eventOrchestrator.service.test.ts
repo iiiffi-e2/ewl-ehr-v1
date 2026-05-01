@@ -2,6 +2,7 @@ const findRecordByFieldsMock = jest.fn();
 const findByPatientNumberMock = jest.fn();
 const findCommunityByIdAndRoomNumberMock = jest.fn();
 const findActiveOrLatestServiceRowMock = jest.fn();
+const findOpenServiceRowByCuidAndServiceTypeMock = jest.fn();
 const findOpenOffPremEpisodeMock = jest.fn();
 const upsertByFieldsMock = jest.fn();
 const upsertOffPremEpisodeByEpisodeIdMock = jest.fn();
@@ -16,6 +17,7 @@ jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findByPatientNumber: findByPatientNumberMock,
   findCommunityByIdAndRoomNumber: findCommunityByIdAndRoomNumberMock,
   findActiveOrLatestServiceRow: findActiveOrLatestServiceRowMock,
+  findOpenServiceRowByCuidAndServiceType: findOpenServiceRowByCuidAndServiceTypeMock,
   findOpenOffPremEpisode: findOpenOffPremEpisodeMock,
   upsertByFields: upsertByFieldsMock,
   upsertOffPremEpisodeByEpisodeId: upsertOffPremEpisodeByEpisodeIdMock,
@@ -86,6 +88,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       id: 'svc-1',
       record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
     });
+    findOpenServiceRowByCuidAndServiceTypeMock.mockResolvedValue({ found: false });
     upsertByFieldsMock.mockResolvedValue({ action: 'update', id: 'id-1' });
     findRecordByFieldsMock.mockResolvedValue({
       found: true,
@@ -1292,6 +1295,114 @@ describe('eventOrchestrator service-table scenarios', () => {
         ServiceType: 'Assisted Living',
       }),
     );
+  });
+
+  it('resident.room_changed closes open Vacant row on destination CUID after opening active row', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: {
+        PatientNumber: '71703',
+        CUID: '111',
+        RoomNumber: '54',
+      },
+    });
+    findCommunityByIdAndRoomNumberMock.mockImplementation((_communityId: number, room: string) => {
+      if (room === '54') {
+        return Promise.resolve({
+          found: true,
+          record: { CUID: '111', CommunityName: 'Room 54' },
+        });
+      }
+      if (room === '53') {
+        return Promise.resolve({
+          found: true,
+          record: { CUID: '222', CommunityName: 'Room 53' },
+        });
+      }
+      return Promise.resolve({
+        found: true,
+        record: { CUID: '259', CommunityName: 'Test Community' },
+      });
+    });
+    getCommunityEnrichmentMock.mockImplementation((_communityId: number, room?: string | number | null) => {
+      const r = room != null ? String(room).trim() : '';
+      if (r === '54') {
+        return Promise.resolve({ CUID: '111', CommunityName: 'Room 54' });
+      }
+      if (r === '53') {
+        return Promise.resolve({ CUID: '222', CommunityName: 'Room 53' });
+      }
+      return Promise.resolve({ CUID: '259', CommunityName: 'Test Community' });
+    });
+    fetchAllResidentDataMock.mockResolvedValueOnce({
+      resident: {
+        Classification: 'Intervene',
+        ProductType: 'Intervene',
+        PhysicalMoveInDate: '2026-01-10',
+      },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [{ RoomNumber: '54', IsPrimary: true, IsActiveAssignment: true }],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: null,
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-old-cuid',
+      record: { ServiceType: 'Detect', StartDate: '2026-01-10' },
+    });
+    findOpenServiceRowByCuidAndServiceTypeMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-destination-vacant',
+      record: {
+        CUID: '222',
+        ServiceType: 'Vacant',
+        StartDate: '03/01/2026 00:00:00',
+        EndDate: '',
+      },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'resident.room_changed',
+      EventMessageId: 'evt-close-destination-vacant',
+      EventMessageDate: '2026-03-29T18:24:55.5416825',
+      NotificationData: {
+        ResidentId: 71703,
+        AsOfDateUTC: '2026-03-29T05:00:00',
+        AssignedRoom: '53',
+        UnassignedRoom: '54',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    const boundaryDate = '03/29/2026 23:24:55';
+    expect(findOpenServiceRowByCuidAndServiceTypeMock).toHaveBeenCalledWith({
+      cuid: '222',
+      serviceType: 'Vacant',
+    });
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '222' },
+        { field: 'PatientNumber', value: '71703' },
+        { field: 'ServiceType', value: 'Intervene' },
+      ]),
+      expect.objectContaining({
+        PatientNumber: '71703',
+        CUID: '222',
+        ServiceType: 'Intervene',
+        StartDate: boundaryDate,
+      }),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-destination-vacant', {
+      EndDate: boundaryDate,
+    });
   });
 
   it('resident.room_changed still applies service transfer when Caspio row has move-out date fields (stale)', async () => {

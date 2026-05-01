@@ -12,6 +12,7 @@ import type { AlisPayload } from '../alis/types.js';
 import {
   findActiveOrLatestServiceRow,
   findOpenOffPremEpisode,
+  findOpenServiceRowByCuidAndServiceType,
   findByPatientNumber,
   findCommunityByIdAndRoomNumber,
   findRecordByFields,
@@ -917,6 +918,51 @@ async function closeLatestServiceRow(params: {
   );
 }
 
+async function closeOpenVacantServiceRowForCuid(params: {
+  cuid: string;
+  endDate: string;
+  eventMessageId?: string | number;
+  eventType?: string;
+  residentId?: number;
+  communityId?: number;
+  source?: string;
+}): Promise<void> {
+  const openVacantRow = await findOpenServiceRowByCuidAndServiceType({
+    cuid: params.cuid,
+    serviceType: ROOM_VACANCY_SERVICE_TYPE,
+  });
+
+  if (!openVacantRow.found || !openVacantRow.id) {
+    logger.info(
+      {
+        eventMessageId: params.eventMessageId,
+        eventType: params.eventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        source: params.source,
+        cuid: params.cuid,
+      },
+      'destination_vacant_service_row_not_found',
+    );
+    return;
+  }
+
+  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, openVacantRow.id, { EndDate: params.endDate });
+  logger.info(
+    {
+      eventMessageId: params.eventMessageId,
+      eventType: params.eventType,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      source: params.source,
+      serviceRowId: openVacantRow.id,
+      cuid: params.cuid,
+      endDate: params.endDate,
+    },
+    'destination_vacant_service_row_closed',
+  );
+}
+
 /**
  * Service rows are keyed by PatientNumber + CUID. CUID is resolved from the Caspio community
  * table by (CommunityId, room number). Data model: each room has a distinct CUID—two rooms
@@ -1014,6 +1060,16 @@ async function applyRoomTransferServiceTable(params: {
     residentId: params.residentId,
     communityId: params.communityId,
     source: 'room_transfer_new_room',
+  });
+
+  await closeOpenVacantServiceRowForCuid({
+    cuid: params.nextCuid,
+    endDate: boundaryDate,
+    eventMessageId: params.event.EventMessageId,
+    eventType: params.event.EventType,
+    residentId: params.residentId,
+    communityId: params.communityId,
+    source: 'room_transfer_destination_vacant',
   });
 
   logger.info(

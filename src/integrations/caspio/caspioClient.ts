@@ -1293,6 +1293,80 @@ export async function findActiveOrLatestServiceRow(params: {
   };
 }
 
+export async function findOpenServiceRowByCuidAndServiceType(params: {
+  cuid: string;
+  serviceType: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const records = (await caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const cuidString = String(params.cuid).trim();
+    const serviceTypeString = String(params.serviceType).trim();
+    const cuidVariants: Array<string | number> = [cuidString];
+    const parsedCuid = Number(cuidString);
+    if (/^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
+      cuidVariants.push(parsedCuid);
+    }
+
+    const aggregated: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    const appendRecords = (rows: unknown[]) => {
+      for (const row of rows as Array<Record<string, unknown>>) {
+        const id = extractRecordId(row);
+        const key = id ?? JSON.stringify(row);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        aggregated.push(row);
+      }
+    };
+
+    for (const cuidVariant of cuidVariants) {
+      const whereClause = buildWhereClause([
+        { field: 'CUID', value: cuidVariant },
+        { field: 'ServiceType', value: serviceTypeString },
+      ]);
+      appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+    }
+
+    return aggregated;
+  })) as Array<Record<string, unknown>>;
+
+  const exactOpenMatches = records.filter((record) => {
+    const recordCuid = readComparableField(record, ['CUID', 'cuid']);
+    const recordServiceType = readComparableField(record, ['ServiceType', 'serviceType']);
+    return (
+      recordCuid === params.cuid &&
+      recordServiceType === params.serviceType &&
+      isOpenServiceEndDate(record.EndDate)
+    );
+  });
+
+  if (exactOpenMatches.length === 0) {
+    return { found: false };
+  }
+
+  const withIds = exactOpenMatches
+    .map((record) => ({ record, id: extractRecordId(record) }))
+    .filter((entry) => entry.id);
+
+  if (withIds.length === 0) {
+    logger.warn(
+      { cuid: params.cuid, serviceType: params.serviceType, matchCount: exactOpenMatches.length },
+      'caspio_open_service_rows_found_without_ids',
+    );
+    return { found: false };
+  }
+
+  withIds.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
+  const selected = withIds[0];
+  return {
+    found: true,
+    id: selected.id,
+    record: selected.record as ServiceTableRecord,
+  };
+}
+
 /**
  * Upsert a record by Resident_ID
  * Updates if found, inserts if not found
