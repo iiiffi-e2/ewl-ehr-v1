@@ -35,7 +35,7 @@ describe('caspioCommunityEnrichment', () => {
 
     const enrichment = await getCommunityEnrichment(113, '218');
 
-    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '218');
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(113, '218', 'YourLife Pensacola');
     expect(enrichment).toEqual(
       expect.objectContaining({
         CommunityName: 'YourLife Pensacola',

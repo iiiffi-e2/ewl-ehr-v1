@@ -75,7 +75,7 @@ export async function pushToCaspio(
     const communityId = Number(mappedCommunity.CommunityID ?? NaN);
     const enrichment =
       Number.isFinite(communityId) && communityId > 0
-        ? await getCommunityEnrichment(communityId, mappedCommunity.RoomNumber)
+        ? await getCommunityEnrichment(communityId, mappedCommunity.RoomNumber, mappedCommunity.CommunityName)
         : {};
 
     const communityRecord = {

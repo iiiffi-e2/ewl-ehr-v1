@@ -56,7 +56,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -91,7 +91,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -124,7 +124,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -163,7 +163,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -210,7 +210,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -247,7 +247,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '112A');
+    const result = await findCommunityByIdAndRoomNumber(113, '112A', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -284,7 +284,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '154A');
+    const result = await findCommunityByIdAndRoomNumber(113, '154A', 'Single Room');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({
@@ -293,6 +293,70 @@ describe('caspioClient community lookup exact matching', () => {
       }),
     );
   });
+
+  it('does not match when community name differs for same community and room', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        { CommunityID: 113, RoomNumber: '49', CUID: '259', CommunityName: 'EyeWatch LIVE' },
+        { CommunityID: 113, RoomNumber: '49', CUID: '999', CommunityName: 'Allen' },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'Allen');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        CUID: '999',
+        CommunityName: 'Allen',
+      }),
+    );
+  });
+
+  it('matches community names case-insensitively', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [{ CommunityID: 113, RoomNumber: '49', CUID: '259', CommunityName: 'EyeWatch LIVE' }],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'eyewatch live');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        CUID: '259',
+      }),
+    );
+    });
 
   it('continues lookup when one filter variant gets SQL conversion 400', async () => {
     const axios = require('axios');
@@ -342,7 +406,7 @@ describe('caspioClient community lookup exact matching', () => {
       '../../../src/integrations/caspio/caspioClient.js'
     );
 
-    const result = await findCommunityByIdAndRoomNumber(113, '49');
+    const result = await findCommunityByIdAndRoomNumber(113, '49', 'EyeWatch LIVE');
     expect(result.found).toBe(true);
     expect(result.record).toEqual(
       expect.objectContaining({

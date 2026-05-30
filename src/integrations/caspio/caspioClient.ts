@@ -345,6 +345,15 @@ function getBaseRoomNumberForMatch(value: string | undefined): string | undefine
   return match?.[1];
 }
 
+function normalizeCommunityNameForMatch(value: unknown): string | undefined {
+  const normalized = normalizeComparable(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const collapsed = normalized.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 0 ? collapsed.toLowerCase() : undefined;
+}
+
 function normalizeFieldKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -844,16 +853,20 @@ export async function findCommunityById(
 }
 
 /**
- * Find community lookup record by CommunityID + RoomNumber (CommunityTable_API)
+ * Find community lookup record by CommunityID + CommunityName + RoomNumber (CommunityTable_API)
  */
 export async function findCommunityByIdAndRoomNumber(
   communityId: number,
   roomNumber: string,
+  communityName: string,
 ): Promise<{ found: boolean; record?: CommunityTableRecord }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
 
     try {
+      const normalizedCommunityName = communityName.trim();
+      const normalizedCommunityNameForMatch =
+        normalizeCommunityNameForMatch(normalizedCommunityName) ?? normalizedCommunityName;
       const normalizedRoom = roomNumber.trim();
       const normalizedRoomForMatch = normalizeRoomNumberForMatch(normalizedRoom) ?? normalizedRoom;
       const baseRoomForMatch = getBaseRoomNumberForMatch(normalizedRoomForMatch);
@@ -888,6 +901,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.info(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             scannedCount: scanned.length,
           },
@@ -898,6 +912,7 @@ export async function findCommunityByIdAndRoomNumber(
         for (const roomFilterValue of roomFilterValues) {
           const whereClause = buildWhereClause([
             { field: 'CommunityID', value: communityFilterValue },
+            { field: 'CommunityName', value: normalizedCommunityName },
             { field: 'RoomNumber', value: roomFilterValue },
           ]);
           try {
@@ -912,6 +927,7 @@ export async function findCommunityByIdAndRoomNumber(
               logger.warn(
                 {
                   communityId,
+                  communityName: normalizedCommunityName,
                   roomNumber: normalizedRoom,
                   whereClause,
                   status: error.response.status,
@@ -951,8 +967,13 @@ export async function findCommunityByIdAndRoomNumber(
             'ApartmentNumber',
             'Apartment',
           ]);
+          const recordCommunityName = readComparableField(record, [
+            'CommunityName',
+            'communityName',
+          ]);
           return (
             recordCommunityId === String(communityId) &&
+            normalizeCommunityNameForMatch(recordCommunityName) === normalizedCommunityNameForMatch &&
             normalizeRoomNumberForMatch(recordRoomNumber) === targetRoomNumber
           );
         }) as CommunityTableRecord[];
@@ -968,6 +989,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.debug(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             matchCount: records.length,
             sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
@@ -981,6 +1003,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.warn(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             matchCount: records.length,
             exactMatchCount: exactMatches.length,
@@ -996,7 +1019,7 @@ export async function findCommunityByIdAndRoomNumber(
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         logger.debug(
-          { communityId, roomNumber },
+          { communityId, communityName, roomNumber },
           'caspio_community_room_record_not_found_404',
         );
         return { found: false };

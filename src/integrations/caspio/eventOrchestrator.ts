@@ -25,6 +25,7 @@ import type { CarePatientTableApiRecord } from './caspioMapper.js';
 import {
   mapOffPremEndPatch,
   mapOffPremStartEpisode,
+  mapCommunityRecord,
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
@@ -53,6 +54,13 @@ function normalizeRoomIdentifier(value: string | undefined): string | undefined 
   if (!trimmed) return undefined;
   const compact = trimmed.replace(/\s+/g, '');
   return compact.length > 0 ? compact : undefined;
+}
+
+function normalizeCommunityName(value: string | undefined): string | undefined {
+  const trimmed = trimNonEmpty(value);
+  if (!trimmed) return undefined;
+  const collapsed = trimmed.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 0 ? collapsed : undefined;
 }
 
 function hasMeaningfulCaspioDate(value: unknown): boolean {
@@ -174,17 +182,16 @@ function extractUnassignedRoom(event: AlisEvent): string | undefined {
 async function resolveCuidForCommunityRoom(
   communityId: number,
   room: string | undefined,
+  communityName: string | undefined,
 ): Promise<string | undefined> {
-  const normalized = trimNonEmpty(room);
-  if (!normalized) return undefined;
-  const match = await findCommunityByIdAndRoomNumber(
+  const normalizedRoom = normalizeRoomIdentifier(trimNonEmpty(room));
+  if (!normalizedRoom) return undefined;
+  const enrichment = await getCommunityEnrichment(
     communityId,
-    normalizeRoomIdentifier(normalized) ?? normalized,
+    normalizedRoom,
+    normalizeCommunityName(communityName),
   );
-  if (!match.found || !match.record) return undefined;
-  const raw = match.record.CUID;
-  if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim();
-  return undefined;
+  return enrichment.CUID;
 }
 
 type ServiceCommunityContext = {
@@ -460,9 +467,10 @@ function getTodayDateString(): string {
 async function applyCommunityEnrichment(
   communityId: number,
   roomNumber: string | undefined,
+  communityName?: string,
 ): Promise<{ CUID?: string; CommunityName?: string }> {
   try {
-    const enrichment = await getCommunityEnrichment(communityId, roomNumber);
+    const enrichment = await getCommunityEnrichment(communityId, roomNumber, communityName);
     logger.info(
       {
         communityId,
@@ -640,6 +648,7 @@ async function resolveServiceCommunityContext(params: {
   residentId: number;
   communityId: number;
   fallbackRoomNumber?: string;
+  fallbackCommunityName?: string;
 }): Promise<ServiceCommunityContext> {
   const requestedRoomNumber = normalizeRoomIdentifier(
     extractRoomNumber(params.event) ?? params.fallbackRoomNumber,
@@ -671,18 +680,18 @@ async function resolveServiceCommunityContext(params: {
     return { matched: false };
   }
 
-  const communityMatch = await findCommunityByIdAndRoomNumber(params.communityId, roomNumber);
-  if (!communityMatch.found || !communityMatch.record) {
+  const communityName = normalizeCommunityName(params.fallbackCommunityName);
+  if (!communityName) {
     await recordEventIssue({
       companyId: params.companyId,
       eventType: params.event.EventType,
       eventMessageId: params.event.EventMessageId,
       residentId: params.residentId,
       communityId: params.communityId,
-      stage: 'caspio_community_lookup',
+      stage: 'caspio_service_precheck',
       severity: 'warning',
-      message: 'Service write skipped because community room was not found in Caspio',
-      details: { roomNumber },
+      message: 'Service write skipped because community name could not be resolved',
+      details: { roomNumber, reason: 'missing_community_name' },
       retryable: false,
     });
     logger.warn(
@@ -693,6 +702,38 @@ async function resolveServiceCommunityContext(params: {
         communityId: params.communityId,
         roomNumber,
       },
+      'service_write_skipped_missing_community_name',
+    );
+    return { matched: false };
+  }
+
+  const communityMatch = await findCommunityByIdAndRoomNumber(
+    params.communityId,
+    roomNumber,
+    communityName,
+  );
+  if (!communityMatch.found || !communityMatch.record) {
+    await recordEventIssue({
+      companyId: params.companyId,
+      eventType: params.event.EventType,
+      eventMessageId: params.event.EventMessageId,
+      residentId: params.residentId,
+      communityId: params.communityId,
+      stage: 'caspio_community_lookup',
+      severity: 'warning',
+      message: 'Service write skipped because community room was not found in Caspio',
+      details: { roomNumber, communityName },
+      retryable: false,
+    });
+    logger.warn(
+      {
+        eventMessageId: params.event.EventMessageId,
+        eventType: params.event.EventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        roomNumber,
+        communityName,
+      },
       'service_write_skipped_community_room_not_found',
     );
     return { matched: false };
@@ -702,10 +743,11 @@ async function resolveServiceCommunityContext(params: {
     typeof communityMatch.record.CUID === 'string' && communityMatch.record.CUID.trim().length > 0
       ? communityMatch.record.CUID.trim()
       : undefined;
-  const communityName =
-    typeof communityMatch.record.CommunityName === 'string' && communityMatch.record.CommunityName.trim().length > 0
+  const matchedCommunityName =
+    typeof communityMatch.record.CommunityName === 'string' &&
+    communityMatch.record.CommunityName.trim().length > 0
       ? communityMatch.record.CommunityName.trim()
-      : undefined;
+      : communityName;
   const matchedRoomNumber =
     normalizeRoomIdentifier(
       extractStringValue(communityMatch.record as Record<string, unknown>, [
@@ -728,7 +770,7 @@ async function resolveServiceCommunityContext(params: {
       stage: 'caspio_community_lookup',
       severity: 'warning',
       message: 'Service write skipped because matched community row has no CUID',
-      details: { roomNumber },
+      details: { roomNumber, communityName },
       retryable: false,
     });
     logger.warn(
@@ -738,6 +780,7 @@ async function resolveServiceCommunityContext(params: {
         residentId: params.residentId,
         communityId: params.communityId,
         roomNumber,
+        communityName,
       },
       'service_write_skipped_missing_cuid',
     );
@@ -752,12 +795,12 @@ async function resolveServiceCommunityContext(params: {
       communityId: params.communityId,
       roomNumber: matchedRoomNumber,
       resolvedCuid: cuid,
-      resolvedCommunityName: communityName ?? null,
+      resolvedCommunityName: matchedCommunityName ?? null,
     },
     'service_community_context_resolved',
   );
 
-  return { matched: true, cuid, communityName, roomNumber: matchedRoomNumber };
+  return { matched: true, cuid, communityName: matchedCommunityName, roomNumber: matchedRoomNumber };
 }
 
 async function createServiceRow(params: {
@@ -965,7 +1008,7 @@ async function closeOpenVacantServiceRowForCuid(params: {
 
 /**
  * Service rows are keyed by PatientNumber + CUID. CUID is resolved from the Caspio community
- * table by (CommunityId, room number). Data model: each room has a distinct CUID—two rooms
+ * table by (CommunityId, CommunityName, room number). Data model: each room has a distinct CUID—two rooms
  * must not share the same CUID—so an in-community room change implies a CUID change whenever
  * enrichment uses room-level rows.
  *
@@ -1007,7 +1050,7 @@ async function applyRoomTransferServiceTable(params: {
 
   const previousRoomTrimmed = normalizeRoomIdentifier(params.previousRoom);
   const oldRoomEnrichment = previousRoomTrimmed
-    ? await getCommunityEnrichment(params.communityId, previousRoomTrimmed)
+    ? await getCommunityEnrichment(params.communityId, previousRoomTrimmed, params.nextCommunityName)
     : undefined;
 
   await closeLatestServiceRow({
@@ -1145,7 +1188,8 @@ async function handleMoveInEvent(
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const roomNumber = normalizeRoomIdentifier(extractRoomNumber(event));
-  const communityContext = await applyCommunityEnrichment(communityId, roomNumber);
+  const mappedCommunityName = mapCommunityRecord(payload).CommunityName;
+  const communityContext = await applyCommunityEnrichment(communityId, roomNumber, mappedCommunityName);
   const patientRecord = mapPatientRecord(payload, communityContext);
   patientRecord.PatientNumber = String(residentId);
   if (roomNumber) {
@@ -1176,6 +1220,7 @@ async function handleMoveInEvent(
     residentId,
     communityId,
     fallbackRoomNumber: normalizeRoomIdentifier(getPatientRoomNumber(patientRecord)),
+    fallbackCommunityName: communityContext.CommunityName ?? mappedCommunityName,
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await createServiceRow({
@@ -1299,6 +1344,8 @@ async function handleMoveOutEvent(
     residentId,
     communityId,
     fallbackRoomNumber: normalizeRoomIdentifier(getPatientRoomNumber(existing.record)),
+    fallbackCommunityName:
+      communityContext.CommunityName ?? trimNonEmpty(existing.record?.CommunityName),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
     await closeLatestServiceRow({
@@ -1390,6 +1437,7 @@ async function handleUpdateEvent(
   );
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
+  const mappedCommunityName = mapCommunityRecord(payload).CommunityName;
   const patientRecord = mapPatientRecord(payload, communityContext);
   applyPreferredRoomFromEvent(event, patientRecord, roomNumber);
   const selectedRoomNumber = chooseRoomNumberForUpdate(
@@ -1402,7 +1450,11 @@ async function handleUpdateEvent(
     patientRecord.RoomNumber = selectedRoomNumber;
   }
   const effectiveRoom = selectedRoomNumber ?? roomNumber;
-  communityContext = await applyCommunityEnrichment(communityId, effectiveRoom);
+  communityContext = await applyCommunityEnrichment(
+    communityId,
+    effectiveRoom,
+    patientRecord.CommunityName ?? mappedCommunityName ?? trimNonEmpty(existing.record?.CommunityName),
+  );
   patientRecord.CUID = communityContext.CUID ?? patientRecord.CUID;
   patientRecord.CommunityName = communityContext.CommunityName ?? patientRecord.CommunityName;
   patientRecord.PatientNumber = String(residentId);
@@ -1435,9 +1487,12 @@ async function handleUpdateEvent(
   );
 
   const unassignedRoomStr = extractUnassignedRoom(event);
+  const transferCommunityName =
+    mappedCommunityName ?? trimNonEmpty(existing.record?.CommunityName);
   const previousCuidFromUnassignedRoom = await resolveCuidForCommunityRoom(
     communityId,
     unassignedRoomStr,
+    transferCommunityName,
   );
   const previousCuid =
     previousCuidFromUnassignedRoom ?? trimNonEmpty(existing.record?.CUID);
@@ -1504,6 +1559,8 @@ async function handleUpdateEvent(
       residentId,
       communityId,
       fallbackRoomNumber: serviceRoomFallback,
+      fallbackCommunityName:
+        patientRecord.CommunityName ?? communityContext.CommunityName ?? trimNonEmpty(existing.record?.CommunityName),
     });
     if (serviceCommunity.matched && serviceCommunity.cuid) {
       const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
