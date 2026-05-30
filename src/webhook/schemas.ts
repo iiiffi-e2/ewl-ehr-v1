@@ -23,6 +23,7 @@ export const RESIDENT_EVENT_TYPES = new Set([
   'residents.move_in_out_info_updated',
   'resident.room_assigned',
   'resident.room_changed',
+  'resident.room_unassigned',
   'resident.contact.created',
   'resident.contact.updated',
   'resident.contact.deleted',

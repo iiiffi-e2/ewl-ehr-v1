@@ -34,6 +34,7 @@ import {
   POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
   ROOM_VACANCY_SERVICE_TYPE,
   SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
+  UNASSIGNED_ROOM_LABEL,
 } from './serviceLineTypes.js';
 
 /** Prefer NotificationData room over stale API data for these event types. */
@@ -1383,6 +1384,150 @@ async function handleMoveOutEvent(
 }
 
 /**
+ * Handle `resident.room_unassigned`: the resident is removed from their room but stays in the
+ * community (NOT a move-out). NotificationData carries `UnassignedRoom` (the vacated room) and
+ * `AsOfDateUTC` (the effective date); `AssignedRoom` is null because there is no replacement room.
+ *
+ * Effect:
+ *  - Patient row: `RoomNumber` -> `UNASSIGNED_ROOM_LABEL` ("Unassigned"); CUID/prem/move-out
+ *    fields are left untouched so the resident remains in-community.
+ *  - Service table: close the resident's active line on the old room's CUID and open a room-level
+ *    `Vacant` line (no PatientNumber) on that CUID, both dated at `AsOfDateUTC`.
+ */
+async function handleRoomUnassignedEvent(
+  event: AlisEvent,
+  companyId: number,
+  residentId: number,
+  communityId: number,
+): Promise<void> {
+  logger.info(
+    { eventMessageId: event.EventMessageId, residentId, communityId },
+    'handling_room_unassigned_event',
+  );
+
+  const notificationData = event.NotificationData as Record<string, unknown> | undefined;
+  const unassignedRoom = normalizeRoomIdentifier(extractUnassignedRoom(event));
+
+  if (!unassignedRoom) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'webhook_payload',
+      severity: 'warning',
+      message: 'Room-unassigned event skipped because UnassignedRoom was missing',
+      details: { notificationData: notificationData ?? null },
+      retryable: false,
+    });
+    logger.warn(
+      { eventMessageId: event.EventMessageId, residentId, communityId },
+      'room_unassigned_event_missing_unassigned_room_skipping',
+    );
+    return;
+  }
+
+  const communityContext = await applyCommunityEnrichment(communityId, unassignedRoom);
+  const existing = await findExistingPatient(String(residentId), communityContext.CUID);
+
+  if (!existing.found || !existing.id) {
+    await recordEventIssue({
+      companyId,
+      eventType: event.EventType,
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      stage: 'caspio_patient_lookup',
+      severity: 'warning',
+      message: 'Room-unassigned event skipped because resident was not found in Caspio',
+      details: {
+        requestedCuid: communityContext.CUID ?? null,
+        roomNumber: unassignedRoom,
+      },
+      retryable: false,
+    });
+    logger.warn(
+      { eventMessageId: event.EventMessageId, residentId, communityId },
+      'room_unassigned_event_resident_not_found_skipping',
+    );
+    return;
+  }
+
+  const boundaryDate = normalizeScenarioDateTime(
+    extractStringValue(notificationData, ['AsOfDateUTC', 'asOfDateUTC']),
+    event.EventMessageDate,
+  );
+
+  await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, {
+    PatientNumber: String(residentId),
+    RoomNumber: UNASSIGNED_ROOM_LABEL,
+  });
+
+  logger.info(
+    {
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      caspioId: existing.id,
+      previousRoom: unassignedRoom,
+    },
+    'room_unassigned_event_updated_patient_record',
+  );
+
+  const serviceCommunity = await resolveServiceCommunityContext({
+    event,
+    companyId,
+    residentId,
+    communityId,
+    fallbackRoomNumber:
+      unassignedRoom ?? normalizeRoomIdentifier(getPatientRoomNumber(existing.record)),
+    fallbackCommunityName:
+      communityContext.CommunityName ?? trimNonEmpty(existing.record?.CommunityName),
+  });
+
+  if (!serviceCommunity.matched || !serviceCommunity.cuid) {
+    return;
+  }
+
+  await closeLatestServiceRow({
+    companyId,
+    patientNumber: String(residentId),
+    cuid: serviceCommunity.cuid,
+    endDate: boundaryDate,
+    eventMessageId: event.EventMessageId,
+    eventType: event.EventType,
+    residentId,
+    communityId,
+    source: 'room_unassigned_close',
+  });
+
+  await createServiceRow({
+    cuid: serviceCommunity.cuid,
+    communityName: serviceCommunity.communityName,
+    roomNumber: serviceCommunity.roomNumber,
+    serviceType: ROOM_VACANCY_SERVICE_TYPE,
+    startDate: boundaryDate,
+    eventMessageId: event.EventMessageId,
+    eventType: event.EventType,
+    residentId,
+    communityId,
+    source: 'room_unassigned_room_vacant',
+  });
+
+  logger.info(
+    {
+      eventMessageId: event.EventMessageId,
+      residentId,
+      communityId,
+      cuid: serviceCommunity.cuid,
+      previousRoom: serviceCommunity.roomNumber ?? unassignedRoom,
+    },
+    'room_unassigned_service_completed',
+  );
+}
+
+/**
  * Handle other update events (basic_info_updated, created, contact.updated, etc.)
  */
 async function handleUpdateEvent(
@@ -2053,6 +2198,13 @@ export async function handleAlisEvent(
         {
           const residentId = await extractResidentIdOrRecordIssue(event, companyId, communityId);
           await handleMoveOutEvent(event, companyId, companyKey, residentId, communityId);
+        }
+        break;
+
+      case 'resident.room_unassigned':
+        {
+          const residentId = await extractResidentIdOrRecordIssue(event, companyId, communityId);
+          await handleRoomUnassignedEvent(event, companyId, residentId, communityId);
         }
         break;
 

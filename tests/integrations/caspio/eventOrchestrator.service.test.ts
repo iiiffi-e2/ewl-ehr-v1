@@ -261,6 +261,67 @@ describe('eventOrchestrator service-table scenarios', () => {
     }
   });
 
+  it('room_unassigned marks patient room Unassigned and opens a room-level vacancy', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '71840', CUID: '259', RoomNumber: '50' },
+    });
+
+    const event = {
+      CompanyKey: 'appstoresandbox',
+      CommunityId: 113,
+      EventType: 'resident.room_unassigned',
+      EventMessageId: '639157553181993000',
+      EventMessageDate: '2026-05-30T16:28:38Z',
+      NotificationData: {
+        ResidentId: 71840,
+        AsOfDateUTC: '2026-05-30T05:00:00Z',
+        AssignedRoom: null,
+        AssignedUnitId: null,
+        UnassignedRoom: '50',
+        UnassignedUnitId: 2038,
+        AssignedOccupantType: null,
+        UnassignedOccupantType: 'Primary',
+      },
+    };
+
+    await handleAlisEvent(event, 10, 'appstoresandbox');
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', 'patient-1', {
+      PatientNumber: '71840',
+      RoomNumber: 'Unassigned',
+    });
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
+      EndDate: '05/30/2026 05:00:00',
+    });
+
+    const vacantCall = upsertByFieldsMock.mock.calls.find((call) => {
+      if (call[0] !== 'Service_Table_API') return false;
+      const row = call[2] as Record<string, unknown>;
+      return row?.ServiceType === 'Vacant';
+    });
+    expect(vacantCall).toBeDefined();
+    const vacantFilters = vacantCall?.[1] as Array<{ field: string }>;
+    expect(vacantFilters.some((f) => f.field === 'PatientNumber')).toBe(false);
+    const vacantRow = vacantCall?.[2] as Record<string, unknown>;
+    expect(vacantRow).toEqual(
+      expect.objectContaining({
+        CUID: '259',
+        ServiceType: 'Vacant',
+        StartDate: '05/30/2026 05:00:00',
+      }),
+    );
+    expect(vacantRow.PatientNumber).toBeUndefined();
+
+    expect(updateRecordByIdMock).not.toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({ Move_Out_Date: expect.anything() }),
+    );
+  });
+
   it('classification change closes old row and creates new row at event date', async () => {
     fetchAllResidentDataMock.mockResolvedValueOnce({
       resident: { Classification: 'Memory Care', ProductType: 'Memory Care' },
