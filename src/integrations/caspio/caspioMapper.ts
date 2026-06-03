@@ -814,7 +814,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     }
   }
 
-  // Insurance mapping - normalize medical insurances with Medicare-first ordering
+  // Insurance mapping - primary slot = Medicare/Medical, secondary slot = any other company
   const { slot1, slot2 } = normalizeMedicalInsurances(data.insurance ?? []);
 
   const insuranceName = slot1?.name ?? null;
