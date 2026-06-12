@@ -48,11 +48,14 @@ export function createApp() {
   // In development (src/http/app.ts), __dirname is /path/to/src/http, public is at /path/to/public
   // So we need to go up two levels: ../../public
   
-  // Check if we're in production (dist folder) or development (src folder)
+  // In development, always serve from project public/ so new HTML is available without rebuild.
+  // In production, serve from dist/public (populated by npm run build / copy-public).
   const cwd = process.cwd();
   const distPublicPath = path.join(cwd, 'dist', 'public');
   const projectPublicPath = path.join(cwd, 'public');
-  const publicPath = fs.existsSync(distPublicPath) ? distPublicPath : projectPublicPath;
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const publicPath =
+    isDevelopment || !fs.existsSync(distPublicPath) ? projectPublicPath : distPublicPath;
   const isProduction = publicPath === distPublicPath;
   
   const publicExists = fs.existsSync(publicPath);
