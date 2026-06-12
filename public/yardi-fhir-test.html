@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yardi FHIR API Tester</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header,
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    header {
+      padding: 20px;
+    }
+
+    h1 {
+      color: #58a6ff;
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      color: #58a6ff;
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+
+    .subtitle,
+    .muted {
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    .card {
+      padding: 16px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #8b949e;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    textarea {
+      min-height: 90px;
+      font-family: Consolas, Monaco, monospace;
+      resize: vertical;
+    }
+
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #2ea043;
+    }
+
+    button.secondary {
+      background: #21262d;
+      border: 1px solid #30363d;
+    }
+
+    button.secondary:hover {
+      background: #30363d;
+    }
+
+    button.warn {
+      background: #1f6feb;
+    }
+
+    button.warn:hover {
+      background: #388bfd;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .status-ok {
+      background: rgba(35, 134, 54, 0.2);
+      color: #3fb950;
+      border: 1px solid rgba(63, 185, 80, 0.4);
+    }
+
+    .status-bad {
+      background: rgba(248, 81, 73, 0.15);
+      color: #f85149;
+      border: 1px solid rgba(248, 81, 73, 0.35);
+    }
+
+    .output {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 180px;
+      max-height: 600px;
+      overflow: auto;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .config-item {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .config-item strong {
+      display: block;
+      color: #8b949e;
+      font-size: 11px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .preset-btn {
+      font-size: 13px;
+      padding: 8px 12px;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Yardi FHIR API Tester</h1>
+      <p class="subtitle">
+        Test OAuth token retrieval and FHIR GET requests using server-side credentials.
+        This page uses the same admin Basic Auth as other admin tools.
+      </p>
+    </header>
+
+    <section class="card">
+      <h2>Environment</h2>
+      <div id="configStatus" class="muted">Loading configuration...</div>
+      <div id="configGrid" class="config-grid" style="margin-top: 12px;"></div>
+      <div class="button-row" style="margin-top: 12px;">
+        <button type="button" class="secondary" id="reloadConfigButton">Reload Config</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Authentication</h2>
+      <p class="muted" style="margin-bottom: 12px;">
+        Calls the configured token endpoint with client credentials and shows the raw token response.
+      </p>
+      <div class="button-row">
+        <button type="button" class="warn" id="testAuthButton">Test Auth Token</button>
+      </div>
+      <div id="authOutput" class="output">No auth test run yet.</div>
+    </section>
+
+    <section class="card">
+      <h2>FHIR Request</h2>
+      <div class="grid-2">
+        <div>
+          <label for="requestPath">Path</label>
+          <input id="requestPath" type="text" value="/metadata" placeholder="/Patient?organization=32-1&active=true">
+        </div>
+        <div>
+          <label for="requestParams">Query Params JSON (optional)</label>
+          <textarea id="requestParams" placeholder='{"organization":"32-1","active":"true","_count":"5"}'></textarea>
+        </div>
+      </div>
+
+      <label>Presets</label>
+      <div class="button-row">
+        <button type="button" class="secondary preset-btn" data-preset="metadata">Capability Statement</button>
+        <button type="button" class="secondary preset-btn" data-preset="patients">Active Patients</button>
+        <button type="button" class="secondary preset-btn" data-preset="patient">Read Patient</button>
+        <button type="button" class="secondary preset-btn" data-preset="encounters">Recent Encounters</button>
+        <button type="button" class="secondary preset-btn" data-preset="organizations">Organizations</button>
+      </div>
+
+      <div class="grid-3">
+        <div>
+          <label for="organizationId">Organization ID</label>
+          <input id="organizationId" type="text" placeholder="32-1">
+        </div>
+        <div>
+          <label for="patientId">Patient ID</label>
+          <input id="patientId" type="text" placeholder="5881-2">
+        </div>
+        <div>
+          <label for="encounterSince">Encounter Since (YYYY-MM-DD)</label>
+          <input id="encounterSince" type="text">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button type="button" id="sendRequestButton">Send GET Request</button>
+      </div>
+      <div id="requestOutput" class="output">No API request run yet.</div>
+    </section>
+  </div>
+
+  <script>
+    const configStatus = document.getElementById('configStatus');
+    const configGrid = document.getElementById('configGrid');
+    const authOutput = document.getElementById('authOutput');
+    const requestOutput = document.getElementById('requestOutput');
+    const requestPath = document.getElementById('requestPath');
+    const requestParams = document.getElementById('requestParams');
+    const organizationId = document.getElementById('organizationId');
+    const patientId = document.getElementById('patientId');
+    const encounterSince = document.getElementById('encounterSince');
+
+    const renderJson = (value) => JSON.stringify(value, null, 2);
+
+    const renderOutput = (element, label, payload) => {
+      element.textContent = `${label}\n\n${renderJson(payload)}`;
+    };
+
+    const fetchJson = async (url, options = {}) => {
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...options,
+      });
+      const data = await response.json().catch(() => ({}));
+      return { response, data };
+    };
+
+    const renderConfig = (config) => {
+      const pill = document.createElement('span');
+      pill.className = `status-pill ${config.configured ? 'status-ok' : 'status-bad'}`;
+      pill.textContent = config.configured ? 'Configured' : 'Not Configured';
+      configStatus.innerHTML = '';
+      configStatus.appendChild(pill);
+      configStatus.append(` Server env ${config.configured ? 'has' : 'is missing'} Yardi FHIR URLs.`);
+
+      const items = [
+        ['Token URL', config.tokenUrl || '—'],
+        ['API Base URL', config.apiBaseUrl || '—'],
+        ['Scope', config.scope || '—'],
+        ['Client ID Set', config.hasClientId ? 'Yes' : 'No'],
+        ['Client Secret Set', config.hasClientSecret ? 'Yes' : 'No'],
+        ['Poll Enabled', config.pollEnabled ? 'Yes' : 'No'],
+        ['Poll Interval (ms)', String(config.pollIntervalMs ?? '—')],
+        ['Poll Targets', Array.isArray(config.pollTargets) ? config.pollTargets.length : 0],
+      ];
+
+      configGrid.innerHTML = items.map(([label, value]) => `
+        <div class="config-item">
+          <strong>${label}</strong>
+          <span>${value}</span>
+        </div>
+      `).join('');
+
+      if (Array.isArray(config.pollTargets) && config.pollTargets.length > 0) {
+        const firstTarget = config.pollTargets[0];
+        if (!organizationId.value && firstTarget.organizationId) {
+          organizationId.value = firstTarget.organizationId;
+        }
+      }
+    };
+
+    const loadConfig = async () => {
+      configStatus.textContent = 'Loading configuration...';
+      const { response, data } = await fetchJson('/admin/yardi-fhir-test/config');
+      if (!response.ok) {
+        renderOutput(configStatus.parentElement.querySelector('#configStatus') || configStatus, 'Config load failed', data);
+        return;
+      }
+      renderConfig(data.config || {});
+    };
+
+    const testAuth = async () => {
+      authOutput.textContent = 'Requesting token...';
+      const { response, data } = await fetchJson('/admin/yardi-fhir-test/auth', { method: 'POST' });
+      renderOutput(authOutput, response.ok ? 'Auth success' : 'Auth failed', data);
+    };
+
+    const parseParams = () => {
+      const raw = requestParams.value.trim();
+      if (!raw) return undefined;
+      return JSON.parse(raw);
+    };
+
+    const sendRequest = async () => {
+      requestOutput.textContent = 'Sending request...';
+      let params;
+      try {
+        params = parseParams();
+      } catch (error) {
+        renderOutput(requestOutput, 'Invalid params JSON', { error: error.message });
+        return;
+      }
+
+      const { response, data } = await fetchJson('/admin/yardi-fhir-test/request', {
+        method: 'POST',
+        body: JSON.stringify({
+          path: requestPath.value.trim(),
+          params,
+        }),
+      });
+
+      renderOutput(requestOutput, `Request ${response.ok ? 'completed' : 'failed'} (${response.status})`, data);
+    };
+
+    const applyPreset = (preset) => {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+      encounterSince.value = encounterSince.value || todayStr;
+
+      if (preset === 'metadata') {
+        requestPath.value = '/metadata';
+        requestParams.value = '';
+        return;
+      }
+
+      if (preset === 'patients') {
+        requestPath.value = '/Patient';
+        requestParams.value = renderJson({
+          organization: organizationId.value || '32-1',
+          active: 'true',
+          _count: '5',
+        });
+        return;
+      }
+
+      if (preset === 'patient') {
+        const id = patientId.value || '5881-2';
+        requestPath.value = `/Patient/${id}`;
+        requestParams.value = '';
+        return;
+      }
+
+      if (preset === 'encounters') {
+        requestPath.value = '/Encounter';
+        requestParams.value = renderJson({
+          date: `gt${encounterSince.value || todayStr}`,
+          _count: '5',
+          _sort: '-date',
+        });
+        return;
+      }
+
+      if (preset === 'organizations') {
+        requestPath.value = '/Organization';
+        requestParams.value = renderJson({ _count: '5' });
+      }
+    };
+
+    document.getElementById('reloadConfigButton').addEventListener('click', () => {
+      loadConfig().catch((error) => {
+        renderOutput(authOutput, 'Config load failed', { error: error.message });
+      });
+    });
+
+    document.getElementById('testAuthButton').addEventListener('click', () => {
+      testAuth().catch((error) => {
+        renderOutput(authOutput, 'Auth request failed', { error: error.message });
+      });
+    });
+
+    document.getElementById('sendRequestButton').addEventListener('click', () => {
+      sendRequest().catch((error) => {
+        renderOutput(requestOutput, 'Request failed', { error: error.message });
+      });
+    });
+
+    document.querySelectorAll('[data-preset]').forEach((button) => {
+      button.addEventListener('click', () => {
+        applyPreset(button.getAttribute('data-preset'));
+      });
+    });
+
+    loadConfig().catch((error) => {
+      configStatus.textContent = `Failed to load config: ${error.message}`;
+    });
+  </script>
+</body>
+</html>

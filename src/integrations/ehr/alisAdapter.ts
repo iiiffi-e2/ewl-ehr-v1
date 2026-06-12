@@ -135,11 +135,17 @@ export class AlisAdapter implements EhrAdapter {
   }
 
   async fetchResidentBundle(args: FetchResidentBundleArgs): Promise<CanonicalResidentBundle> {
+    const residentId =
+      typeof args.residentId === 'number' ? args.residentId : Number(args.residentId);
+    if (!Number.isFinite(residentId)) {
+      throw new Error('ALIS residentId must be numeric');
+    }
+
     const credentials = await resolveAlisCredentials(args.companyId, args.companyKey);
     const alisClient = createAlisClient(credentials);
     const [residentDetail, residentBasicInfo] = await Promise.all([
-      alisClient.getResident(args.residentId),
-      alisClient.getResidentBasicInfo(args.residentId),
+      alisClient.getResident(residentId),
+      alisClient.getResidentBasicInfo(residentId),
     ]);
 
     let leaveData: AlisLeave | null = null;
@@ -148,7 +154,7 @@ export class AlisAdapter implements EhrAdapter {
       if (leaveId) {
         leaveData = await alisClient.getLeave(leaveId);
       } else {
-        const leaves = await alisClient.getResidentLeaves(args.residentId);
+        const leaves = await alisClient.getResidentLeaves(residentId);
         leaveData = leaves.find((leave) => {
           const id = extractNumeric(leave as Record<string, unknown>, ['LeaveId', 'leaveId']);
           return Boolean(id);
@@ -158,7 +164,7 @@ export class AlisAdapter implements EhrAdapter {
 
     const fullResidentData = await fetchAllResidentData(
       credentials,
-      args.residentId,
+      residentId,
       args.event.communityId,
     );
 
@@ -167,9 +173,9 @@ export class AlisAdapter implements EhrAdapter {
       companyKey: args.companyKey,
       companyId: args.companyId,
       communityId: args.event.communityId,
-      residentId: args.residentId,
+      residentId,
       event: args.event,
-      demographics: toCanonicalDemographics(args.residentId, residentDetail, residentBasicInfo),
+      demographics: toCanonicalDemographics(residentId, residentDetail, residentBasicInfo),
       vendorPayload: {
         residentDetail,
         residentBasicInfo,

@@ -1,14 +1,13 @@
 import { z } from 'zod';
 
-import { createHttpClient } from '../../config/axios.js';
-import { env } from '../../config/env.js';
 import type { EhrAdapter, FetchResidentBundleArgs, ResolveResidentIdArgs } from './adapter.js';
 import type {
   CanonicalInboundEvent,
   CanonicalResidentBundle,
-  CanonicalResidentDemographics,
   EhrLifecycleKind,
 } from './types.js';
+import { YardiFhirClient } from '../yardi/yardiFhirClient.js';
+import { mapYardiFhirBundleToDemographics } from '../yardi/yardiFhirDemographics.js';
 
 const YardiFhirWebhookSchema = z.object({
   CompanyKey: z.string(),
@@ -18,17 +17,6 @@ const YardiFhirWebhookSchema = z.object({
   EventMessageDate: z.string(),
   NotificationData: z.record(z.unknown()).optional(),
 });
-
-type FhirBundleEntry = {
-  resource?: Record<string, unknown>;
-};
-
-type FhirBundle = {
-  resourceType?: string;
-  entry?: FhirBundleEntry[];
-};
-
-type FhirPatient = Record<string, unknown>;
 
 function getLifecycle(eventType: string): EhrLifecycleKind {
   const normalized = eventType.toLowerCase();
@@ -48,15 +36,12 @@ function getLifecycle(eventType: string): EhrLifecycleKind {
   return 'unknown';
 }
 
-function extractNumeric(payload: Record<string, unknown> | undefined, keys: string[]): number | undefined {
+function extractPatientId(payload: Record<string, unknown> | undefined): string | undefined {
   if (!payload) return undefined;
-  for (const key of keys) {
+  for (const key of ['PatientId', 'patientId', 'ResidentId', 'residentId']) {
     const value = payload[key];
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   }
   return undefined;
 }
@@ -72,45 +57,6 @@ function extractText(
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   }
   return undefined;
-}
-
-function pickPreferredName(patient: FhirPatient | null): { firstName?: string; lastName?: string } {
-  if (!patient) return {};
-  const names = Array.isArray(patient.name) ? (patient.name as Array<Record<string, unknown>>) : [];
-  const preferred = names[0];
-  if (!preferred) return {};
-  const given = Array.isArray(preferred.given) ? preferred.given : [];
-  const firstName =
-    given.length > 0 && typeof given[0] === 'string' ? (given[0] as string).trim() : undefined;
-  const family =
-    typeof preferred.family === 'string' && preferred.family.trim().length > 0
-      ? preferred.family.trim()
-      : undefined;
-  return { firstName, lastName: family };
-}
-
-function patientToDemographics(patient: FhirPatient | null, residentId: number): CanonicalResidentDemographics {
-  const names = pickPreferredName(patient);
-  return {
-    externalResidentId: String(residentId),
-    status: typeof patient?.active === 'boolean' ? (patient.active ? 'active' : 'inactive') : null,
-    firstName: names.firstName ?? null,
-    lastName: names.lastName ?? null,
-    dateOfBirth:
-      typeof patient?.birthDate === 'string' && patient.birthDate.length > 0
-        ? `${patient.birthDate}T00:00:00.000Z`
-        : null,
-    roomNumber: null,
-    bed: null,
-    room: null,
-    productType: null,
-    classification: null,
-    onPrem: null,
-    onPremDate: null,
-    offPrem: null,
-    offPremDate: null,
-    updatedAtUtc: null,
-  };
 }
 
 export class YardiFhirAdapter implements EhrAdapter {
@@ -139,67 +85,28 @@ export class YardiFhirAdapter implements EhrAdapter {
     return true;
   }
 
-  resolveResidentId(args: ResolveResidentIdArgs): number {
-    const residentId = extractNumeric(args.event.notificationData, [
-      'ResidentId',
-      'residentId',
-      'PatientId',
-      'patientId',
-    ]);
-    if (!residentId) {
+  resolvePatientIdentity(args: ResolveResidentIdArgs) {
+    const externalPatientId = extractPatientId(args.event.notificationData);
+    if (!externalPatientId) {
       throw new Error('ResidentId/PatientId missing from NotificationData');
     }
-    return residentId;
+    const numericResidentId = Number(externalPatientId);
+    return {
+      externalPatientId,
+      numericResidentId: Number.isFinite(numericResidentId) ? numericResidentId : null,
+    };
+  }
+
+  resolveResidentId(args: ResolveResidentIdArgs): string {
+    return this.resolvePatientIdentity(args).externalPatientId;
   }
 
   async fetchResidentBundle(args: FetchResidentBundleArgs): Promise<CanonicalResidentBundle> {
-    if (!env.YARDI_FHIR_TOKEN_URL || !env.YARDI_FHIR_API_BASE_URL) {
-      throw new Error('Yardi FHIR is not configured in environment');
-    }
-
-    const tokenHttp = createHttpClient({
-      baseURL: env.YARDI_FHIR_TOKEN_URL,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      auth:
-        env.YARDI_FHIR_CLIENT_ID && env.YARDI_FHIR_CLIENT_SECRET
-          ? {
-              username: env.YARDI_FHIR_CLIENT_ID,
-              password: env.YARDI_FHIR_CLIENT_SECRET,
-            }
-          : undefined,
-    });
-
-    const tokenResponse = await tokenHttp.post('', new URLSearchParams({
-      grant_type: 'client_credentials',
-      scope: env.YARDI_FHIR_SCOPE,
-    }).toString());
-    const token = (tokenResponse.data as { access_token?: string }).access_token;
-    if (!token) {
-      throw new Error('Yardi FHIR token response missing access_token');
-    }
-
-    const fhirHttp = createHttpClient({
-      baseURL: env.YARDI_FHIR_API_BASE_URL,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/fhir+json',
-      },
-    });
-
-    let patient: FhirPatient | null = null;
-    try {
-      const patientResponse = await fhirHttp.get<FhirPatient>(`/Patient/${args.residentId}`);
-      patient = patientResponse.data;
-    } catch {
-      const searchResponse = await fhirHttp.get<FhirBundle>(`/Patient?_id=${args.residentId}&_count=1`);
-      patient = (searchResponse.data.entry?.[0]?.resource ?? null) as FhirPatient | null;
-    }
-
-    const encounterSearch = await fhirHttp.get<FhirBundle>(
-      `/Encounter?patient=Patient/${args.residentId}&_count=1&_sort=-date`,
-    );
-
-    const demographics = patientToDemographics(patient, args.residentId);
+    YardiFhirClient.assertConfigured();
+    const patientId = args.patientId ?? String(args.residentId);
+    const client = YardiFhirClient.createConfigured();
+    const bundle = await client.fetchPatientBundle(patientId);
+    const demographics = mapYardiFhirBundleToDemographics(bundle);
     const room = extractText(args.event.notificationData, ['RoomNumber', 'roomNumber', 'AssignedRoom']);
     if (room) {
       demographics.roomNumber = room;
@@ -211,18 +118,11 @@ export class YardiFhirAdapter implements EhrAdapter {
       companyId: args.companyId,
       companyKey: args.companyKey,
       communityId: args.event.communityId,
-      residentId: args.residentId,
+      residentId: patientId,
       event: args.event,
       demographics,
-      vendorPayload: {
-        tokenType: 'Bearer',
-        patient,
-        encounterBundle: encounterSearch.data,
-      },
-      raw: {
-        patient,
-        encounterBundle: encounterSearch.data,
-      },
+      vendorPayload: bundle,
+      raw: bundle,
     };
   }
 }

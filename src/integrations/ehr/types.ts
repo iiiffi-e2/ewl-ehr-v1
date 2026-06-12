@@ -48,7 +48,7 @@ export type CanonicalResidentBundle = {
   companyKey: string;
   companyId: number;
   communityId: number | null;
-  residentId: number;
+  residentId: number | string;
   event: CanonicalInboundEvent;
   demographics: CanonicalResidentDemographics;
   /**

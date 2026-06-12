@@ -17,3 +17,10 @@ export type ResidentBackfillJobData = {
   status: string;
   pageSize?: number;
 };
+
+export type YardiFhirPollJobData = {
+  companyKey?: string;
+  communityId?: number;
+  organizationId?: string;
+  skipCaspio?: boolean;
+};

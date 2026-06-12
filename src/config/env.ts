@@ -59,6 +59,15 @@ const EnvSchema = z
     YARDI_FHIR_CLIENT_ID: z.string().optional(),
     YARDI_FHIR_CLIENT_SECRET: z.string().optional(),
     YARDI_FHIR_SCOPE: z.string().default('APIvR4'),
+    YARDI_FHIR_POLL_ENABLED: z
+      .union([z.string(), z.boolean()])
+      .default('false')
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        return val.toLowerCase() === 'true';
+      }),
+    YARDI_FHIR_POLL_INTERVAL_MS: z.coerce.number().default(14_400_000),
+    YARDI_FHIR_POLL_TARGETS: z.string().optional(),
     EHR_ENABLED_COMMUNITY_IDS: z.string().optional(),
   })
   .transform((values) => ({

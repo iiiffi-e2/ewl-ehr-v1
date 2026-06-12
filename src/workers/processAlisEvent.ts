@@ -120,11 +120,15 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       raw: notificationData ?? {},
     };
 
-    let residentId: number;
+    let residentId: number | string;
     try {
       residentId = adapter.resolveResidentId({ event: canonicalEvent });
     } catch (error) {
-      if (error instanceof Error && error.message === 'ResidentId missing from NotificationData') {
+      if (
+        error instanceof Error &&
+        (error.message === 'ResidentId missing from NotificationData' ||
+          error.message === 'ResidentId/PatientId missing from NotificationData')
+      ) {
         await recordEventIssue({
           companyId,
           source,
@@ -133,13 +137,16 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           communityId,
           stage: 'webhook_payload',
           severity: 'error',
-          message: 'ResidentId missing from NotificationData',
+          message: error.message,
           details: { notificationData },
           retryable: false,
         });
       }
       throw error;
     }
+
+    const numericResidentId = typeof residentId === 'number' ? residentId : Number(residentId);
+    const issueResidentId = Number.isFinite(numericResidentId) ? numericResidentId : null;
 
     const isContactEvent =
       eventType === 'resident.contact.created' ||
@@ -159,10 +166,10 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
             ]);
           }
           if (!lookup?.found) {
-            lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+            lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, String(residentId));
           }
         } else {
-          lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
+          lookup = await findByPatientNumber(env.CASPIO_TABLE_NAME, String(residentId));
         }
         if (!lookup.found) {
           await recordEventIssue({
@@ -170,7 +177,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
             source,
             eventType,
             eventMessageId,
-            residentId,
+            residentId: issueResidentId,
             communityId,
             stage: 'caspio_patient_lookup',
             severity: 'warning',
@@ -192,7 +199,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           source,
           eventType,
           eventMessageId,
-          residentId,
+          residentId: issueResidentId,
           communityId,
           stage: 'caspio_patient_lookup',
           severity: 'warning',
@@ -203,7 +210,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         logger.warn(
           {
             eventMessageId,
-            residentId,
+            residentId: issueResidentId,
             communityId,
             error: error instanceof Error ? error.message : String(error),
           },
@@ -226,7 +233,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         logger.info(
           {
             eventMessageId,
-            residentId,
+            residentId: issueResidentId,
             communityId,
             insuranceCount: maybeFullData.insurance?.length ?? 0,
             roomAssignmentsCount: maybeFullData.roomAssignments?.length ?? 0,
@@ -244,7 +251,12 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     await upsertResident(companyId, {
       source,
       externalResidentId: normalized.externalResidentId,
-      alisResidentId: residentId,
+      alisResidentId:
+        source === 'alis'
+          ? typeof residentId === 'number'
+            ? residentId
+            : issueResidentId
+          : null,
       status: normalized.status ?? 'unknown',
       productType: normalized.productType ?? null,
       classification: normalized.classification ?? null,
@@ -270,6 +282,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           companyId,
           companyKey,
           event: residentBundle.event,
+          residentBundle,
         });
       } catch (caspioError) {
         await recordEventIssue({
@@ -277,7 +290,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           source,
           eventType,
           eventMessageId,
-          residentId,
+          residentId: issueResidentId,
           communityId,
           stage: 'caspio_processing',
           severity: 'error',
@@ -288,7 +301,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
         logger.error(
           {
             eventMessageId,
-            residentId,
+            residentId: issueResidentId,
             error: caspioError instanceof Error ? caspioError.message : String(caspioError),
           },
           'caspio_event_processing_failed',
@@ -301,7 +314,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
           source,
           eventMessageId,
           eventType,
-          residentId,
+          residentId: issueResidentId,
         },
         'ehr_shadow_mode_enabled_caspio_write_skipped',
       );

@@ -14,12 +14,21 @@ import { getRedisConnection } from '../workers/connection.js';
 import {
   RESIDENT_BACKFILL_QUEUE,
   residentBackfillQueue,
+  YARDI_FHIR_POLL_QUEUE,
+  yardiFhirPollQueue,
 } from '../workers/queue.js';
+import { parseYardiFhirPollTargets } from '../integrations/yardi/yardiFhirPollConfig.js';
+import { YardiFhirClient } from '../integrations/yardi/yardiFhirClient.js';
 import { logger } from '../config/logger.js';
 import { alisWebhookHandler, handleWebhookBySource } from '../webhook/handler.js';
 import { env } from '../config/env.js';
 import { pushToCaspio } from '../integrations/caspio/pushToCaspio.js';
 import { upsertAlisCredential } from '../admin/credentials.js';
+import {
+  executeYardiFhirGetRequest,
+  getYardiFhirTestConfig,
+  testYardiFhirAuthentication,
+} from '../admin/yardiFhirTest.js';
 
 import type { AlisPayload } from '../integrations/alis/types.js';
 
@@ -45,6 +54,11 @@ router.get('/admin/backfill-residents', authAdmin, (_req, res) => {
 // Admin page: Event issue troubleshooting
 router.get('/admin/event-issues-page', authAdmin, (_req, res) => {
   res.redirect('/public/event-issues.html');
+});
+
+// Admin page: Yardi FHIR API tester
+router.get('/admin/yardi-fhir-test', authAdmin, (_req, res) => {
+  res.redirect('/public/yardi-fhir-test.html');
 });
 
 // Admin page: Event processing issues
@@ -577,6 +591,189 @@ router.get('/admin/backfill-residents/jobs/:jobId', authAdmin, async (req, res) 
   } catch (error) {
     logger.error({ error }, 'admin_backfill_residents_status_failed');
 
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/admin/yardi-fhir-sync/run', authAdmin, async (req, res) => {
+  try {
+    const companyKey = typeof req.body?.companyKey === 'string' ? req.body.companyKey.trim() : undefined;
+    const communityIdRaw = req.body?.communityId;
+    const organizationId =
+      typeof req.body?.organizationId === 'string' ? req.body.organizationId.trim() : undefined;
+    const skipCaspio = req.body?.skipCaspio === true;
+    const communityId =
+      typeof communityIdRaw === 'number'
+        ? communityIdRaw
+        : typeof communityIdRaw === 'string'
+          ? Number(communityIdRaw)
+          : undefined;
+
+    YardiFhirClient.assertConfigured();
+
+    if (companyKey || communityId !== undefined || organizationId) {
+      if (!companyKey || !organizationId || communityId === undefined || !Number.isFinite(communityId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'companyKey, communityId, and organizationId are required for targeted sync',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const company = await prisma.company.findUnique({ where: { companyKey } });
+      if (!company) {
+        return res.status(404).json({
+          success: false,
+          error: `Company not found for key '${companyKey}'`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    const jobId = companyKey
+      ? `yardi-fhir-sync-${companyKey}-${communityId}-${Date.now()}`
+      : `yardi-fhir-sync-all-${Date.now()}`;
+
+    const job = await yardiFhirPollQueue.add(
+      'yardi-fhir-poll-manual',
+      {
+        companyKey,
+        communityId,
+        organizationId,
+        skipCaspio,
+      },
+      {
+        jobId,
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+
+    return res.status(202).json({
+      success: true,
+      jobId: job.id,
+      queue: YARDI_FHIR_POLL_QUEUE,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_yardi_fhir_sync_failed');
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/admin/yardi-fhir-sync/config', authAdmin, (_req, res) => {
+  try {
+    const targets = parseYardiFhirPollTargets(env.YARDI_FHIR_POLL_TARGETS);
+    return res.json({
+      success: true,
+      pollEnabled: env.YARDI_FHIR_POLL_ENABLED,
+      pollIntervalMs: env.YARDI_FHIR_POLL_INTERVAL_MS,
+      targets,
+      configured: Boolean(env.YARDI_FHIR_TOKEN_URL && env.YARDI_FHIR_API_BASE_URL),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/admin/yardi-fhir-sync/jobs/:jobId', authAdmin, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = await yardiFhirPollQueue.getJob(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found',
+        jobId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const state = await job.getState();
+
+    return res.json({
+      success: true,
+      jobId: job.id,
+      state,
+      progress: job.progress ?? null,
+      returnValue: job.returnvalue ?? null,
+      failedReason: job.failedReason ?? null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_yardi_fhir_sync_status_failed');
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/admin/yardi-fhir-test/config', authAdmin, (_req, res) => {
+  return res.json({
+    success: true,
+    config: getYardiFhirTestConfig(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+router.post('/admin/yardi-fhir-test/auth', authAdmin, async (_req, res) => {
+  try {
+    logger.info('admin_yardi_fhir_test_auth_called');
+    const result = await testYardiFhirAuthentication();
+    return res.json({
+      ...result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_yardi_fhir_test_auth_failed');
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/admin/yardi-fhir-test/request', authAdmin, async (req, res) => {
+  try {
+    const path = typeof req.body?.path === 'string' ? req.body.path : '';
+    const params =
+      req.body?.params && typeof req.body.params === 'object' ? req.body.params : undefined;
+
+    if (!path.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'path is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info({ path, params }, 'admin_yardi_fhir_test_request_called');
+    const result = await executeYardiFhirGetRequest(path, params);
+
+    return res.status(result.success ? 200 : result.status).json({
+      success: result.success,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error({ error }, 'admin_yardi_fhir_test_request_failed');
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

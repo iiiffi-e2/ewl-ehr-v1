@@ -23,11 +23,12 @@ describe('YardiFhirAdapter', () => {
     jest.clearAllMocks();
     createHttpClientMock
       .mockReturnValueOnce({ post: postMock })
-      .mockReturnValueOnce({ get: getMock });
+      .mockReturnValue({ get: getMock });
 
     postMock.mockResolvedValue({
       data: {
         access_token: 'token-123',
+        expires_in: 300,
       },
     });
 
@@ -43,7 +44,7 @@ describe('YardiFhirAdapter', () => {
           },
         });
       }
-      if (url.startsWith('/Encounter')) {
+      if (url.startsWith('/Encounter') || url.startsWith('/Coverage') || url.startsWith('/Condition')) {
         return Promise.resolve({
           data: {
             resourceType: 'Bundle',
@@ -85,5 +86,20 @@ describe('YardiFhirAdapter', () => {
       status: 'active',
       dateOfBirth: '1944-02-10T00:00:00.000Z',
     });
+  });
+
+  it('accepts string FHIR patient ids', () => {
+    const adapter = new YardiFhirAdapter();
+    const event = adapter.parseInboundEvent({
+      CompanyKey: 'yardi-company',
+      EventType: 'patient.updated',
+      EventMessageId: 'fhir-evt-2',
+      EventMessageDate: '2026-04-03T12:00:00Z',
+      NotificationData: {
+        PatientId: '5881-2',
+      },
+    });
+
+    expect(adapter.resolveResidentId({ event })).toBe('5881-2');
   });
 });

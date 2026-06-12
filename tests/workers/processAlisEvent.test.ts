@@ -156,10 +156,11 @@ describe('processAlisEvent worker', () => {
       { field: 'PatientNumber', value: '70508' },
       { field: 'CUID', value: 'community-cuid' },
     ]);
-    expect(findByPatientNumberMock).toHaveBeenCalledWith('CarePatientTable_API', 70508);
+    expect(findByPatientNumberMock).toHaveBeenCalledWith('CarePatientTable_API', '70508');
     expect(handleEhrEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         source: 'alis',
+        residentBundle: expect.anything(),
         companyId: 10,
         companyKey: 'appstoresandbox',
         event: expect.objectContaining({
