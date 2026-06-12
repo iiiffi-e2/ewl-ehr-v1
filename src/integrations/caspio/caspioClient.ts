@@ -29,6 +29,9 @@ export type ServiceTableRecord = {
   Service_ID?: string;
   PatientNumber?: string;
   CUID?: string;
+  RoomNumber?: string;
+  // Legacy service column name kept for reading older rows during transition.
+  Room?: string;
   ServiceType?: string;
   StartDate?: string;
   EndDate?: string;
@@ -325,6 +328,30 @@ function normalizeComparable(value: unknown): string | undefined {
     return String(value);
   }
   return undefined;
+}
+
+function normalizeRoomNumberForMatch(value: unknown): string | undefined {
+  const normalized = normalizeComparable(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const compact = normalized.replace(/\s+/g, '');
+  return compact.length > 0 ? compact : undefined;
+}
+
+function getBaseRoomNumberForMatch(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/^(\d+)[A-Za-z]$/);
+  return match?.[1];
+}
+
+function normalizeCommunityNameForMatch(value: unknown): string | undefined {
+  const normalized = normalizeComparable(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const collapsed = normalized.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 0 ? collapsed.toLowerCase() : undefined;
 }
 
 function normalizeFieldKey(value: string): string {
@@ -826,21 +853,34 @@ export async function findCommunityById(
 }
 
 /**
- * Find community lookup record by CommunityID + RoomNumber (CommunityTable_API)
+ * Find community lookup record by CommunityID + CommunityName + RoomNumber (CommunityTable_API)
  */
 export async function findCommunityByIdAndRoomNumber(
   communityId: number,
   roomNumber: string,
+  communityName: string,
 ): Promise<{ found: boolean; record?: CommunityTableRecord }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
 
     try {
+      const normalizedCommunityName = communityName.trim();
+      const normalizedCommunityNameForMatch =
+        normalizeCommunityNameForMatch(normalizedCommunityName) ?? normalizedCommunityName;
       const normalizedRoom = roomNumber.trim();
-      const roomAsNumber = Number(normalizedRoom);
-      const roomFilterValues: Array<string | number> = Number.isFinite(roomAsNumber)
-        ? [normalizedRoom, roomAsNumber]
-        : [normalizedRoom];
+      const normalizedRoomForMatch = normalizeRoomNumberForMatch(normalizedRoom) ?? normalizedRoom;
+      const baseRoomForMatch = getBaseRoomNumberForMatch(normalizedRoomForMatch);
+      const roomMatchCandidates = [
+        normalizedRoomForMatch,
+        ...(baseRoomForMatch && baseRoomForMatch !== normalizedRoomForMatch ? [baseRoomForMatch] : []),
+      ];
+      const roomAsNumber = Number(normalizedRoomForMatch);
+      const roomFilterValues: Array<string | number> = Array.from(
+        new Set([normalizedRoom, normalizedRoomForMatch]),
+      );
+      if (Number.isFinite(roomAsNumber)) {
+        roomFilterValues.push(roomAsNumber);
+      }
 
       const communityFilterValues: Array<string | number> = [communityId, String(communityId)];
 
@@ -861,6 +901,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.info(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             scannedCount: scanned.length,
           },
@@ -871,6 +912,7 @@ export async function findCommunityByIdAndRoomNumber(
         for (const roomFilterValue of roomFilterValues) {
           const whereClause = buildWhereClause([
             { field: 'CommunityID', value: communityFilterValue },
+            { field: 'CommunityName', value: normalizedCommunityName },
             { field: 'RoomNumber', value: roomFilterValue },
           ]);
           try {
@@ -885,6 +927,7 @@ export async function findCommunityByIdAndRoomNumber(
               logger.warn(
                 {
                   communityId,
+                  communityName: normalizedCommunityName,
                   roomNumber: normalizedRoom,
                   whereClause,
                   status: error.response.status,
@@ -907,7 +950,7 @@ export async function findCommunityByIdAndRoomNumber(
         await appendFallbackScanRecords();
       }
 
-      const getExactMatches = () =>
+      const getExactMatches = (targetRoomNumber: string) =>
         records.filter((rec) => {
           const record = rec as Record<string, unknown>;
           const recordCommunityId = readComparableField(record, [
@@ -924,16 +967,21 @@ export async function findCommunityByIdAndRoomNumber(
             'ApartmentNumber',
             'Apartment',
           ]);
+          const recordCommunityName = readComparableField(record, [
+            'CommunityName',
+            'communityName',
+          ]);
           return (
             recordCommunityId === String(communityId) &&
-            recordRoomNumber === normalizedRoom
+            normalizeCommunityNameForMatch(recordCommunityName) === normalizedCommunityNameForMatch &&
+            normalizeRoomNumberForMatch(recordRoomNumber) === targetRoomNumber
           );
         }) as CommunityTableRecord[];
 
-      let exactMatches = getExactMatches();
+      let exactMatches = roomMatchCandidates.flatMap((candidate) => getExactMatches(candidate));
       if (exactMatches.length === 0 && !didFallbackScan) {
         await appendFallbackScanRecords();
-        exactMatches = getExactMatches();
+        exactMatches = roomMatchCandidates.flatMap((candidate) => getExactMatches(candidate));
       }
 
       if (exactMatches.length === 0) {
@@ -941,6 +989,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.debug(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             matchCount: records.length,
             sampleRecordKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
@@ -954,6 +1003,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.warn(
           {
             communityId,
+            communityName: normalizedCommunityName,
             roomNumber: normalizedRoom,
             matchCount: records.length,
             exactMatchCount: exactMatches.length,
@@ -969,7 +1019,7 @@ export async function findCommunityByIdAndRoomNumber(
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         logger.debug(
-          { communityId, roomNumber },
+          { communityId, communityName, roomNumber },
           'caspio_community_room_record_not_found_404',
         );
         return { found: false };
@@ -1259,6 +1309,80 @@ export async function findActiveOrLatestServiceRow(params: {
 
   sourceRows.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
   const selected = sourceRows[0];
+  return {
+    found: true,
+    id: selected.id,
+    record: selected.record as ServiceTableRecord,
+  };
+}
+
+export async function findOpenServiceRowByCuidAndServiceType(params: {
+  cuid: string;
+  serviceType: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const records = (await caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const cuidString = String(params.cuid).trim();
+    const serviceTypeString = String(params.serviceType).trim();
+    const cuidVariants: Array<string | number> = [cuidString];
+    const parsedCuid = Number(cuidString);
+    if (/^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
+      cuidVariants.push(parsedCuid);
+    }
+
+    const aggregated: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    const appendRecords = (rows: unknown[]) => {
+      for (const row of rows as Array<Record<string, unknown>>) {
+        const id = extractRecordId(row);
+        const key = id ?? JSON.stringify(row);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        aggregated.push(row);
+      }
+    };
+
+    for (const cuidVariant of cuidVariants) {
+      const whereClause = buildWhereClause([
+        { field: 'CUID', value: cuidVariant },
+        { field: 'ServiceType', value: serviceTypeString },
+      ]);
+      appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+    }
+
+    return aggregated;
+  })) as Array<Record<string, unknown>>;
+
+  const exactOpenMatches = records.filter((record) => {
+    const recordCuid = readComparableField(record, ['CUID', 'cuid']);
+    const recordServiceType = readComparableField(record, ['ServiceType', 'serviceType']);
+    return (
+      recordCuid === params.cuid &&
+      recordServiceType === params.serviceType &&
+      isOpenServiceEndDate(record.EndDate)
+    );
+  });
+
+  if (exactOpenMatches.length === 0) {
+    return { found: false };
+  }
+
+  const withIds = exactOpenMatches
+    .map((record) => ({ record, id: extractRecordId(record) }))
+    .filter((entry) => entry.id);
+
+  if (withIds.length === 0) {
+    logger.warn(
+      { cuid: params.cuid, serviceType: params.serviceType, matchCount: exactOpenMatches.length },
+      'caspio_open_service_rows_found_without_ids',
+    );
+    return { found: false };
+  }
+
+  withIds.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
+  const selected = withIds[0];
   return {
     found: true,
     id: selected.id,

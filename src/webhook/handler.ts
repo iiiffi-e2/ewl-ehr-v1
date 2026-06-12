@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { logger } from '../config/logger.js';
+import { errorToIssueDetails, recordEventIssue } from '../domains/eventIssues.js';
 import {
   markEventIgnored,
   markEventQueued,
@@ -44,6 +45,19 @@ export async function handleWebhookBySource(
   }
 
   if (!adapter.supportsEventType(event.eventType)) {
+    await recordEventIssue({
+      eventLogId: eventLog.id,
+      companyId: company.id,
+      source: event.source,
+      eventType: event.eventType,
+      eventMessageId: event.eventMessageId,
+      communityId: event.communityId ?? null,
+      stage: 'webhook_ignored',
+      severity: 'info',
+      message: `Unsupported event type ${event.eventType as string}`,
+      details: { payload: event },
+      retryable: false,
+    });
     await markEventIgnored(
       {
         companyId: company.id,
@@ -57,6 +71,19 @@ export async function handleWebhookBySource(
   }
 
   if (event.eventType === 'test.event') {
+    await recordEventIssue({
+      eventLogId: eventLog.id,
+      companyId: company.id,
+      source: event.source,
+      eventType: event.eventType,
+      eventMessageId: event.eventMessageId,
+      communityId: event.communityId ?? null,
+      stage: 'webhook_ignored',
+      severity: 'info',
+      message: 'Test event acknowledged',
+      details: { payload: event },
+      retryable: false,
+    });
     await markEventIgnored(
       {
         companyId: company.id,
@@ -94,6 +121,19 @@ export async function handleWebhookBySource(
       source,
     });
   } catch (queueError) {
+    await recordEventIssue({
+      eventLogId: eventLog.id,
+      companyId: company.id,
+      source: event.source,
+      eventType: event.eventType,
+      eventMessageId: event.eventMessageId,
+      communityId: event.communityId ?? null,
+      stage: 'queue_enqueue',
+      severity: 'error',
+      message: queueError instanceof Error ? queueError.message : String(queueError),
+      details: errorToIssueDetails(queueError),
+      retryable: true,
+    });
     logger.error(
       {
         jobId: event.eventMessageId,

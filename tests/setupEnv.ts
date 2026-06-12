@@ -14,6 +14,8 @@ process.env.ALIS_TEST_USERNAME =
   process.env.ALIS_TEST_USERNAME ?? 'eye-watch-live@appstoresandbox';
 process.env.ALIS_TEST_PASSWORD =
   process.env.ALIS_TEST_PASSWORD ?? '5z65rGwpY308kAB';
+process.env.ALIS_CREDENTIALS_MASTER_KEY =
+  process.env.ALIS_CREDENTIALS_MASTER_KEY ?? 'test-master-key';
 
 process.env.WEBHOOK_BASIC_USER = process.env.WEBHOOK_BASIC_USER ?? 'test-user';
 process.env.WEBHOOK_BASIC_PASS = process.env.WEBHOOK_BASIC_PASS ?? 'test-pass';

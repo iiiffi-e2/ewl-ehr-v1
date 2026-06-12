@@ -15,6 +15,7 @@ model Company {
   updatedAt   DateTime     @updatedAt
   residents   Resident[]
   events      EventLog[]
+  eventIssues EventProcessingIssue[]
   credential  Credential?
   alisCredential AlisCredential?
 }
@@ -67,7 +68,7 @@ model EventLog {
   companyId      Int
   communityId    Int?
   eventType      String
-  eventMessageId String    @unique
+  eventMessageId String
   payload        Json
   receivedAt     DateTime  @default(now())
   processedAt    DateTime?
@@ -75,6 +76,35 @@ model EventLog {
   error          String?
 
   company Company @relation(fields: [companyId], references: [id])
+  issues  EventProcessingIssue[]
 
+  @@unique([companyId, eventType, eventMessageId])
   @@index([companyId, eventType])
+}
+
+model EventProcessingIssue {
+  id             Int       @id @default(autoincrement())
+  eventLogId     Int?
+  companyId      Int
+  eventType      String
+  eventMessageId String
+  residentId     Int?
+  communityId    Int?
+  stage          String
+  severity       String
+  message        String
+  details        Json?
+  retryable      Boolean   @default(false)
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  eventLog EventLog? @relation(fields: [eventLogId], references: [id])
+  company  Company   @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([eventLogId])
+  @@index([eventMessageId])
+  @@index([stage])
+  @@index([severity])
+  @@index([resolvedAt])
 }

@@ -40,16 +40,27 @@ function getStringField(
   return undefined;
 }
 
+function normalizeCommunityName(value?: string | number | null): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const normalized = String(value).trim().replace(/\s+/g, ' ');
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export async function getCommunityEnrichment(
   communityId: number,
   roomNumber?: string | number | null,
+  communityName?: string | number | null,
 ): Promise<CommunityEnrichment> {
   const enrichment: CommunityEnrichment = {};
+  const normalizedRoom = normalizeRoomNumber(roomNumber);
+  const requestedCommunityName = normalizeCommunityName(communityName);
 
   const communityLookup = await findCommunityById(communityId);
   if (communityLookup.found) {
     const record = communityLookup.record;
-    enrichment.CUID = getStringField(record, 'CUID');
+    if (!normalizedRoom) {
+      enrichment.CUID = getStringField(record, 'CUID');
+    }
     enrichment.CommunityID = getStringField(record, 'CommunityID');
     enrichment.CommunityGroup = getStringField(record, 'CommunityGroup');
     enrichment.CommunityName = getStringField(record, 'CommunityName');
@@ -60,9 +71,13 @@ export async function getCommunityEnrichment(
     enrichment.Sector = getStringField(record, 'Sector');
   }
 
-  const normalizedRoom = normalizeRoomNumber(roomNumber);
-  if (normalizedRoom) {
-    const roomLookup = await findCommunityByIdAndRoomNumber(communityId, normalizedRoom);
+  const lookupCommunityName = requestedCommunityName ?? enrichment.CommunityName;
+  if (normalizedRoom && lookupCommunityName) {
+    const roomLookup = await findCommunityByIdAndRoomNumber(
+      communityId,
+      normalizedRoom,
+      lookupCommunityName,
+    );
     if (roomLookup.found) {
       const record = roomLookup.record;
       // Room-level match is the most specific source for patient/service routing.
@@ -88,6 +103,7 @@ export async function getCommunityEnrichment(
     {
       communityId,
       hasRoomNumber: Boolean(normalizedRoom),
+      hasCommunityName: Boolean(lookupCommunityName),
       enrichedKeys: Object.keys(enrichment),
     },
     'caspio_community_enrichment_complete',

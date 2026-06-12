@@ -25,6 +25,7 @@ function buildPayload(): AlisPayload {
         ProductType: 'Assisted Living',
         PhysicalMoveInDate: '2024-01-01T00:00:00Z',
         IsOnLeave: false,
+        rooms: [{ roomNumber: '101', room: '101' }],
       },
       basicInfo: {
         ResidentId: 12345,
@@ -110,9 +111,78 @@ describe('caspioMapper new table mappings', () => {
     expect(record.PatientNumber).not.toContain('_');
     expect(record.CUID).toBe('259');
     expect(record.PatientCommunity).toBe('Sunset Manor');
-    expect(record.ApartmentNumber).toBe('101');
+    expect(record.RoomNumber).toBe('101');
     expect(record.Diagnosis1).toBe('Hypertension');
     expect(record.Diagnosis2).toBe('Diabetes');
+  });
+
+  it('uses resident room value when ALIS has already applied bed suffix rules', () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).rooms = [
+      {
+        roomNumber: '303',
+        bed: 'A',
+        room: '303',
+      },
+    ];
+    payload.data.roomAssignments = [
+      {
+        roomNumber: '303',
+        bedLetter: 'A',
+        isActiveAssignment: true,
+      },
+    ] as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+
+    expect(record.RoomNumber).toBe('303');
+  });
+
+  it('uses combined resident room value when ALIS includes a bed suffix', () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).rooms = [
+      {
+        roomNumber: '111',
+        bed: 'B',
+        room: '111 B',
+      },
+    ];
+    payload.data.roomAssignments = [
+      {
+        roomNumber: '111',
+        bedLetter: 'B',
+        isActiveAssignment: true,
+      },
+    ] as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+
+    expect(record.RoomNumber).toBe('111B');
+  });
+
+  it('does not fall back to room assignments when resident rooms is null', () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).rooms = null;
+    payload.data.roomAssignments = [
+      {
+        roomNumber: '303',
+        bedLetter: 'A',
+        isActiveAssignment: true,
+      },
+    ] as any;
+
+    const record = mapPatientRecord(payload, {
+      CUID: '893',
+      CommunityName: 'YourLife Pensacola',
+    });
+
+    expect(record.RoomNumber).toBeUndefined();
   });
 
   it('sanitizes diagnosis fields to a safe compact value', () => {

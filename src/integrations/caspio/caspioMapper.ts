@@ -78,6 +78,8 @@ export type CarePatientTableApiRecord = {
   PatientDOB?: string;
   PatientCommunity?: string;
   PatientAddress?: string;
+  RoomNumber?: string;
+  // Legacy Caspio column name kept for reading older rows during transition.
   ApartmentNumber?: string;
   PatientAddressCity?: string;
   PatientAddressState?: string;
@@ -122,6 +124,9 @@ export type ServiceTableApiRecord = {
   Service_ID: string;
   PatientNumber?: string;
   CUID?: string;
+  RoomNumber?: string;
+  // Legacy Caspio column name kept for reading older rows during transition.
+  Room?: string;
   ServiceType?: string;
   StartDate?: string;
   EndDate?: string;
@@ -197,40 +202,35 @@ function getBooleanValue(
   return undefined;
 }
 
+function normalizeRoomValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, '');
+  return compact.length > 0 ? compact : undefined;
+}
+
+function getRoomValue(record: Record<string, unknown> | undefined): string | undefined {
+  const combinedRoom = normalizeRoomValue(getStringValue(record, ['Room', 'room']));
+  if (combinedRoom) return combinedRoom;
+
+  return normalizeRoomValue(getStringValue(record, ['RoomNumber', 'roomNumber']));
+}
+
 /**
  * Get active room assignment room number
  */
 function getActiveRoomNumber(
-  roomAssignments: Array<Record<string, unknown>> | undefined,
+  _roomAssignments: Array<Record<string, unknown>> | undefined,
   rooms: Array<Record<string, unknown>> | undefined,
 ): string | undefined {
-  // Prefer active room assignment
-  if (roomAssignments && roomAssignments.length > 0) {
-    const activeAssignment = roomAssignments.find(
-      (ra) =>
-        getBooleanValue(ra, ['IsPrimary', 'isPrimary']) === true ||
-        getBooleanValue(ra, ['IsActiveAssignment', 'isActiveAssignment']) === true,
-    );
-    if (activeAssignment) {
-      const roomNum = getStringValue(activeAssignment, ['RoomNumber', 'roomNumber']);
-      if (roomNum) return roomNum;
-    }
-    // Fallback to first assignment
-    const firstRoomNum = getStringValue(roomAssignments[0], ['RoomNumber', 'roomNumber']);
-    if (firstRoomNum) return firstRoomNum;
-  }
-
-  // Fallback to rooms array
   if (rooms && rooms.length > 0) {
     const primaryRoom = rooms.find(
       (r) => getBooleanValue(r, ['IsPrimary', 'isPrimary']) === true,
     );
     if (primaryRoom) {
-      const roomNum = getStringValue(primaryRoom, ['RoomNumber', 'roomNumber']);
+      const roomNum = getRoomValue(primaryRoom);
       if (roomNum) return roomNum;
     }
-    // Fallback to first room
-    const firstRoomNum = getStringValue(rooms[0], ['RoomNumber', 'roomNumber']);
+    const firstRoomNum = getRoomValue(rooms[0]);
     if (firstRoomNum) return firstRoomNum;
   }
 
@@ -533,7 +533,7 @@ export function mapPatientRecord(
     FirstName: firstName,
     PatientDOB: dob,
     PatientCommunity: community.CommunityName ?? getStringValue(communityPayload, ['CommunityName', 'communityName']),
-    ApartmentNumber: apartmentNumber,
+    RoomNumber: apartmentNumber,
     PatientAddress: patientAddress,
     PatientAddressCity: patientAddressCity,
     PatientAddressState: patientAddressState,
@@ -588,6 +588,7 @@ export function mapPatientRecord(
 export function mapServiceRecord(params: {
   patientNumber?: string | number;
   cuid?: string;
+  roomNumber?: string;
   serviceType?: string;
   startDate?: string;
   endDate?: string;
@@ -606,6 +607,7 @@ export function mapServiceRecord(params: {
     Service_ID: params.serviceId ?? deterministicServiceId,
     PatientNumber: patientNumber,
     CUID: params.cuid,
+    RoomNumber: params.roomNumber,
     ServiceType: params.serviceType,
     StartDate: params.startDate,
     EndDate: params.endDate,
@@ -812,7 +814,7 @@ export function mapAlisPayloadToCaspioRecord(payload: AlisPayload): CaspioRecord
     }
   }
 
-  // Insurance mapping - normalize medical insurances with Medicare-first ordering
+  // Insurance mapping - primary slot = Medicare/Medical, secondary slot = any other company
   const { slot1, slot2 } = normalizeMedicalInsurances(data.insurance ?? []);
 
   const insuranceName = slot1?.name ?? null;

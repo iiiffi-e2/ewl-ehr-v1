@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Issue Log</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    header,
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+
+    header {
+      padding: 20px;
+    }
+
+    h1 {
+      color: #58a6ff;
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle,
+    .muted {
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    .filters {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #8b949e;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 9px 10px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: 14px;
+    }
+
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    button:hover {
+      background: #2ea043;
+    }
+
+    button.secondary {
+      background: #21262d;
+      border: 1px solid #30363d;
+    }
+
+    button.secondary:hover {
+      background: #30363d;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .stat-card h3 {
+      color: #8b949e;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+      color: #58a6ff;
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .summary-list {
+      padding: 14px;
+    }
+
+    .summary-list h2,
+    .issues-header h2 {
+      color: #c9d1d9;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #30363d;
+      padding: 9px 0;
+      gap: 12px;
+    }
+
+    .summary-row:first-of-type {
+      border-top: none;
+    }
+
+    .issues-header {
+      padding: 14px;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1100px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #30363d;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      color: #8b949e;
+      font-size: 12px;
+      text-transform: uppercase;
+      background: #0d1117;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr:hover td {
+      background: #0d1117;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .severity-error {
+      background: rgba(248, 81, 73, 0.15);
+      color: #f85149;
+      border: 1px solid rgba(248, 81, 73, 0.35);
+    }
+
+    .severity-warning {
+      background: rgba(210, 153, 34, 0.15);
+      color: #d29922;
+      border: 1px solid rgba(210, 153, 34, 0.35);
+    }
+
+    .severity-info {
+      background: rgba(88, 166, 255, 0.15);
+      color: #58a6ff;
+      border: 1px solid rgba(88, 166, 255, 0.35);
+    }
+
+    .message {
+      max-width: 340px;
+      line-height: 1.4;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+      font-size: 12px;
+      color: #a5d6ff;
+    }
+
+    details {
+      margin-top: 8px;
+    }
+
+    summary {
+      cursor: pointer;
+      color: #58a6ff;
+      font-size: 12px;
+    }
+
+    pre {
+      margin-top: 8px;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #010409;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+      max-width: 520px;
+      max-height: 280px;
+      overflow: auto;
+    }
+
+    .empty,
+    .error {
+      padding: 24px;
+      text-align: center;
+      color: #8b949e;
+    }
+
+    .error {
+      color: #f85149;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Event Issue Log</h1>
+      <div class="subtitle">Search webhook processing issues, Caspio skips, and retryable failures over time.</div>
+    </header>
+
+    <div class="card">
+      <form class="filters" id="filters">
+        <div>
+          <label for="hours">Quick Window</label>
+          <select id="hours" name="hours">
+            <option value="24">Last 24 hours</option>
+            <option value="72">Last 3 days</option>
+            <option value="168">Last 7 days</option>
+            <option value="">Custom / all time</option>
+          </select>
+        </div>
+        <div>
+          <label for="from">From</label>
+          <input id="from" name="from" type="datetime-local">
+        </div>
+        <div>
+          <label for="to">To</label>
+          <input id="to" name="to" type="datetime-local">
+        </div>
+        <div>
+          <label for="severity">Severity</label>
+          <select id="severity" name="severity">
+            <option value="">Any</option>
+            <option value="error">Error</option>
+            <option value="warning">Warning</option>
+            <option value="info">Info</option>
+          </select>
+        </div>
+        <div>
+          <label for="stage">Stage</label>
+          <input id="stage" name="stage" placeholder="e.g. caspio_patient_lookup">
+        </div>
+        <div>
+          <label for="eventType">Event Type</label>
+          <input id="eventType" name="eventType" placeholder="e.g. residents.basic_info_updated">
+        </div>
+        <div>
+          <label for="eventMessageId">Event Message ID</label>
+          <input id="eventMessageId" name="eventMessageId" placeholder="Exact ID">
+        </div>
+        <div>
+          <label for="residentId">Resident ID</label>
+          <input id="residentId" name="residentId" inputmode="numeric" placeholder="e.g. 71667">
+        </div>
+        <div>
+          <label for="limit">Limit</label>
+          <input id="limit" name="limit" inputmode="numeric" value="100">
+        </div>
+        <div>
+          <label for="unresolvedOnly">Resolved</label>
+          <select id="unresolvedOnly" name="unresolvedOnly">
+            <option value="">All</option>
+            <option value="true">Unresolved only</option>
+          </select>
+        </div>
+        <div>
+          <button type="submit">Apply Filters</button>
+        </div>
+        <div>
+          <button type="button" class="secondary" id="reset">Reset</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <h3>Returned</h3>
+        <div class="value" id="returnedCount">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Total Matching</h3>
+        <div class="value" id="totalCount">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Unresolved</h3>
+        <div class="value" id="unresolvedCount">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Last Loaded</h3>
+        <div class="value" id="lastLoaded">-</div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="card summary-list">
+        <h2>By Severity</h2>
+        <div id="severitySummary" class="muted">No data loaded.</div>
+      </div>
+      <div class="card summary-list">
+        <h2>Top Stages</h2>
+        <div id="stageSummary" class="muted">No data loaded.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="issues-header">
+        <div>
+          <h2>Issues</h2>
+          <div class="muted" id="activeFilters">Loading...</div>
+        </div>
+        <button type="button" class="secondary" id="refresh">Refresh</button>
+      </div>
+      <div class="table-wrap" id="issuesTable"></div>
+    </div>
+  </div>
+
+  <script>
+    const filters = document.getElementById('filters');
+    const issuesTable = document.getElementById('issuesTable');
+    const returnedCount = document.getElementById('returnedCount');
+    const totalCount = document.getElementById('totalCount');
+    const unresolvedCount = document.getElementById('unresolvedCount');
+    const lastLoaded = document.getElementById('lastLoaded');
+    const severitySummary = document.getElementById('severitySummary');
+    const stageSummary = document.getElementById('stageSummary');
+    const activeFilters = document.getElementById('activeFilters');
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function toIsoFromLocal(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+    }
+
+    function formatDate(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
+    }
+
+    function getParams() {
+      const formData = new FormData(filters);
+      const params = new URLSearchParams();
+      for (const [key, value] of formData.entries()) {
+        const normalized = String(value).trim();
+        if (!normalized) continue;
+        if (key === 'from' || key === 'to') {
+          const iso = toIsoFromLocal(normalized);
+          if (iso) params.set(key, iso);
+          continue;
+        }
+        params.set(key, normalized);
+      }
+      if (params.has('from') || params.has('to')) {
+        params.delete('hours');
+      }
+      return params;
+    }
+
+    function renderSummary(target, rows, keyName) {
+      if (!rows || rows.length === 0) {
+        target.innerHTML = '<div class="muted">No matching data.</div>';
+        return;
+      }
+      target.innerHTML = rows.map((row) => `
+        <div class="summary-row">
+          <span class="mono">${escapeHtml(row[keyName])}</span>
+          <strong>${escapeHtml(row.count)}</strong>
+        </div>
+      `).join('');
+    }
+
+    function renderIssues(issues) {
+      if (!issues || issues.length === 0) {
+        issuesTable.innerHTML = '<div class="empty">No issues match the selected filters.</div>';
+        return;
+      }
+
+      issuesTable.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Created</th>
+              <th>Severity</th>
+              <th>Stage</th>
+              <th>Resident</th>
+              <th>Event</th>
+              <th>Message</th>
+              <th>Retryable</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${issues.map((issue) => `
+              <tr>
+                <td>${escapeHtml(formatDate(issue.createdAt))}</td>
+                <td><span class="badge severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span></td>
+                <td class="mono">${escapeHtml(issue.stage)}</td>
+                <td>
+                  <div>${escapeHtml(issue.residentId ?? '-')}</div>
+                  <div class="muted">Community: ${escapeHtml(issue.communityId ?? '-')}</div>
+                  <div class="muted">Company: ${escapeHtml(issue.companyKey ?? '-')}</div>
+                </td>
+                <td>
+                  <div class="mono">${escapeHtml(issue.eventType)}</div>
+                  <div class="muted">${escapeHtml(issue.eventMessageId)}</div>
+                </td>
+                <td class="message">
+                  ${escapeHtml(issue.message)}
+                  <details>
+                    <summary>Details</summary>
+                    <pre>${escapeHtml(JSON.stringify(issue.details ?? {}, null, 2))}</pre>
+                  </details>
+                </td>
+                <td>${issue.retryable ? 'Yes' : 'No'}</td>
+                <td>
+                  <div>${escapeHtml(issue.eventStatus ?? '-')}</div>
+                  <div class="muted">Resolved: ${issue.resolvedAt ? escapeHtml(formatDate(issue.resolvedAt)) : 'No'}</div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function loadIssues() {
+      const params = getParams();
+      activeFilters.textContent = params.toString() ? `Filters: ${params.toString()}` : 'No filters applied.';
+      issuesTable.innerHTML = '<div class="empty">Loading issues...</div>';
+
+      try {
+        const response = await fetch(`/admin/event-issues?${params.toString()}`, {
+          headers: { 'Accept': 'application/json' },
+          credentials: 'include',
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || `Request failed with status ${response.status}`);
+        }
+
+        returnedCount.textContent = data.count ?? 0;
+        totalCount.textContent = data.totalCount ?? 0;
+        unresolvedCount.textContent = data.unresolvedCount ?? 0;
+        lastLoaded.textContent = new Date().toLocaleTimeString();
+        renderSummary(severitySummary, data.summary?.severity, 'severity');
+        renderSummary(stageSummary, data.summary?.stage, 'stage');
+        renderIssues(data.issues);
+      } catch (error) {
+        issuesTable.innerHTML = `<div class="error">${escapeHtml(error.message || String(error))}</div>`;
+      }
+    }
+
+    filters.addEventListener('submit', (event) => {
+      event.preventDefault();
+      loadIssues();
+    });
+
+    document.getElementById('refresh').addEventListener('click', loadIssues);
+    document.getElementById('reset').addEventListener('click', () => {
+      filters.reset();
+      document.getElementById('hours').value = '24';
+      document.getElementById('limit').value = '100';
+      loadIssues();
+    });
+
+    loadIssues();
+  </script>
+</body>
+</html>

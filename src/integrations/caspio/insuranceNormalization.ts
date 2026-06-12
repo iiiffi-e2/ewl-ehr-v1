@@ -60,7 +60,7 @@ function mapInsurance(insurance: InsuranceRecord): NormalizedInsurance {
     'insuranceNumber',
     'InsuranceNumber',
   ]);
-  const isMedicare = containsIgnoreCase(name, 'medicare') || containsIgnoreCase(type, 'medicare');
+  const isMedicare = isMedicareOrMedicaidName(name);
 
   return {
     name,
@@ -71,49 +71,38 @@ function mapInsurance(insurance: InsuranceRecord): NormalizedInsurance {
   };
 }
 
+function isMedicareOrMedicaidName(name: string | null): boolean {
+  return containsIgnoreCase(name, 'medicare') || containsIgnoreCase(name, 'medicaid');
+}
+
+/**
+ * Splits a resident's insurances into a primary and secondary slot.
+ *
+ * Rules:
+ * - Type is never used for filtering; all insurances are candidates.
+ * - Only the first two insurances are considered; any additional ones
+ *   (e.g. a 3rd) are ignored.
+ * - Primary (slot1) is the insurance whose name contains "medicare" or
+ *   "medicaid". If only the second of the two is Medicare/Medicaid, it is
+ *   promoted ahead of the other.
+ * - Otherwise the original order is preserved (first = primary,
+ *   second = secondary), so two "other" companies or two Medicare/Medicaid
+ *   plans keep their listed order.
+ */
 export function normalizeMedicalInsurances(insurances: any[]): {
   slot1: NormalizedInsurance | null;
   slot2: NormalizedInsurance | null;
 } {
   const list = Array.isArray(insurances) ? insurances : [];
 
-  const medicalInsurances = list
-    .filter((insurance) => {
-      const record = insurance as InsuranceRecord;
-      const name = getStringValue(record, [
-        'payerName',
-        'PayerName',
-        'insuranceName',
-        'InsuranceName',
-        'name',
-        'Name',
-      ]);
-      const type = getStringValue(record, [
-        'type',
-        'Type',
-        'insuranceType',
-        'InsuranceType',
-        'planType',
-        'PlanType',
-      ]);
-
-      const nameHasMedicare = containsIgnoreCase(name, 'medicare');
-      const typeHasMedical = containsIgnoreCase(type, 'medical');
-
-      if (type) {
-        return typeHasMedical || nameHasMedicare;
-      }
-      return nameHasMedicare;
-    })
-    .map((insurance) => mapInsurance(insurance as InsuranceRecord));
-
-  const selected = medicalInsurances.slice(0, 2);
-  let slot1 = selected[0] ?? null;
-  let slot2 = selected[1] ?? null;
+  const selected = list.slice(0, 2);
+  let slot1 = selected[0] ? mapInsurance(selected[0] as InsuranceRecord) : null;
+  let slot2 = selected[1] ? mapInsurance(selected[1] as InsuranceRecord) : null;
 
   if (slot1 && slot2 && !slot1.isMedicare && slot2.isMedicare) {
+    const temp = slot1;
     slot1 = slot2;
-    slot2 = selected[0] ?? null;
+    slot2 = temp;
   }
 
   return { slot1, slot2 };

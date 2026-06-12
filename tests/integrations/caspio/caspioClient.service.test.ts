@@ -187,4 +187,47 @@ describe('caspioClient service helpers', () => {
     expect((result.record as Record<string, unknown>).PatientNumber).toBe('71701');
     expect((result.record as Record<string, unknown>).CUID).toBe('263');
   });
+
+  it('finds open service row by CUID and ServiceType without PatientNumber', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        {
+          Service_ID: 501,
+          CUID: '222',
+          ServiceType: 'Vacant',
+          StartDate: '03/01/2026 00:00:00',
+          EndDate: '03/15/2026 00:00:00',
+        },
+        {
+          Service_ID: 502,
+          CUID: '222',
+          ServiceType: 'Vacant',
+          StartDate: '03/15/2026 00:00:00',
+          EndDate: '',
+        },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findOpenServiceRowByCuidAndServiceType } = await import('../../../src/integrations/caspio/caspioClient.js');
+    const result = await findOpenServiceRowByCuidAndServiceType({
+      cuid: '222',
+      serviceType: 'Vacant',
+    });
+
+    expect(result.found).toBe(true);
+    expect(result.id).toBe('502');
+    expect((result.record as Record<string, unknown>).PatientNumber).toBeUndefined();
+  });
 });

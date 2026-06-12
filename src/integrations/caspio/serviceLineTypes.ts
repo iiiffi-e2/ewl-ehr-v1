@@ -12,3 +12,10 @@ export const SERVICE_LINE_UNASSIGNED_CLASSIFICATION = 'Unassigned';
  * Uses the same Caspio label as room vacancy (historically misspelled as "Vacay" in code).
  */
 export const POST_MOVE_OUT_RESIDENT_SERVICE_TYPE = ROOM_VACANCY_SERVICE_TYPE;
+
+/**
+ * CarePatientTable RoomNumber sentinel for a resident who has been unassigned from
+ * their room but remains in the community (no move-out). Distinct in meaning from the
+ * `SERVICE_LINE_UNASSIGNED_CLASSIFICATION` ServiceType even though the string matches.
+ */
+export const UNASSIGNED_ROOM_LABEL = 'Unassigned';
