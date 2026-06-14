@@ -1,4 +1,8 @@
-import { buildYardiPulledDataSummary } from '../../../src/integrations/yardi/yardiFhirSync.js';
+import {
+  buildYardiPulledDataSummary,
+  extractYardiCommunityName,
+  resolveEffectiveCuid,
+} from '../../../src/integrations/yardi/yardiFhirSync.js';
 import type { YardiFhirPatientBundle } from '../../../src/integrations/yardi/yardiFhirTypes.js';
 
 describe('yardiFhirSync helpers', () => {
@@ -57,5 +61,31 @@ describe('yardiFhirSync helpers', () => {
       encounterCount: 1,
       roomNumber: '101',
     });
+  });
+
+  it('extracts community name from encounter serviceProvider display', () => {
+    const name = extractYardiCommunityName({
+      patientId: '31533-2',
+      patient: null,
+      encounterBundle: {
+        entry: [
+          {
+            resource: {
+              resourceType: 'Encounter',
+              serviceProvider: { display: 'EyeWatch Live TEST (eyewatch)' },
+            },
+          },
+        ],
+      },
+      coverageBundle: {},
+      conditionBundle: {},
+    });
+
+    expect(name).toBe('EyeWatch Live TEST (eyewatch)');
+  });
+
+  it('resolves a stable fallback CUID when enrichment is missing one', () => {
+    expect(resolveEffectiveCuid({}, 237, '100')).toBe('COMM-237-100');
+    expect(resolveEffectiveCuid({ CUID: '965' }, 237, '100')).toBe('965');
   });
 });

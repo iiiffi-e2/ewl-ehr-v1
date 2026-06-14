@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { format, parseISO } from 'date-fns';
 
 import { env } from '../../config/env.js';
@@ -6,7 +7,10 @@ import { prisma } from '../../db/prisma.js';
 import { upsertResident } from '../../domains/residents.js';
 import type { CanonicalResidentBundle } from '../ehr/types.js';
 import { caspioRequestWithRetry, upsertByFields } from '../caspio/caspioClient.js';
-import { getCommunityEnrichment } from '../caspio/caspioCommunityEnrichment.js';
+import {
+  getCommunityEnrichment,
+  type CommunityEnrichment,
+} from '../caspio/caspioCommunityEnrichment.js';
 import { mapServiceRecord } from '../caspio/caspioMapper.js';
 import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../caspio/serviceLineTypes.js';
 
@@ -41,6 +45,7 @@ export async function runYardiFhirSyncForTarget(
     companyKey: target.companyKey,
     communityId: target.communityId,
     organizationId: target.organizationId,
+    skipCaspio: options.skipCaspio === true,
     startedAt,
     completedAt: startedAt,
     patientsDiscovered: 0,
@@ -190,7 +195,7 @@ export async function runYardiFhirSyncForTarget(
       summary.patientsSucceeded += 1;
     } catch (error) {
       summary.patientsFailed += 1;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatSyncError(error);
       detail.error = message;
       summary.errors.push({ patientId, message });
       logger.warn(
@@ -273,6 +278,55 @@ function formatCaspioDate(value: string | null | undefined): string | undefined 
   }
 }
 
+function isCommunityCuidConflict(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+    return false;
+  }
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const code = typeof data?.Code === 'string' ? data.Code : '';
+  const message = typeof data?.Message === 'string' ? data.Message : '';
+  return (
+    code === 'SqlServerError' &&
+    message.includes("duplicate or blank values are not allowed in field 'CUID'")
+  );
+}
+
+function formatSyncError(error: unknown): string {
+  if (axios.isAxiosError(error) && error.response?.data) {
+    const data = error.response.data as Record<string, unknown>;
+    if (typeof data.Message === 'string' && data.Message.trim().length > 0) {
+      return `Caspio: ${data.Message}`;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function extractYardiCommunityName(bundle: YardiFhirPatientBundle): string | undefined {
+  const entries = bundle.encounterBundle?.entry ?? [];
+  for (const entry of entries) {
+    const encounter = entry?.resource;
+    if (!encounter || typeof encounter !== 'object') continue;
+    const serviceProvider = (encounter as Record<string, unknown>).serviceProvider as
+      | { display?: string }
+      | undefined;
+    const display = serviceProvider?.display?.trim();
+    if (display) return display;
+  }
+  return undefined;
+}
+
+export function resolveEffectiveCuid(
+  enrichment: CommunityEnrichment,
+  communityId: number,
+  roomNumber?: string | null,
+): string {
+  const fromEnrichment = enrichment.CUID?.trim();
+  if (fromEnrichment) return fromEnrichment;
+  const room = roomNumber?.trim();
+  if (room) return `COMM-${communityId}-${room}`;
+  return `COMM-${communityId}`;
+}
+
 function getCaspioTableNames(): YardiFhirCaspioPushPlan['tables'] {
   return {
     patient: env.CASPIO_TABLE_NAME,
@@ -319,9 +373,16 @@ export async function buildYardiFhirCaspioRecords(
     throw new Error('Missing Yardi FHIR vendor payload for Caspio push');
   }
 
-  const enrichment = await getCommunityEnrichment(communityId, bundle.demographics.roomNumber ?? undefined);
+  const communityName = extractYardiCommunityName(vendorPayload);
+  const enrichment = await getCommunityEnrichment(
+    communityId,
+    bundle.demographics.roomNumber ?? undefined,
+    communityName,
+  );
+  const cuid = resolveEffectiveCuid(enrichment, communityId, bundle.demographics.roomNumber);
   const coverageNames = getYardiCoverageNames(vendorPayload);
   const conditions = getYardiConditionTexts(vendorPayload);
+  const resolvedCommunityName = enrichment.CommunityName ?? communityName;
 
   const patientRecord = {
     PatientNumber: bundle.demographics.externalResidentId,
@@ -339,14 +400,14 @@ export async function buildYardiFhirCaspioRecords(
     On_Prem_Date: formatCaspioDate(bundle.demographics.onPremDate),
     Off_Prem: bundle.demographics.offPrem ?? undefined,
     Off_Prem_Date: formatCaspioDate(bundle.demographics.offPremDate),
-    CUID: enrichment.CUID,
-    CommunityName: enrichment.CommunityName,
-    PatientCommunity: enrichment.CommunityName,
+    CUID: cuid,
+    CommunityName: resolvedCommunityName,
+    PatientCommunity: resolvedCommunityName,
   };
 
   const communityRecord = {
     CommunityID: String(communityId),
-    CUID: enrichment.CUID ?? `COMM-${communityId}`,
+    CUID: cuid,
     CommunityName: enrichment.CommunityName,
     CommunityGroup: enrichment.CommunityGroup,
     Neighborhood: enrichment.Neighborhood,
@@ -385,14 +446,29 @@ export async function pushYardiFhirCaspioRecords(records: {
   communityRecord: Record<string, unknown>;
   serviceRecord: Record<string, unknown>;
 }): Promise<void> {
-  if (records.communityRecord.CommunityID) {
-    await caspioRequestWithRetry(() =>
-      upsertByFields(
-        records.tables.community,
-        [{ field: 'CommunityID', value: String(records.communityRecord.CommunityID) }],
-        records.communityRecord,
-      ),
-    );
+  const cuid = records.communityRecord.CUID;
+  if (cuid) {
+    try {
+      await caspioRequestWithRetry(() =>
+        upsertByFields(
+          records.tables.community,
+          [{ field: 'CUID', value: String(cuid) }],
+          records.communityRecord,
+        ),
+      );
+    } catch (error) {
+      if (!isCommunityCuidConflict(error)) {
+        throw error;
+      }
+      logger.warn(
+        {
+          communityId: records.communityRecord.CommunityID,
+          cuid,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'yardi_fhir_caspio_community_upsert_skipped_cuid_conflict',
+      );
+    }
   }
 
   await caspioRequestWithRetry(() =>

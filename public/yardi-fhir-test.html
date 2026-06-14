@@ -389,9 +389,10 @@
       </div>
 
       <div class="checkbox-row">
-        <input id="syncSkipCaspio" type="checkbox">
+        <input id="syncSkipCaspio" type="checkbox" checked>
         <label for="syncSkipCaspio">Skip Caspio (save to local DB only)</label>
       </div>
+      <p class="muted">Leave checked for Yardi-only testing. Uncheck only when you want to push into the Caspio test tables.</p>
 
       <div class="button-row">
         <button type="button" id="runSyncButton">Run Yardi Pull</button>
@@ -679,6 +680,7 @@
           <div class="sync-summary-item"><strong>Succeeded</strong>${summary.patientsSucceeded ?? 0}</div>
           <div class="sync-summary-item"><strong>Failed</strong>${summary.patientsFailed ?? 0}</div>
           <div class="sync-summary-item"><strong>Since Date</strong>${escapeHtml(summary.sinceDate || '—')}</div>
+          <div class="sync-summary-item"><strong>Caspio</strong>${summary.skipCaspio ? 'Skipped' : 'Pushed'}</div>
         </div>
       `;
 

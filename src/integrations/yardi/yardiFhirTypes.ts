@@ -31,6 +31,7 @@ export type YardiFhirSyncSummary = {
   companyKey: string;
   communityId: number;
   organizationId: string;
+  skipCaspio?: boolean;
   startedAt: string;
   completedAt: string;
   sinceDate?: string;
