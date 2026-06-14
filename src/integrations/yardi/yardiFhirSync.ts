@@ -327,6 +327,33 @@ export function resolveEffectiveCuid(
   return `COMM-${communityId}`;
 }
 
+export function isSyntheticCommunityCuid(
+  cuid: string,
+  communityId: number,
+  roomNumber?: string | null,
+): boolean {
+  return cuid === resolveEffectiveCuid({}, communityId, roomNumber);
+}
+
+function buildServiceUpsertFilters(
+  serviceRecord: Record<string, unknown>,
+): Array<{ field: string; value: string | number | boolean }> {
+  const filters: Array<{ field: string; value: string | number | boolean }> = [];
+  if (serviceRecord.CUID) {
+    filters.push({ field: 'CUID', value: String(serviceRecord.CUID) });
+  }
+  if (serviceRecord.PatientNumber) {
+    filters.push({ field: 'PatientNumber', value: String(serviceRecord.PatientNumber) });
+  }
+  if (serviceRecord.ServiceType) {
+    filters.push({ field: 'ServiceType', value: String(serviceRecord.ServiceType) });
+  }
+  if (serviceRecord.StartDate) {
+    filters.push({ field: 'StartDate', value: String(serviceRecord.StartDate) });
+  }
+  return filters;
+}
+
 function getCaspioTableNames(): YardiFhirCaspioPushPlan['tables'] {
   return {
     patient: env.CASPIO_TABLE_NAME,
@@ -377,7 +404,6 @@ export async function buildYardiFhirCaspioRecords(
   const enrichment = await getCommunityEnrichment(
     communityId,
     bundle.demographics.roomNumber ?? undefined,
-    communityName,
   );
   const cuid = resolveEffectiveCuid(enrichment, communityId, bundle.demographics.roomNumber);
   const coverageNames = getYardiCoverageNames(vendorPayload);
@@ -446,13 +472,23 @@ export async function pushYardiFhirCaspioRecords(records: {
   communityRecord: Record<string, unknown>;
   serviceRecord: Record<string, unknown>;
 }): Promise<void> {
-  const cuid = records.communityRecord.CUID;
-  if (cuid) {
+  const communityId = Number(records.communityRecord.CommunityID ?? NaN);
+  const roomNumber =
+    typeof records.communityRecord.RoomNumber === 'string'
+      ? records.communityRecord.RoomNumber
+      : undefined;
+  const cuid = records.communityRecord.CUID ? String(records.communityRecord.CUID) : undefined;
+  const shouldUpsertCommunity =
+    Boolean(cuid) &&
+    Number.isFinite(communityId) &&
+    !isSyntheticCommunityCuid(cuid!, communityId, roomNumber);
+
+  if (shouldUpsertCommunity && cuid) {
     try {
       await caspioRequestWithRetry(() =>
         upsertByFields(
           records.tables.community,
-          [{ field: 'CUID', value: String(cuid) }],
+          [{ field: 'CUID', value: cuid }],
           records.communityRecord,
         ),
       );
@@ -464,7 +500,7 @@ export async function pushYardiFhirCaspioRecords(records: {
         {
           communityId: records.communityRecord.CommunityID,
           cuid,
-          message: error instanceof Error ? error.message : String(error),
+          message: formatSyncError(error),
         },
         'yardi_fhir_caspio_community_upsert_skipped_cuid_conflict',
       );
@@ -479,12 +515,14 @@ export async function pushYardiFhirCaspioRecords(records: {
     ),
   );
 
+  const { Service_ID: _serviceId, ...serviceRecordForWrite } = records.serviceRecord;
+  const serviceFilters = buildServiceUpsertFilters(serviceRecordForWrite);
+  if (serviceFilters.length === 0) {
+    throw new Error('Cannot upsert service record without CUID and identifying fields');
+  }
+
   await caspioRequestWithRetry(() =>
-    upsertByFields(
-      records.tables.service,
-      [{ field: 'Service_ID', value: String(records.serviceRecord.Service_ID) }],
-      records.serviceRecord,
-    ),
+    upsertByFields(records.tables.service, serviceFilters, serviceRecordForWrite),
   );
 }
 

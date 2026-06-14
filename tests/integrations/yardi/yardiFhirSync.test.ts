@@ -1,6 +1,7 @@
 import {
   buildYardiPulledDataSummary,
   extractYardiCommunityName,
+  isSyntheticCommunityCuid,
   resolveEffectiveCuid,
 } from '../../../src/integrations/yardi/yardiFhirSync.js';
 import type { YardiFhirPatientBundle } from '../../../src/integrations/yardi/yardiFhirTypes.js';
@@ -87,5 +88,10 @@ describe('yardiFhirSync helpers', () => {
   it('resolves a stable fallback CUID when enrichment is missing one', () => {
     expect(resolveEffectiveCuid({}, 237, '100')).toBe('COMM-237-100');
     expect(resolveEffectiveCuid({ CUID: '965' }, 237, '100')).toBe('965');
+  });
+
+  it('detects synthetic fallback CUIDs', () => {
+    expect(isSyntheticCommunityCuid('COMM-237-100', 237, '100')).toBe(true);
+    expect(isSyntheticCommunityCuid('965', 237, '100')).toBe(false);
   });
 });

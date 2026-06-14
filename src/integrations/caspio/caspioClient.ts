@@ -421,6 +421,16 @@ function parseMissingFieldsFromFieldNotFound(
     .filter((field): field is string => Boolean(field));
 }
 
+function isAlterReadOnlyDataError(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+    return false;
+  }
+  const responseData = error.response?.data as Record<string, unknown> | undefined;
+  return responseData?.Code === 'AlterReadOnlyData';
+}
+
+const READ_ONLY_INSERT_FIELDS = ['Service_ID', 'PK_ID'];
+
 function stripUnsupportedFieldsFromRecord(
   record: Record<string, unknown>,
   unsupportedFields: string[],
@@ -464,31 +474,63 @@ export async function insertRecord(
       });
     } catch (error) {
       const missingFields = parseMissingFieldsFromFieldNotFound(error);
-      const { sanitizedRecord, droppedFields } = stripUnsupportedFieldsFromRecord(
-        record,
-        missingFields,
-      );
+      if (missingFields.length > 0) {
+        const { sanitizedRecord, droppedFields } = stripUnsupportedFieldsFromRecord(
+          record,
+          missingFields,
+        );
 
-      if (droppedFields.length === 0 || Object.keys(sanitizedRecord).length === 0) {
-        throw error;
+        if (droppedFields.length === 0 || Object.keys(sanitizedRecord).length === 0) {
+          throw error;
+        }
+
+        logger.warn(
+          {
+            tableName,
+            droppedFields,
+            attemptedFieldCount: Object.keys(record).length,
+            retriedFieldCount: Object.keys(sanitizedRecord).length,
+          },
+          'caspio_retry_insert_without_unsupported_fields',
+        );
+
+        return apiClient.post(url, sanitizedRecord, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
       }
 
-      logger.warn(
-        {
-          tableName,
-          droppedFields,
-          attemptedFieldCount: Object.keys(record).length,
-          retriedFieldCount: Object.keys(sanitizedRecord).length,
-        },
-        'caspio_retry_insert_without_unsupported_fields',
-      );
+      if (isAlterReadOnlyDataError(error)) {
+        const { sanitizedRecord, droppedFields } = stripUnsupportedFieldsFromRecord(
+          record,
+          READ_ONLY_INSERT_FIELDS,
+        );
 
-      return apiClient.post(url, sanitizedRecord, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+        if (droppedFields.length === 0 || Object.keys(sanitizedRecord).length === 0) {
+          throw error;
+        }
+
+        logger.warn(
+          {
+            tableName,
+            droppedFields,
+            attemptedFieldCount: Object.keys(record).length,
+            retriedFieldCount: Object.keys(sanitizedRecord).length,
+          },
+          'caspio_retry_insert_without_readonly_fields',
+        );
+
+        return apiClient.post(url, sanitizedRecord, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+
+      throw error;
     }
   });
 }
