@@ -17,6 +17,52 @@ function pickPreferredName(patient: FhirPatient | null): { firstName?: string; l
   return { firstName, lastName: family };
 }
 
+function looksLikeRoomNumber(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^\d+[A-Za-z0-9-]*$/.test(trimmed);
+}
+
+function looksLikeBed(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 30) return false;
+  return /^[A-Za-z0-9\s-]+$/.test(trimmed);
+}
+
+function parseLocationDisplay(display: string): {
+  roomNumber?: string;
+  bed?: string;
+  room?: string;
+} {
+  const parts = display
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) {
+    return {};
+  }
+
+  const roomNumber = parts[parts.length - 2];
+  const bed = parts[parts.length - 1];
+  if (!looksLikeRoomNumber(roomNumber)) {
+    return {};
+  }
+
+  if (looksLikeBed(bed)) {
+    return {
+      roomNumber,
+      bed,
+      room: `${roomNumber} ${bed}`.trim(),
+    };
+  }
+
+  return {
+    roomNumber,
+    room: roomNumber,
+  };
+}
+
 function parseEncounterLocation(encounter: Record<string, unknown> | undefined): {
   roomNumber?: string;
   bed?: string;
@@ -47,21 +93,16 @@ function parseEncounterLocation(encounter: Record<string, unknown> | undefined):
   for (const locationEntry of locations) {
     const location = locationEntry.location as { display?: string } | undefined;
     const display = location?.display?.trim();
-    if (display) {
-      const parts = display.split(',').map((part) => part.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        const roomNumber = parts[parts.length - 2];
-        const bed = parts[parts.length - 1];
-        return {
-          roomNumber,
-          bed,
-          room: `${roomNumber} ${bed}`.trim(),
-          productType,
-          onPrem,
-          offPrem,
-        };
-      }
-      return { roomNumber: display, room: display, productType, onPrem, offPrem };
+    if (!display) continue;
+
+    const parsed = parseLocationDisplay(display);
+    if (parsed.roomNumber) {
+      return {
+        ...parsed,
+        productType,
+        onPrem,
+        offPrem,
+      };
     }
   }
 
@@ -69,14 +110,10 @@ function parseEncounterLocation(encounter: Record<string, unknown> | undefined):
   if (typeof textDiv === 'string') {
     const locationMatch = textDiv.match(/Location:<\/b>\s*([^<]+)/i);
     if (locationMatch?.[1]) {
-      const parts = locationMatch[1].split(',').map((part) => part.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        const roomNumber = parts[parts.length - 2];
-        const bed = parts[parts.length - 1];
+      const parsed = parseLocationDisplay(locationMatch[1]);
+      if (parsed.roomNumber) {
         return {
-          roomNumber,
-          bed,
-          room: `${roomNumber} ${bed}`.trim(),
+          ...parsed,
           productType,
           onPrem,
           offPrem,

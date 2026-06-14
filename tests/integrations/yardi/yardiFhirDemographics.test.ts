@@ -73,4 +73,51 @@ describe('yardiFhirDemographics', () => {
     expect(getYardiCoverageNames(bundle)).toEqual(['Medicare Part A']);
     expect(getYardiConditionTexts(bundle)).toEqual(['Hypertension']);
   });
+
+  it('does not treat a facility display name as a room number', () => {
+    const demographics = mapYardiFhirBundleToDemographics({
+      ...bundle,
+      encounterBundle: {
+        resourceType: 'Bundle',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Encounter',
+              status: 'in-progress',
+              type: [{ text: 'Provision of continuity of care' }],
+              location: [{ location: { display: 'EyeWatch Live TEST (eyewatch)' } }],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(demographics.roomNumber).toBeNull();
+    expect(demographics.bed).toBeNull();
+    expect(demographics.room).toBeNull();
+  });
+
+  it('parses room and bed from a two-part Yardi location display', () => {
+    const demographics = mapYardiFhirBundleToDemographics({
+      ...bundle,
+      encounterBundle: {
+        resourceType: 'Bundle',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Encounter',
+              status: 'in-progress',
+              location: [{ location: { display: '102, Double A' } }],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(demographics).toMatchObject({
+      roomNumber: '102',
+      bed: 'Double A',
+      room: '102 Double A',
+    });
+  });
 });
