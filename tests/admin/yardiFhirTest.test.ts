@@ -90,7 +90,7 @@ describe('yardiFhirTest admin helpers', () => {
     });
   });
 
-  it('returns API error payloads for failed FHIR requests', async () => {
+  it('returns API error payload for failed FHIR requests', async () => {
     getMock.mockRejectedValueOnce({
       isAxiosError: true,
       message: 'Request failed with status code 404',
