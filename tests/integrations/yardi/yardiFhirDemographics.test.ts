@@ -74,6 +74,30 @@ describe('yardiFhirDemographics', () => {
     expect(getYardiConditionTexts(bundle)).toEqual(['Hypertension']);
   });
 
+  it('parses room and bed from a two-part Yardi location display', () => {
+    const demographics = mapYardiFhirBundleToDemographics({
+      ...bundle,
+      encounterBundle: {
+        resourceType: 'Bundle',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Encounter',
+              status: 'in-progress',
+              location: [{ location: { display: '102, Double A' } }],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(demographics).toMatchObject({
+      roomNumber: '102',
+      bed: 'Double A',
+      room: '102 Double A',
+    });
+  });
+
   it('does not treat a facility display name as a room number', () => {
     const demographics = mapYardiFhirBundleToDemographics({
       ...bundle,
@@ -97,7 +121,7 @@ describe('yardiFhirDemographics', () => {
     expect(demographics.room).toBeNull();
   });
 
-  it('parses room and bed from a two-part Yardi location display', () => {
+  it('parses Yardi multi-location encounter assignments', () => {
     const demographics = mapYardiFhirBundleToDemographics({
       ...bundle,
       encounterBundle: {
@@ -107,7 +131,17 @@ describe('yardiFhirDemographics', () => {
             resource: {
               resourceType: 'Encounter',
               status: 'in-progress',
-              location: [{ location: { display: '102, Double A' } }],
+              type: [{ text: 'Provision of continuity of care' }],
+              text: {
+                status: 'generated',
+                div: '<div xmlns="http://www.w3.org/1999/xhtml"><p><b>Location</b>: First Floor, 100, Double A</p></div>',
+              },
+              location: [
+                { location: { display: 'EyeWatch Live TEST (eyewatch)' } },
+                { location: { display: 'First Floor' } },
+                { location: { display: '100' } },
+                { location: { display: 'Double A' } },
+              ],
             },
           },
         ],
@@ -115,9 +149,9 @@ describe('yardiFhirDemographics', () => {
     });
 
     expect(demographics).toMatchObject({
-      roomNumber: '102',
+      roomNumber: '100',
       bed: 'Double A',
-      room: '102 Double A',
+      room: '100 Double A',
     });
   });
 });

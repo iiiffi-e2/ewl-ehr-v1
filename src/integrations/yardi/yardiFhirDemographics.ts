@@ -63,6 +63,51 @@ function parseLocationDisplay(display: string): {
   };
 }
 
+function isOrgSiteDisplay(display: string): boolean {
+  if (display.includes(',')) return false;
+  return /^.+\([^)]+\)$/.test(display);
+}
+
+function collectResidentLocationDisplays(
+  locations: Array<Record<string, unknown>>,
+): string[] {
+  const displays: string[] = [];
+
+  for (const locationEntry of locations) {
+    const location = locationEntry.location as { display?: string } | undefined;
+    const display = location?.display?.trim();
+    if (!display || isOrgSiteDisplay(display)) continue;
+    displays.push(display);
+  }
+
+  return displays;
+}
+
+function parseResidentLocationDisplays(displays: string[]): {
+  roomNumber?: string;
+  bed?: string;
+  room?: string;
+} {
+  if (displays.length === 0) {
+    return {};
+  }
+
+  const combined = displays.join(', ');
+  const parsed = parseLocationDisplay(combined);
+  if (parsed.roomNumber) {
+    return parsed;
+  }
+
+  if (displays.length === 1 && looksLikeRoomNumber(displays[0])) {
+    return {
+      roomNumber: displays[0],
+      room: displays[0],
+    };
+  }
+
+  return {};
+}
+
 function parseEncounterLocation(encounter: Record<string, unknown> | undefined): {
   roomNumber?: string;
   bed?: string;
@@ -90,20 +135,16 @@ function parseEncounterLocation(encounter: Record<string, unknown> | undefined):
   const locations = Array.isArray(encounter.location)
     ? (encounter.location as Array<Record<string, unknown>>)
     : [];
-  for (const locationEntry of locations) {
-    const location = locationEntry.location as { display?: string } | undefined;
-    const display = location?.display?.trim();
-    if (!display) continue;
 
-    const parsed = parseLocationDisplay(display);
-    if (parsed.roomNumber) {
-      return {
-        ...parsed,
-        productType,
-        onPrem,
-        offPrem,
-      };
-    }
+  const residentDisplays = collectResidentLocationDisplays(locations);
+  const parsedFromLocations = parseResidentLocationDisplays(residentDisplays);
+  if (parsedFromLocations.roomNumber) {
+    return {
+      ...parsedFromLocations,
+      productType,
+      onPrem,
+      offPrem,
+    };
   }
 
   const textDiv = (encounter.text as { div?: string } | undefined)?.div;
