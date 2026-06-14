@@ -18,13 +18,21 @@ import {
 } from './yardiFhirDemographics.js';
 import { getYardiFhirPollCursorKey } from './yardiFhirPollConfig.js';
 import type { SyncCursorStore } from './yardiFhirPollCursor.js';
-import type { YardiFhirPatientBundle, YardiFhirPollTarget, YardiFhirSyncSummary } from './yardiFhirTypes.js';
+import type {
+  YardiFhirCaspioPushPlan,
+  YardiFhirPatientBundle,
+  YardiFhirPollTarget,
+  YardiFhirPulledData,
+  YardiFhirSyncPatientDetail,
+  YardiFhirSyncSummary,
+} from './yardiFhirTypes.js';
 
 export async function runYardiFhirSyncForTarget(
   target: YardiFhirPollTarget,
   options: {
     cursorStore: SyncCursorStore;
     skipCaspio?: boolean;
+    includeDetails?: boolean;
     client?: YardiFhirClient;
   },
 ): Promise<YardiFhirSyncSummary> {
@@ -78,6 +86,10 @@ export async function runYardiFhirSyncForTarget(
   for (const patientId of encounterPatientIds) patientIds.add(patientId);
 
   summary.patientsDiscovered = patientIds.size;
+  summary.sinceDate = sinceDate;
+  if (options.includeDetails) {
+    summary.patientDetails = [];
+  }
 
   logger.info(
     {
@@ -92,6 +104,11 @@ export async function runYardiFhirSyncForTarget(
 
   for (const patientId of patientIds) {
     summary.patientsProcessed += 1;
+    const detail: YardiFhirSyncPatientDetail = {
+      patientId,
+      status: 'failed',
+    };
+
     try {
       const bundle = await client.fetchPatientBundle(patientId);
       const residentBundle = buildCanonicalResidentBundle({
@@ -99,6 +116,10 @@ export async function runYardiFhirSyncForTarget(
         target,
         bundle,
       });
+      const yardiSummary = buildYardiPulledDataSummary(bundle, residentBundle.demographics);
+      if (options.includeDetails) {
+        detail.yardi = yardiSummary;
+      }
 
       await upsertResident(company.id, {
         source: 'yardi-fhir',
@@ -131,14 +152,46 @@ export async function runYardiFhirSyncForTarget(
       const shouldSkipCaspio =
         options.skipCaspio === true || (env.EHR_SHADOW_MODE && env.EHR_SOURCE !== 'yardi-fhir');
 
-      if (!shouldSkipCaspio) {
+      if (options.includeDetails) {
+        if (shouldSkipCaspio) {
+          detail.caspio = {
+            skipped: true,
+            skipReason: options.skipCaspio
+              ? 'skipCaspio requested'
+              : 'EHR shadow mode enabled for non-yardi source',
+            tables: getCaspioTableNames(),
+          };
+        } else {
+          try {
+            const caspioPlan = await buildYardiFhirCaspioRecords(residentBundle, target.communityId);
+            detail.caspio = {
+              skipped: false,
+              tables: caspioPlan.tables,
+              patientRecord: caspioPlan.patientRecord,
+              communityRecord: caspioPlan.communityRecord,
+              serviceRecord: caspioPlan.serviceRecord,
+            };
+            await pushYardiFhirCaspioRecords(caspioPlan);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            detail.caspio = detail.caspio ?? {
+              skipped: false,
+              tables: getCaspioTableNames(),
+            };
+            detail.caspio.pushError = message;
+            throw error;
+          }
+        }
+      } else if (!shouldSkipCaspio) {
         await pushYardiFhirBundleToCaspio(residentBundle, target.communityId);
       }
 
+      detail.status = 'succeeded';
       summary.patientsSucceeded += 1;
     } catch (error) {
       summary.patientsFailed += 1;
       const message = error instanceof Error ? error.message : String(error);
+      detail.error = message;
       summary.errors.push({ patientId, message });
       logger.warn(
         {
@@ -149,6 +202,10 @@ export async function runYardiFhirSyncForTarget(
         },
         'yardi_fhir_sync_patient_failed',
       );
+    } finally {
+      if (options.includeDetails && summary.patientDetails) {
+        summary.patientDetails.push(detail);
+      }
     }
   }
 
@@ -216,10 +273,47 @@ function formatCaspioDate(value: string | null | undefined): string | undefined 
   }
 }
 
-export async function pushYardiFhirBundleToCaspio(
+function getCaspioTableNames(): YardiFhirCaspioPushPlan['tables'] {
+  return {
+    patient: env.CASPIO_TABLE_NAME,
+    community: env.CASPIO_COMMUNITY_TABLE_NAME,
+    service: env.CASPIO_SERVICE_TABLE_NAME,
+  };
+}
+
+export function buildYardiPulledDataSummary(
+  bundle: YardiFhirPatientBundle,
+  demographics: CanonicalResidentBundle['demographics'],
+): YardiFhirPulledData {
+  return {
+    patientId: bundle.patientId,
+    externalResidentId: demographics.externalResidentId,
+    firstName: demographics.firstName ?? null,
+    lastName: demographics.lastName ?? null,
+    dateOfBirth: demographics.dateOfBirth ?? null,
+    status: demographics.status ?? null,
+    roomNumber: demographics.roomNumber ?? null,
+    bed: demographics.bed ?? null,
+    productType: demographics.productType ?? null,
+    onPrem: demographics.onPrem ?? null,
+    onPremDate: demographics.onPremDate ?? null,
+    offPrem: demographics.offPrem ?? null,
+    offPremDate: demographics.offPremDate ?? null,
+    coverage: getYardiCoverageNames(bundle),
+    conditions: getYardiConditionTexts(bundle),
+    encounterCount: bundle.encounterBundle.entry?.length ?? 0,
+  };
+}
+
+export async function buildYardiFhirCaspioRecords(
   bundle: CanonicalResidentBundle,
   communityId: number,
-): Promise<void> {
+): Promise<{
+  tables: YardiFhirCaspioPushPlan['tables'];
+  patientRecord: Record<string, unknown>;
+  communityRecord: Record<string, unknown>;
+  serviceRecord: Record<string, unknown>;
+}> {
   const vendorPayload = bundle.vendorPayload as YardiFhirPatientBundle | undefined;
   if (!vendorPayload) {
     throw new Error('Missing Yardi FHIR vendor payload for Caspio push');
@@ -265,24 +359,6 @@ export async function pushYardiFhirBundleToCaspio(
     RoomNumber: bundle.demographics.roomNumber ?? undefined,
   };
 
-  if (communityRecord.CommunityID) {
-    await caspioRequestWithRetry(() =>
-      upsertByFields(
-        env.CASPIO_COMMUNITY_TABLE_NAME,
-        [{ field: 'CommunityID', value: communityRecord.CommunityID! }],
-        communityRecord,
-      ),
-    );
-  }
-
-  await caspioRequestWithRetry(() =>
-    upsertByFields(
-      env.CASPIO_TABLE_NAME,
-      [{ field: 'PatientNumber', value: patientRecord.PatientNumber! }],
-      patientRecord,
-    ),
-  );
-
   const serviceType =
     bundle.demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
   const serviceRecord = mapServiceRecord({
@@ -295,11 +371,51 @@ export async function pushYardiFhirBundleToCaspio(
     roomNumber: patientRecord.RoomNumber,
   });
 
+  return {
+    tables: getCaspioTableNames(),
+    patientRecord,
+    communityRecord,
+    serviceRecord,
+  };
+}
+
+export async function pushYardiFhirCaspioRecords(records: {
+  tables: YardiFhirCaspioPushPlan['tables'];
+  patientRecord: Record<string, unknown>;
+  communityRecord: Record<string, unknown>;
+  serviceRecord: Record<string, unknown>;
+}): Promise<void> {
+  if (records.communityRecord.CommunityID) {
+    await caspioRequestWithRetry(() =>
+      upsertByFields(
+        records.tables.community,
+        [{ field: 'CommunityID', value: String(records.communityRecord.CommunityID) }],
+        records.communityRecord,
+      ),
+    );
+  }
+
   await caspioRequestWithRetry(() =>
     upsertByFields(
-      env.CASPIO_SERVICE_TABLE_NAME,
-      [{ field: 'Service_ID', value: serviceRecord.Service_ID }],
-      serviceRecord,
+      records.tables.patient,
+      [{ field: 'PatientNumber', value: String(records.patientRecord.PatientNumber) }],
+      records.patientRecord,
     ),
   );
+
+  await caspioRequestWithRetry(() =>
+    upsertByFields(
+      records.tables.service,
+      [{ field: 'Service_ID', value: String(records.serviceRecord.Service_ID) }],
+      records.serviceRecord,
+    ),
+  );
+}
+
+export async function pushYardiFhirBundleToCaspio(
+  bundle: CanonicalResidentBundle,
+  communityId: number,
+): Promise<void> {
+  const records = await buildYardiFhirCaspioRecords(bundle, communityId);
+  await pushYardiFhirCaspioRecords(records);
 }

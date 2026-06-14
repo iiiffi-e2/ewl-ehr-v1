@@ -27,6 +27,8 @@ import { upsertAlisCredential } from '../admin/credentials.js';
 import {
   executeYardiFhirGetRequest,
   getYardiFhirTestConfig,
+  parseYardiFhirTestSyncInput,
+  runYardiFhirTestSync,
   testYardiFhirAuthentication,
 } from '../admin/yardiFhirTest.js';
 
@@ -777,6 +779,38 @@ router.post('/admin/yardi-fhir-test/request', authAdmin, async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/admin/yardi-fhir-test/sync', authAdmin, async (req, res) => {
+  try {
+    const input = parseYardiFhirTestSyncInput(req.body);
+    logger.info(
+      {
+        companyKey: input.companyKey,
+        communityId: input.communityId,
+        organizationId: input.organizationId,
+        skipCaspio: input.skipCaspio,
+      },
+      'admin_yardi_fhir_test_sync_called',
+    );
+
+    const summary = await runYardiFhirTestSync(input);
+
+    return res.json({
+      success: summary.patientsFailed === 0,
+      summary,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const status = message.includes('Company not found') ? 404 : message.includes('required') ? 400 : 500;
+    logger.error({ error: message }, 'admin_yardi_fhir_test_sync_failed');
+    return res.status(status).json({
+      success: false,
+      error: message,
       timestamp: new Date().toISOString(),
     });
   }

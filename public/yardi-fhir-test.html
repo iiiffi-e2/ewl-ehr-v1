@@ -198,6 +198,136 @@
       padding: 8px 12px;
     }
 
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+
+    .checkbox-row label {
+      margin: 0;
+      text-transform: none;
+      letter-spacing: normal;
+      font-size: 14px;
+      color: #c9d1d9;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .sync-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .sync-summary-item {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .sync-summary-item strong {
+      display: block;
+      color: #8b949e;
+      font-size: 11px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .patient-detail-card {
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      background: #0d1117;
+    }
+
+    .patient-detail-card.failed {
+      border-color: rgba(248, 81, 73, 0.5);
+    }
+
+    .patient-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .patient-detail-header h3 {
+      color: #c9d1d9;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .detail-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .detail-block {
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+      background: #161b22;
+    }
+
+    .detail-block h4 {
+      color: #58a6ff;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .detail-block pre,
+    .raw-json pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      color: #c9d1d9;
+    }
+
+    .error-banner {
+      background: rgba(248, 81, 73, 0.12);
+      border: 1px solid rgba(248, 81, 73, 0.35);
+      color: #f85149;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .raw-json {
+      margin-top: 16px;
+      border-top: 1px solid #30363d;
+      padding-top: 12px;
+    }
+
+    .raw-json summary {
+      cursor: pointer;
+      color: #8b949e;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 900px) {
+      .detail-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 900px) {
       .grid-2,
       .grid-3 {
@@ -234,6 +364,40 @@
         <button type="button" class="warn" id="testAuthButton">Test Auth Token</button>
       </div>
       <div id="authOutput" class="output">No auth test run yet.</div>
+    </section>
+
+    <section class="card">
+      <h2>Yardi Data Pull</h2>
+      <p class="muted" style="margin-bottom: 12px;">
+        Pull active patients from Yardi FHIR, save them locally, and push to the configured Caspio tables.
+        Uses the same sync pipeline as the scheduled poll worker.
+      </p>
+
+      <div class="grid-3">
+        <div>
+          <label for="syncCompanyKey">Company Key</label>
+          <input id="syncCompanyKey" type="text" placeholder="eyewatch">
+        </div>
+        <div>
+          <label for="syncCommunityId">Community ID</label>
+          <input id="syncCommunityId" type="text" placeholder="237">
+        </div>
+        <div>
+          <label for="syncOrganizationId">Organization ID</label>
+          <input id="syncOrganizationId" type="text" placeholder="237-1">
+        </div>
+      </div>
+
+      <div class="checkbox-row">
+        <input id="syncSkipCaspio" type="checkbox">
+        <label for="syncSkipCaspio">Skip Caspio (save to local DB only)</label>
+      </div>
+
+      <div class="button-row">
+        <button type="button" id="runSyncButton">Run Yardi Pull</button>
+      </div>
+      <div id="syncOutput" class="output">No sync run yet.</div>
+      <div id="syncDetails"></div>
     </section>
 
     <section class="card">
@@ -290,6 +454,13 @@
     const organizationId = document.getElementById('organizationId');
     const patientId = document.getElementById('patientId');
     const encounterSince = document.getElementById('encounterSince');
+    const syncCompanyKey = document.getElementById('syncCompanyKey');
+    const syncCommunityId = document.getElementById('syncCommunityId');
+    const syncOrganizationId = document.getElementById('syncOrganizationId');
+    const syncSkipCaspio = document.getElementById('syncSkipCaspio');
+    const syncOutput = document.getElementById('syncOutput');
+    const syncDetails = document.getElementById('syncDetails');
+    const runSyncButton = document.getElementById('runSyncButton');
 
     const renderJson = (value) => JSON.stringify(value, null, 2);
 
@@ -327,6 +498,9 @@
         ['Poll Enabled', config.pollEnabled ? 'Yes' : 'No'],
         ['Poll Interval (ms)', String(config.pollIntervalMs ?? '—')],
         ['Poll Targets', Array.isArray(config.pollTargets) ? config.pollTargets.length : 0],
+        ['Caspio Patient Table', config.caspioPatientTable || '—'],
+        ['Caspio Community Table', config.caspioCommunityTable || '—'],
+        ['Caspio Service Table', config.caspioServiceTable || '—'],
       ];
 
       configGrid.innerHTML = items.map(([label, value]) => `
@@ -340,6 +514,15 @@
         const firstTarget = config.pollTargets[0];
         if (!organizationId.value && firstTarget.organizationId) {
           organizationId.value = firstTarget.organizationId;
+        }
+        if (!syncCompanyKey.value && firstTarget.companyKey) {
+          syncCompanyKey.value = firstTarget.companyKey;
+        }
+        if (!syncCommunityId.value && firstTarget.communityId !== undefined) {
+          syncCommunityId.value = String(firstTarget.communityId);
+        }
+        if (!syncOrganizationId.value && firstTarget.organizationId) {
+          syncOrganizationId.value = firstTarget.organizationId;
         }
       }
     };
@@ -385,6 +568,193 @@
       });
 
       renderOutput(requestOutput, `Request ${response.ok ? 'completed' : 'failed'} (${response.status})`, data);
+    };
+
+    const escapeHtml = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    const renderRecordBlock = (title, record) => {
+      if (!record) return '';
+      return `
+        <div class="detail-block">
+          <h4>${escapeHtml(title)}</h4>
+          <pre>${escapeHtml(JSON.stringify(record, null, 2))}</pre>
+        </div>
+      `;
+    };
+
+    const renderYardiBlock = (yardi) => {
+      if (!yardi) {
+        return `
+          <div class="detail-block">
+            <h4>Pulled from Yardi</h4>
+            <pre>No Yardi data captured.</pre>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="detail-block">
+          <h4>Pulled from Yardi</h4>
+          <pre>${escapeHtml(JSON.stringify(yardi, null, 2))}</pre>
+        </div>
+      `;
+    };
+
+    const renderCaspioBlock = (caspio) => {
+      if (!caspio) {
+        return `
+          <div class="detail-block">
+            <h4>Caspio Push</h4>
+            <pre>No Caspio push attempted.</pre>
+          </div>
+        `;
+      }
+
+      if (caspio.skipped) {
+        return `
+          <div class="detail-block">
+            <h4>Caspio Push</h4>
+            <pre>Skipped: ${escapeHtml(caspio.skipReason || 'Caspio push disabled')}</pre>
+          </div>
+        `;
+      }
+
+      const tables = caspio.tables
+        ? `Tables:
+  Patient: ${caspio.tables.patient}
+  Community: ${caspio.tables.community}
+  Service: ${caspio.tables.service}`
+        : '';
+
+      const pushError = caspio.pushError
+        ? `\n\nPush error:\n${caspio.pushError}`
+        : '\n\nPush status: completed';
+
+      return `
+        <div class="detail-block">
+          <h4>Caspio Push</h4>
+          <pre>${escapeHtml(tables)}${escapeHtml(pushError)}</pre>
+          ${renderRecordBlock('Patient Record', caspio.patientRecord)}
+          ${renderRecordBlock('Community Record', caspio.communityRecord)}
+          ${renderRecordBlock('Service Record', caspio.serviceRecord)}
+        </div>
+      `;
+    };
+
+    const renderSyncResult = (data, responseOk) => {
+      syncDetails.innerHTML = '';
+
+      if (!responseOk && data.error) {
+        syncOutput.textContent = `Sync failed (${data.error})`;
+        syncDetails.innerHTML = `<div class="error-banner">${escapeHtml(data.error)}</div>`;
+        return;
+      }
+
+      const summary = data.summary;
+      if (!summary) {
+        syncOutput.textContent = 'Sync finished without summary data.';
+        renderOutput(syncDetails, 'Raw response', data);
+        return;
+      }
+
+      const label = responseOk && data.success
+        ? 'Sync completed successfully'
+        : responseOk
+          ? 'Sync completed with patient errors'
+          : 'Sync failed';
+      syncOutput.textContent = label;
+
+      const errorBanner = Array.isArray(summary.errors) && summary.errors.length > 0
+        ? `<div class="error-banner"><strong>${summary.errors.length} error(s)</strong><pre>${escapeHtml(JSON.stringify(summary.errors, null, 2))}</pre></div>`
+        : '';
+
+      const summaryGrid = `
+        <div class="sync-summary">
+          <div class="sync-summary-item"><strong>Discovered</strong>${summary.patientsDiscovered ?? 0}</div>
+          <div class="sync-summary-item"><strong>Processed</strong>${summary.patientsProcessed ?? 0}</div>
+          <div class="sync-summary-item"><strong>Succeeded</strong>${summary.patientsSucceeded ?? 0}</div>
+          <div class="sync-summary-item"><strong>Failed</strong>${summary.patientsFailed ?? 0}</div>
+          <div class="sync-summary-item"><strong>Since Date</strong>${escapeHtml(summary.sinceDate || '—')}</div>
+        </div>
+      `;
+
+      const patientCards = Array.isArray(summary.patientDetails)
+        ? summary.patientDetails.map((detail) => {
+            const name = detail.yardi
+              ? `${detail.yardi.firstName || ''} ${detail.yardi.lastName || ''}`.trim()
+              : detail.patientId;
+            const statusClass = detail.status === 'failed' ? 'failed' : '';
+            const statusPill = detail.status === 'failed'
+              ? '<span class="status-pill status-bad">Failed</span>'
+              : '<span class="status-pill status-ok">Succeeded</span>';
+            const patientError = detail.error
+              ? `<div class="error-banner">${escapeHtml(detail.error)}</div>`
+              : '';
+
+            return `
+              <article class="patient-detail-card ${statusClass}">
+                <div class="patient-detail-header">
+                  <h3>${escapeHtml(name || detail.patientId)} <span class="muted">(${escapeHtml(detail.patientId)})</span></h3>
+                  ${statusPill}
+                </div>
+                ${patientError}
+                <div class="detail-columns">
+                  ${renderYardiBlock(detail.yardi)}
+                  ${renderCaspioBlock(detail.caspio)}
+                </div>
+              </article>
+            `;
+          }).join('')
+        : '<p class="muted">No per-patient details returned.</p>';
+
+      syncDetails.innerHTML = `
+        ${errorBanner}
+        ${summaryGrid}
+        ${patientCards}
+        <details class="raw-json">
+          <summary>Raw JSON response</summary>
+          <pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+        </details>
+      `;
+    };
+
+    const runSync = async () => {
+      const companyKey = syncCompanyKey.value.trim();
+      const organizationIdValue = syncOrganizationId.value.trim();
+      const communityId = Number(syncCommunityId.value.trim());
+
+      if (!companyKey || !organizationIdValue || !Number.isFinite(communityId)) {
+        syncOutput.textContent = 'Sync validation failed';
+        syncDetails.innerHTML = `<div class="error-banner">companyKey, communityId, and organizationId are required</div>`;
+        return;
+      }
+
+      runSyncButton.disabled = true;
+      syncOutput.textContent = 'Running Yardi pull... this may take a minute.';
+      syncDetails.innerHTML = '';
+
+      try {
+        const { response, data } = await fetchJson('/admin/yardi-fhir-test/sync', {
+          method: 'POST',
+          body: JSON.stringify({
+            companyKey,
+            communityId,
+            organizationId: organizationIdValue,
+            skipCaspio: syncSkipCaspio.checked,
+          }),
+        });
+
+        renderSyncResult(data, response.ok);
+      } catch (error) {
+        syncOutput.textContent = 'Sync request failed';
+        syncDetails.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
+      } finally {
+        runSyncButton.disabled = false;
+      }
     };
 
     const applyPreset = (preset) => {
@@ -449,6 +819,14 @@
     document.getElementById('sendRequestButton').addEventListener('click', () => {
       sendRequest().catch((error) => {
         renderOutput(requestOutput, 'Request failed', { error: error.message });
+      });
+    });
+
+    runSyncButton.addEventListener('click', () => {
+      runSync().catch((error) => {
+        syncOutput.textContent = 'Sync failed';
+        syncDetails.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
+        runSyncButton.disabled = false;
       });
     });
 

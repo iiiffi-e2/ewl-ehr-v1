@@ -33,9 +33,52 @@ export type YardiFhirSyncSummary = {
   organizationId: string;
   startedAt: string;
   completedAt: string;
+  sinceDate?: string;
   patientsDiscovered: number;
   patientsProcessed: number;
   patientsSucceeded: number;
   patientsFailed: number;
   errors: Array<{ patientId: string; message: string }>;
+  patientDetails?: YardiFhirSyncPatientDetail[];
+};
+
+export type YardiFhirPulledData = {
+  patientId: string;
+  externalResidentId: string;
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  status: string | null;
+  roomNumber: string | null;
+  bed: string | null;
+  productType: string | null;
+  onPrem: boolean | null;
+  onPremDate: string | null;
+  offPrem: boolean | null;
+  offPremDate: string | null;
+  coverage: string[];
+  conditions: string[];
+  encounterCount: number;
+};
+
+export type YardiFhirCaspioPushPlan = {
+  skipped: boolean;
+  skipReason?: string;
+  tables: {
+    patient: string;
+    community: string;
+    service: string;
+  };
+  patientRecord?: Record<string, unknown>;
+  communityRecord?: Record<string, unknown>;
+  serviceRecord?: Record<string, unknown>;
+  pushError?: string;
+};
+
+export type YardiFhirSyncPatientDetail = {
+  patientId: string;
+  status: 'succeeded' | 'failed';
+  yardi?: YardiFhirPulledData;
+  caspio?: YardiFhirCaspioPushPlan;
+  error?: string;
 };

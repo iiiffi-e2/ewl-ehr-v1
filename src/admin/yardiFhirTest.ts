@@ -2,9 +2,12 @@ import axios from 'axios';
 
 import { createHttpClient } from '../config/axios.js';
 import { env } from '../config/env.js';
+import { prisma } from '../db/prisma.js';
 import { YardiFhirClient } from '../integrations/yardi/yardiFhirClient.js';
 import { parseYardiFhirPollTargets } from '../integrations/yardi/yardiFhirPollConfig.js';
-import type { YardiFhirPollTarget } from '../integrations/yardi/yardiFhirTypes.js';
+import { createRedisSyncCursorStore } from '../integrations/yardi/yardiFhirPollCursor.js';
+import { runYardiFhirSyncForTarget } from '../integrations/yardi/yardiFhirSync.js';
+import type { YardiFhirPollTarget, YardiFhirSyncSummary } from '../integrations/yardi/yardiFhirTypes.js';
 
 export type YardiFhirTestConfig = {
   configured: boolean;
@@ -16,6 +19,16 @@ export type YardiFhirTestConfig = {
   pollEnabled: boolean;
   pollIntervalMs: number;
   pollTargets: YardiFhirPollTarget[];
+  caspioPatientTable: string;
+  caspioCommunityTable: string;
+  caspioServiceTable: string;
+};
+
+export type YardiFhirTestSyncInput = {
+  companyKey: string;
+  communityId: number;
+  organizationId: string;
+  skipCaspio: boolean;
 };
 
 export type YardiFhirAuthTestResult = {
@@ -58,7 +71,60 @@ export function getYardiFhirTestConfig(): YardiFhirTestConfig {
     pollEnabled: env.YARDI_FHIR_POLL_ENABLED,
     pollIntervalMs: env.YARDI_FHIR_POLL_INTERVAL_MS,
     pollTargets: getPollTargetsSafe(),
+    caspioPatientTable: env.CASPIO_TABLE_NAME,
+    caspioCommunityTable: env.CASPIO_COMMUNITY_TABLE_NAME,
+    caspioServiceTable: env.CASPIO_SERVICE_TABLE_NAME,
   };
+}
+
+export function parseYardiFhirTestSyncInput(body: unknown): YardiFhirTestSyncInput {
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const companyKey = typeof record.companyKey === 'string' ? record.companyKey.trim() : '';
+  const organizationId =
+    typeof record.organizationId === 'string' ? record.organizationId.trim() : '';
+  const communityIdRaw = record.communityId;
+  const communityId =
+    typeof communityIdRaw === 'number'
+      ? communityIdRaw
+      : typeof communityIdRaw === 'string'
+        ? Number(communityIdRaw)
+        : NaN;
+
+  if (!companyKey || !organizationId || !Number.isFinite(communityId)) {
+    throw new Error('companyKey, communityId, and organizationId are required');
+  }
+
+  return {
+    companyKey,
+    communityId,
+    organizationId,
+    skipCaspio: record.skipCaspio === true,
+  };
+}
+
+export async function runYardiFhirTestSync(
+  input: YardiFhirTestSyncInput,
+): Promise<YardiFhirSyncSummary> {
+  YardiFhirClient.assertConfigured();
+
+  const company = await prisma.company.findUnique({
+    where: { companyKey: input.companyKey },
+  });
+  if (!company) {
+    throw new Error(`Company not found for key '${input.companyKey}'`);
+  }
+
+  const target: YardiFhirPollTarget = {
+    companyKey: input.companyKey,
+    communityId: input.communityId,
+    organizationId: input.organizationId,
+  };
+
+  return runYardiFhirSyncForTarget(target, {
+    cursorStore: createRedisSyncCursorStore(),
+    skipCaspio: input.skipCaspio,
+    includeDetails: true,
+  });
 }
 
 export async function testYardiFhirAuthentication(): Promise<YardiFhirAuthTestResult> {
