@@ -117,3 +117,62 @@ describe('caspioClient patient number exact matching', () => {
   });
 });
 
+describe('caspioClient patient upsert by PatientNumber', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    jest.clearAllMocks();
+  });
+
+  it('updates an existing patient row when PatientNumber is found', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: { access_token: 'token-1', expires_in: 3600, token_type: 'Bearer' },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [{ PK_ID: 42, PatientNumber: '31533-2', FirstName: 'Old' }],
+    });
+    const mockApiPut = jest.fn().mockResolvedValue({ data: { PK_ID: 42 } });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: mockApiPut }));
+
+    const { upsertPatientByPatientNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await upsertPatientByPatientNumber('CarePatientTable_API_Temp', '31533-2', {
+      PatientNumber: '31533-2',
+      FirstName: 'Waylon',
+    });
+
+    expect(result).toEqual({ action: 'update', id: '42' });
+    expect(mockApiPut).toHaveBeenCalledTimes(1);
+  });
+
+  it('inserts a new patient row when PatientNumber is not found', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: { access_token: 'token-1', expires_in: 3600, token_type: 'Bearer' },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({ data: [] });
+    const mockApiPost = jest.fn().mockResolvedValue({ data: { PK_ID: 99 } });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: mockApiPost, put: jest.fn() }));
+
+    const { upsertPatientByPatientNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await upsertPatientByPatientNumber('CarePatientTable_API_Temp', '31533-2', {
+      PatientNumber: '31533-2',
+      FirstName: 'Waylon',
+    });
+
+    expect(result).toEqual({ action: 'insert', id: '99' });
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
+  });
+});
+

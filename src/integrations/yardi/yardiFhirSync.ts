@@ -6,7 +6,7 @@ import { logger } from '../../config/logger.js';
 import { prisma } from '../../db/prisma.js';
 import { upsertResident } from '../../domains/residents.js';
 import type { CanonicalResidentBundle } from '../ehr/types.js';
-import { caspioRequestWithRetry, upsertByFields } from '../caspio/caspioClient.js';
+import { caspioRequestWithRetry, upsertByFields, upsertPatientByPatientNumber } from '../caspio/caspioClient.js';
 import {
   getCommunityEnrichment,
   type CommunityEnrichment,
@@ -527,9 +527,9 @@ export async function pushYardiFhirCaspioRecords(records: {
   }
 
   await caspioRequestWithRetry(() =>
-    upsertByFields(
+    upsertPatientByPatientNumber(
       records.tables.patient,
-      [{ field: 'PatientNumber', value: String(records.patientRecord.PatientNumber) }],
+      String(records.patientRecord.PatientNumber),
       records.patientRecord,
     ),
   );

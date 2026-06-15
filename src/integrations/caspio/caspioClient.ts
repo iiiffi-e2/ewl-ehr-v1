@@ -1251,6 +1251,83 @@ export async function findByPatientNumber(
   });
 }
 
+function isPatientNumberDuplicate(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+    return false;
+  }
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const code = typeof data?.Code === 'string' ? data.Code : '';
+  const message = typeof data?.Message === 'string' ? data.Message : '';
+  return (
+    code === 'SqlServerError' &&
+    message.includes("duplicate or blank values are not allowed in field 'PatientNumber'")
+  );
+}
+
+function extractCaspioRecordId(responseData: Record<string, unknown>): string | undefined {
+  if (responseData.PK_ID !== undefined) {
+    return String(responseData.PK_ID);
+  }
+  if (responseData.PK !== undefined) {
+    return String(responseData.PK);
+  }
+  if (responseData._id !== undefined) {
+    return String(responseData._id);
+  }
+  if (responseData.id !== undefined) {
+    return String(responseData.id);
+  }
+  if (responseData.Id !== undefined) {
+    return String(responseData.Id);
+  }
+  return undefined;
+}
+
+/**
+ * Upsert a care patient row by PatientNumber using the same lookup path as ALIS events.
+ */
+export async function upsertPatientByPatientNumber(
+  tableName: string,
+  patientNumber: string | number,
+  record: Record<string, unknown>,
+): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  const patientNumberString = String(patientNumber).trim();
+  if (!patientNumberString) {
+    throw new Error('PatientNumber is required to upsert patient record');
+  }
+
+  const existing = await findByPatientNumber(tableName, patientNumberString);
+  if (existing.found && existing.id) {
+    await updateRecordById(tableName, existing.id, record);
+    return { action: 'update', id: existing.id };
+  }
+
+  try {
+    const response = await insertRecord(tableName, record);
+    return {
+      action: 'insert',
+      id: extractCaspioRecordId(response.data as Record<string, unknown>),
+    };
+  } catch (error) {
+    if (!isPatientNumberDuplicate(error)) {
+      throw error;
+    }
+
+    logger.warn(
+      { tableName, patientNumber: patientNumberString },
+      'caspio_patient_insert_duplicate_retrying_update',
+    );
+
+    const retry = await findByPatientNumber(tableName, patientNumberString);
+    if (!retry.found || !retry.id) {
+      throw error;
+    }
+
+    await updateRecordById(tableName, retry.id, record);
+    return { action: 'update', id: retry.id };
+  }
+}
+
 export async function findActiveOrLatestServiceRow(params: {
   patientNumber: string;
   cuid: string;
