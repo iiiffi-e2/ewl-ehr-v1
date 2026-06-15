@@ -152,6 +152,25 @@ describe('yardiFhirTest admin helpers', () => {
       communityId: 237,
       organizationId: '237-1',
       skipCaspio: true,
+      skipService: true,
+    });
+  });
+
+  it('allows service table writes when explicitly requested', () => {
+    expect(
+      parseYardiFhirTestSyncInput({
+        companyKey: 'eyewatch',
+        communityId: 237,
+        organizationId: '237-1',
+        skipCaspio: false,
+        skipService: false,
+      }),
+    ).toEqual({
+      companyKey: 'eyewatch',
+      communityId: 237,
+      organizationId: '237-1',
+      skipCaspio: false,
+      skipService: false,
     });
   });
 
@@ -181,6 +200,7 @@ describe('yardiFhirTest admin helpers', () => {
       communityId: 237,
       organizationId: '237-1',
       skipCaspio: false,
+      skipService: true,
     });
 
     expect(summary.patientsSucceeded).toBe(3);
@@ -190,7 +210,11 @@ describe('yardiFhirTest admin helpers', () => {
         communityId: 237,
         organizationId: '237-1',
       },
-      expect.objectContaining({ skipCaspio: false, includeDetails: true }),
+      expect.objectContaining({
+        skipCaspio: false,
+        skipService: true,
+        includeDetails: true,
+      }),
     );
   });
 
@@ -203,6 +227,7 @@ describe('yardiFhirTest admin helpers', () => {
         communityId: 237,
         organizationId: '237-1',
         skipCaspio: false,
+        skipService: true,
       }),
     ).rejects.toThrow("Company not found for key 'missing'");
   });

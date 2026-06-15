@@ -36,6 +36,7 @@ export async function runYardiFhirSyncForTarget(
   options: {
     cursorStore: SyncCursorStore;
     skipCaspio?: boolean;
+    skipService?: boolean;
     includeDetails?: boolean;
     client?: YardiFhirClient;
   },
@@ -46,6 +47,7 @@ export async function runYardiFhirSyncForTarget(
     communityId: target.communityId,
     organizationId: target.organizationId,
     skipCaspio: options.skipCaspio === true,
+    skipService: shouldSkipYardiServiceCaspio(options.skipService),
     startedAt,
     completedAt: startedAt,
     patientsDiscovered: 0,
@@ -168,15 +170,21 @@ export async function runYardiFhirSyncForTarget(
           };
         } else {
           try {
-            const caspioPlan = await buildYardiFhirCaspioRecords(residentBundle, target.communityId);
+            const skipService = shouldSkipYardiServiceCaspio(options.skipService);
+            const caspioPlan = await buildYardiFhirCaspioRecords(
+              residentBundle,
+              target.communityId,
+              { skipService },
+            );
             detail.caspio = {
               skipped: false,
               tables: caspioPlan.tables,
               patientRecord: caspioPlan.patientRecord,
               communityRecord: caspioPlan.communityRecord,
               serviceRecord: caspioPlan.serviceRecord,
+              serviceSkipped: skipService,
             };
-            await pushYardiFhirCaspioRecords(caspioPlan);
+            await pushYardiFhirCaspioRecords({ ...caspioPlan, skipService });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             detail.caspio = detail.caspio ?? {
@@ -188,7 +196,9 @@ export async function runYardiFhirSyncForTarget(
           }
         }
       } else if (!shouldSkipCaspio) {
-        await pushYardiFhirBundleToCaspio(residentBundle, target.communityId);
+        await pushYardiFhirBundleToCaspio(residentBundle, target.communityId, {
+          skipService: options.skipService,
+        });
       }
 
       detail.status = 'succeeded';
@@ -327,6 +337,10 @@ export function resolveEffectiveCuid(
   return `COMM-${communityId}`;
 }
 
+export function shouldSkipYardiServiceCaspio(skipService?: boolean): boolean {
+  return skipService !== false;
+}
+
 export function isSyntheticCommunityCuid(
   cuid: string,
   communityId: number,
@@ -389,11 +403,12 @@ export function buildYardiPulledDataSummary(
 export async function buildYardiFhirCaspioRecords(
   bundle: CanonicalResidentBundle,
   communityId: number,
+  options?: { skipService?: boolean },
 ): Promise<{
   tables: YardiFhirCaspioPushPlan['tables'];
   patientRecord: Record<string, unknown>;
   communityRecord: Record<string, unknown>;
-  serviceRecord: Record<string, unknown>;
+  serviceRecord?: Record<string, unknown>;
 }> {
   const vendorPayload = bundle.vendorPayload as YardiFhirPatientBundle | undefined;
   if (!vendorPayload) {
@@ -448,15 +463,18 @@ export async function buildYardiFhirCaspioRecords(
 
   const serviceType =
     bundle.demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
-  const serviceRecord = mapServiceRecord({
-    patientNumber: patientRecord.PatientNumber!,
-    cuid: patientRecord.CUID,
-    serviceType,
-    startDate: patientRecord.Move_in_Date,
-    endDate: undefined,
-    communityName: patientRecord.CommunityName,
-    roomNumber: patientRecord.RoomNumber,
-  });
+  const skipService = shouldSkipYardiServiceCaspio(options?.skipService);
+  const serviceRecord = skipService
+    ? undefined
+    : mapServiceRecord({
+        patientNumber: patientRecord.PatientNumber!,
+        cuid: patientRecord.CUID,
+        serviceType,
+        startDate: patientRecord.Move_in_Date,
+        endDate: undefined,
+        communityName: patientRecord.CommunityName,
+        roomNumber: patientRecord.RoomNumber,
+      });
 
   return {
     tables: getCaspioTableNames(),
@@ -470,7 +488,8 @@ export async function pushYardiFhirCaspioRecords(records: {
   tables: YardiFhirCaspioPushPlan['tables'];
   patientRecord: Record<string, unknown>;
   communityRecord: Record<string, unknown>;
-  serviceRecord: Record<string, unknown>;
+  serviceRecord?: Record<string, unknown>;
+  skipService?: boolean;
 }): Promise<void> {
   const communityId = Number(records.communityRecord.CommunityID ?? NaN);
   const roomNumber =
@@ -515,6 +534,10 @@ export async function pushYardiFhirCaspioRecords(records: {
     ),
   );
 
+  if (shouldSkipYardiServiceCaspio(records.skipService) || !records.serviceRecord) {
+    return;
+  }
+
   const { Service_ID: _serviceId, ...serviceRecordForWrite } = records.serviceRecord;
   const serviceFilters = buildServiceUpsertFilters(serviceRecordForWrite);
   if (serviceFilters.length === 0) {
@@ -529,7 +552,8 @@ export async function pushYardiFhirCaspioRecords(records: {
 export async function pushYardiFhirBundleToCaspio(
   bundle: CanonicalResidentBundle,
   communityId: number,
+  options?: { skipService?: boolean },
 ): Promise<void> {
-  const records = await buildYardiFhirCaspioRecords(bundle, communityId);
-  await pushYardiFhirCaspioRecords(records);
+  const records = await buildYardiFhirCaspioRecords(bundle, communityId, options);
+  await pushYardiFhirCaspioRecords({ ...records, skipService: options?.skipService });
 }

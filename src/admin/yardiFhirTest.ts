@@ -29,6 +29,7 @@ export type YardiFhirTestSyncInput = {
   communityId: number;
   organizationId: string;
   skipCaspio: boolean;
+  skipService: boolean;
 };
 
 export type YardiFhirAuthTestResult = {
@@ -99,6 +100,7 @@ export function parseYardiFhirTestSyncInput(body: unknown): YardiFhirTestSyncInp
     communityId,
     organizationId,
     skipCaspio: record.skipCaspio === true,
+    skipService: record.skipService !== false,
   };
 }
 
@@ -123,6 +125,7 @@ export async function runYardiFhirTestSync(
   return runYardiFhirSyncForTarget(target, {
     cursorStore: createRedisSyncCursorStore(),
     skipCaspio: input.skipCaspio,
+    skipService: input.skipService,
     includeDetails: true,
   });
 }

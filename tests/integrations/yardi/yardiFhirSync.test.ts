@@ -3,6 +3,7 @@ import {
   extractYardiCommunityName,
   isSyntheticCommunityCuid,
   resolveEffectiveCuid,
+  shouldSkipYardiServiceCaspio,
 } from '../../../src/integrations/yardi/yardiFhirSync.js';
 import type { YardiFhirPatientBundle } from '../../../src/integrations/yardi/yardiFhirTypes.js';
 
@@ -93,5 +94,12 @@ describe('yardiFhirSync helpers', () => {
   it('detects synthetic fallback CUIDs', () => {
     expect(isSyntheticCommunityCuid('COMM-237-100', 237, '100')).toBe(true);
     expect(isSyntheticCommunityCuid('965', 237, '100')).toBe(false);
+  });
+
+  it('skips service table writes by default', () => {
+    expect(shouldSkipYardiServiceCaspio()).toBe(true);
+    expect(shouldSkipYardiServiceCaspio(undefined)).toBe(true);
+    expect(shouldSkipYardiServiceCaspio(true)).toBe(true);
+    expect(shouldSkipYardiServiceCaspio(false)).toBe(false);
   });
 });

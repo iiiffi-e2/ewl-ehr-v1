@@ -32,6 +32,7 @@ export type YardiFhirSyncSummary = {
   communityId: number;
   organizationId: string;
   skipCaspio?: boolean;
+  skipService?: boolean;
   startedAt: string;
   completedAt: string;
   sinceDate?: string;
@@ -73,6 +74,7 @@ export type YardiFhirCaspioPushPlan = {
   patientRecord?: Record<string, unknown>;
   communityRecord?: Record<string, unknown>;
   serviceRecord?: Record<string, unknown>;
+  serviceSkipped?: boolean;
   pushError?: string;
 };
 

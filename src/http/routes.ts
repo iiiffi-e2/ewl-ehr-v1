@@ -793,6 +793,7 @@ router.post('/admin/yardi-fhir-test/sync', authAdmin, async (req, res) => {
         communityId: input.communityId,
         organizationId: input.organizationId,
         skipCaspio: input.skipCaspio,
+        skipService: input.skipService,
       },
       'admin_yardi_fhir_test_sync_called',
     );

@@ -394,6 +394,12 @@
       </div>
       <p class="muted">Leave checked for Yardi-only testing. Uncheck only when you want to push into the Caspio test tables.</p>
 
+      <div class="checkbox-row">
+        <input id="syncSkipService" type="checkbox" checked>
+        <label for="syncSkipService">Skip service table (patient table only)</label>
+      </div>
+      <p class="muted">Yardi does not provide service type yet. Leave checked to write only the care patient table.</p>
+
       <div class="button-row">
         <button type="button" id="runSyncButton">Run Yardi Pull</button>
       </div>
@@ -459,6 +465,7 @@
     const syncCommunityId = document.getElementById('syncCommunityId');
     const syncOrganizationId = document.getElementById('syncOrganizationId');
     const syncSkipCaspio = document.getElementById('syncSkipCaspio');
+    const syncSkipService = document.getElementById('syncSkipService');
     const syncOutput = document.getElementById('syncOutput');
     const syncDetails = document.getElementById('syncDetails');
     const runSyncButton = document.getElementById('runSyncButton');
@@ -634,14 +641,17 @@
       const pushError = caspio.pushError
         ? `\n\nPush error:\n${caspio.pushError}`
         : '\n\nPush status: completed';
+      const serviceNote = caspio.serviceSkipped
+        ? '\n\nService table: skipped (Yardi service type not available)'
+        : '';
 
       return `
         <div class="detail-block">
           <h4>Caspio Push</h4>
-          <pre>${escapeHtml(tables)}${escapeHtml(pushError)}</pre>
+          <pre>${escapeHtml(tables)}${escapeHtml(pushError)}${escapeHtml(serviceNote)}</pre>
           ${renderRecordBlock('Patient Record', caspio.patientRecord)}
           ${renderRecordBlock('Community Record', caspio.communityRecord)}
-          ${renderRecordBlock('Service Record', caspio.serviceRecord)}
+          ${caspio.serviceSkipped ? '' : renderRecordBlock('Service Record', caspio.serviceRecord)}
         </div>
       `;
     };
@@ -681,6 +691,7 @@
           <div class="sync-summary-item"><strong>Failed</strong>${summary.patientsFailed ?? 0}</div>
           <div class="sync-summary-item"><strong>Since Date</strong>${escapeHtml(summary.sinceDate || '—')}</div>
           <div class="sync-summary-item"><strong>Caspio</strong>${summary.skipCaspio ? 'Skipped' : 'Pushed'}</div>
+          <div class="sync-summary-item"><strong>Service Table</strong>${summary.skipService === false ? 'Pushed' : 'Skipped'}</div>
         </div>
       `;
 
@@ -747,6 +758,7 @@
             communityId,
             organizationId: organizationIdValue,
             skipCaspio: syncSkipCaspio.checked,
+            skipService: syncSkipService.checked,
           }),
         });
 
