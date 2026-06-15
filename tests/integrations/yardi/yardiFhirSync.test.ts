@@ -3,6 +3,7 @@ import {
   extractYardiCommunityName,
   isSyntheticCommunityCuid,
   resolveEffectiveCuid,
+  resolvePatientCommunityName,
   shouldSkipYardiServiceCaspio,
 } from '../../../src/integrations/yardi/yardiFhirSync.js';
 import type { YardiFhirPatientBundle } from '../../../src/integrations/yardi/yardiFhirTypes.js';
@@ -84,6 +85,29 @@ describe('yardiFhirSync helpers', () => {
     });
 
     expect(name).toBe('EyeWatch Live TEST (eyewatch)');
+  });
+
+  it('falls back to patient managingOrganization for community name', () => {
+    const name = extractYardiCommunityName({
+      patientId: '31543-2',
+      patient: {
+        managingOrganization: { display: 'EyeWatch Live TEST' },
+      },
+      encounterBundle: { entry: [] },
+      coverageBundle: {},
+      conditionBundle: {},
+    });
+
+    expect(name).toBe('EyeWatch Live TEST');
+  });
+
+  it('prefers Yardi community name over Caspio Unknown enrichment', () => {
+    expect(
+      resolvePatientCommunityName(
+        { CommunityName: 'Unknown' },
+        'EyeWatch Live TEST (eyewatch)',
+      ),
+    ).toBe('EyeWatch Live TEST (eyewatch)');
   });
 
   it('resolves a stable fallback CUID when enrichment is missing one', () => {

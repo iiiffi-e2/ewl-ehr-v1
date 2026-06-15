@@ -16,8 +16,13 @@ import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../caspio/serviceLineTyp
 
 import { YardiFhirClient } from './yardiFhirClient.js';
 import {
+  extractYardiCommunityNameFromPatient,
   getYardiConditionTexts,
   getYardiCoverageNames,
+  getYardiNormalizedCoverages,
+  getYardiPatientAddress,
+  getYardiPatientContacts,
+  getYardiPatientPhone,
   mapYardiFhirBundleToDemographics,
 } from './yardiFhirDemographics.js';
 import { getYardiFhirPollCursorKey } from './yardiFhirPollConfig.js';
@@ -322,7 +327,19 @@ export function extractYardiCommunityName(bundle: YardiFhirPatientBundle): strin
     const display = serviceProvider?.display?.trim();
     if (display) return display;
   }
-  return undefined;
+  return extractYardiCommunityNameFromPatient(bundle.patient);
+}
+
+export function resolvePatientCommunityName(
+  enrichment: CommunityEnrichment,
+  yardiCommunityName?: string,
+): string | undefined {
+  const enriched = enrichment.CommunityName?.trim();
+  const yardi = yardiCommunityName?.trim();
+  if (enriched && enriched.toLowerCase() !== 'unknown') {
+    return enriched;
+  }
+  return yardi ?? enriched;
 }
 
 export function resolveEffectiveCuid(
@@ -419,11 +436,16 @@ export async function buildYardiFhirCaspioRecords(
   const enrichment = await getCommunityEnrichment(
     communityId,
     bundle.demographics.roomNumber ?? undefined,
+    communityName,
   );
   const cuid = resolveEffectiveCuid(enrichment, communityId, bundle.demographics.roomNumber);
-  const coverageNames = getYardiCoverageNames(vendorPayload);
+  const { slot1, slot2 } = getYardiNormalizedCoverages(vendorPayload);
   const conditions = getYardiConditionTexts(vendorPayload);
-  const resolvedCommunityName = enrichment.CommunityName ?? communityName;
+  const resolvedCommunityName = resolvePatientCommunityName(enrichment, communityName);
+  const patientAddress = getYardiPatientAddress(vendorPayload.patient);
+  const contacts = getYardiPatientContacts(vendorPayload.patient);
+  const contact1 = contacts[0];
+  const contact2 = contacts[1];
 
   const patientRecord = {
     PatientNumber: bundle.demographics.externalResidentId,
@@ -432,8 +454,29 @@ export async function buildYardiFhirCaspioRecords(
     PatientDOB: formatCaspioDate(bundle.demographics.dateOfBirth),
     RoomNumber: bundle.demographics.roomNumber ?? undefined,
     ApartmentNumber: bundle.demographics.roomNumber ?? undefined,
-    PatientPrimaryInsurance: coverageNames[0] ?? undefined,
-    Secondinsurance: coverageNames[1] ?? undefined,
+    PatientAddress: patientAddress.street,
+    PatientAddressCity: patientAddress.city,
+    PatientAddressState: patientAddress.state,
+    PatientAddressZip: patientAddress.postalCode,
+    PatientPhoneNumber: getYardiPatientPhone(vendorPayload.patient),
+    PatientPrimaryInsurance: slot1?.name ?? undefined,
+    PrimaryInsuranceNum: slot1?.number ?? undefined,
+    GroupNumber1: slot1?.group ?? undefined,
+    Insurance_Type: slot1?.type ?? undefined,
+    Secondinsurance: slot2?.name ?? undefined,
+    SecondInsuranceNum: slot2?.number ?? undefined,
+    GroupNumber2: slot2?.group ?? undefined,
+    Insurance_2_Type: slot2?.type ?? undefined,
+    FamilyContact1Name: contact1?.name,
+    FamilyContact1Relationship: contact1?.relationship,
+    FamilyContact1Number: contact1?.phone,
+    FamilyContact1Email: contact1?.email,
+    FamilyContact1Address: contact1?.address,
+    FamilyContact2Name: contact2?.name,
+    FamilyContact2Relationship: contact2?.relationship,
+    FamilyContact2Number: contact2?.phone,
+    FamilyContact2Email: contact2?.email,
+    FamilyContact2Address: contact2?.address,
     Diagnosis1: conditions[0] ?? undefined,
     Diagnosis2: conditions[1] ?? undefined,
     Move_in_Date: formatCaspioDate(bundle.demographics.onPremDate),
