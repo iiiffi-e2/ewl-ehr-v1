@@ -78,24 +78,71 @@ describe('yardiFhirDemographics', () => {
     expect(getYardiConditionTexts(bundle)).toEqual(['Hypertension']);
   });
 
-  it('ignores patient self-payor entries when extracting insurance names', () => {
+  it('assigns Medicare primary and commercial secondary from Yardi Coverage buckets', () => {
     const waylonBundle: YardiFhirPatientBundle = {
       ...bundle,
+      patientId: '31533-2',
       patient: {
         name: [{ given: ['Waylon'], family: 'Frost' }],
       },
       coverageBundle: {
         resourceType: 'Bundle',
+        total: 3,
         entry: [
           {
             resource: {
               resourceType: 'Coverage',
-              subscriberId: 'POL123',
-              type: { text: 'Commercial' },
-              class: [{ type: { coding: [{ code: 'group' }] }, value: 'GRP456' }],
+              id: '31533-2-A',
+              subscriberId: '31533',
+              payor: [{ display: 'Waylon Frost', reference: 'Patient/31533-2' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: '0921921',
+                  name: 'Medicare A/B Number',
+                },
+              ],
+            },
+          },
+          {
+            resource: {
+              resourceType: 'Coverage',
+              id: '31533-2-D',
+              subscriberId: '31533',
+              payor: [{ display: 'Waylon Frost', reference: 'Patient/31533-2' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: 'F24443D',
+                  name: 'Prescription drug / Medicare D plan',
+                },
+                {
+                  type: { coding: [{ code: 'group' }] },
+                  value: '3838D23G',
+                  name: 'Group Number',
+                },
+              ],
+            },
+          },
+          {
+            resource: {
+              resourceType: 'Coverage',
+              id: '1960-31-E',
+              subscriberId: '31533',
               payor: [
-                { display: 'Waylon Frost', reference: 'Patient/31533-2' },
                 { display: 'Big Insurance Co.', reference: 'Organization/6634-6' },
+              ],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: '654453DA3',
+                  name: 'Insurance Policy Number',
+                },
+                {
+                  type: { coding: [{ code: 'group' }] },
+                  value: 'D73782S1',
+                  name: 'Insurance Group Number',
+                },
               ],
             },
           },
@@ -103,15 +150,105 @@ describe('yardiFhirDemographics', () => {
       },
     };
 
-    expect(getYardiCoverageNames(waylonBundle)).toEqual(['Big Insurance Co.']);
+    expect(getYardiCoverageNames(waylonBundle)).toEqual([
+      'Medicare A/B Number',
+      'Big Insurance Co.',
+    ]);
     expect(getYardiNormalizedCoverages(waylonBundle)).toMatchObject({
       slot1: {
-        name: 'Big Insurance Co.',
-        number: 'POL123',
-        group: 'GRP456',
-        type: 'Commercial',
+        name: 'Medicare A/B Number',
+        number: '0921921',
+        type: 'Medicare',
       },
-      slot2: null,
+      slot2: {
+        name: 'Big Insurance Co.',
+        number: '654453DA3',
+        group: 'D73782S1',
+      },
+    });
+  });
+
+  it('uses Medicaid as primary when Medicare is absent', () => {
+    const medicaidBundle: YardiFhirPatientBundle = {
+      ...bundle,
+      coverageBundle: {
+        resourceType: 'Bundle',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Coverage',
+              payor: [{ display: 'Resident Name', reference: 'Patient/1' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: 'MCD123',
+                  name: 'Medicaid Number',
+                },
+              ],
+            },
+          },
+          {
+            resource: {
+              resourceType: 'Coverage',
+              payor: [{ display: 'Acme Insurance', reference: 'Organization/1' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: 'POL999',
+                  name: 'Insurance Policy Number',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    expect(getYardiNormalizedCoverages(medicaidBundle)).toMatchObject({
+      slot1: { name: 'Medicaid Number', number: 'MCD123', type: 'Medicaid' },
+      slot2: { name: 'Acme Insurance', number: 'POL999' },
+    });
+  });
+
+  it('uses two commercial policies when Medicare and Medicaid are absent', () => {
+    const commercialBundle: YardiFhirPatientBundle = {
+      ...bundle,
+      coverageBundle: {
+        resourceType: 'Bundle',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Coverage',
+              payor: [{ display: 'Primary Insurance Co.', reference: 'Organization/1' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: 'POL1',
+                  name: 'Insurance Policy Number',
+                },
+              ],
+            },
+          },
+          {
+            resource: {
+              resourceType: 'Coverage',
+              payor: [{ display: 'Secondary Insurance Co.', reference: 'Organization/2' }],
+              class: [
+                {
+                  type: { coding: [{ code: 'plan' }] },
+                  value: 'POL2',
+                  name: 'Insurance Policy Number',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    expect(getYardiNormalizedCoverages(commercialBundle)).toMatchObject({
+      slot1: { name: 'Primary Insurance Co.', number: 'POL1' },
+      slot2: { name: 'Secondary Insurance Co.', number: 'POL2' },
     });
   });
 

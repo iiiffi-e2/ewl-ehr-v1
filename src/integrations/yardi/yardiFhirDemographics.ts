@@ -1,4 +1,4 @@
-import { normalizeMedicalInsurances, type NormalizedInsurance } from '../caspio/insuranceNormalization.js';
+import type { NormalizedInsurance } from '../caspio/insuranceNormalization.js';
 import type { CanonicalResidentDemographics } from '../ehr/types.js';
 
 import type { FhirBundle, FhirPatient, YardiFhirPatientBundle } from './yardiFhirTypes.js';
@@ -8,6 +8,18 @@ export type YardiNormalizedCoverage = {
   type: string | null;
   group: string | null;
   number: string | null;
+};
+
+type YardiCoverageBucket = 'medicare' | 'medicaid' | 'commercial';
+
+type ParsedYardiCoverage = YardiNormalizedCoverage & {
+  bucket: YardiCoverageBucket;
+};
+
+type CoverageClassEntry = {
+  name?: string;
+  value?: string;
+  typeCode?: string;
 };
 
 export type YardiFhirContact = {
@@ -220,29 +232,67 @@ function getFirstIdentifierValue(value: unknown): string | undefined {
   return undefined;
 }
 
-function getCoverageClassValues(
-  value: unknown,
-): { group?: string; plan?: string; memberId?: string } {
-  const result: { group?: string; plan?: string; memberId?: string } = {};
-  if (!Array.isArray(value)) return result;
+function containsIgnoreCase(value: string | undefined, needle: string): boolean {
+  return value ? value.toLowerCase().includes(needle.toLowerCase()) : false;
+}
 
+function getCoverageClassEntries(value: unknown): CoverageClassEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  const entries: CoverageClassEntry[] = [];
   for (const item of value) {
     const record = item as {
-      type?: { coding?: Array<{ code?: string }> };
+      name?: string;
       value?: string;
+      type?: { coding?: Array<{ code?: string }> };
     };
     const classValue = typeof record.value === 'string' ? record.value.trim() : undefined;
     if (!classValue) continue;
 
-    const codes = Array.isArray(record.type?.coding)
-      ? record.type.coding.map((coding) => coding.code?.toLowerCase()).filter(Boolean)
-      : [];
-    if (codes.includes('group') || codes.includes('rxgroup')) {
-      result.group = classValue;
-    } else if (codes.includes('plan') || codes.includes('subplan')) {
-      result.plan = classValue;
-    } else if (codes.includes('rxid')) {
-      result.memberId = classValue;
+    const typeCode = Array.isArray(record.type?.coding)
+      ? record.type.coding.map((coding) => coding.code?.toLowerCase()).find(Boolean)
+      : undefined;
+
+    entries.push({
+      name: typeof record.name === 'string' ? record.name.trim() : undefined,
+      value: classValue,
+      typeCode,
+    });
+  }
+
+  return entries;
+}
+
+function getCoverageClassValues(
+  value: unknown,
+): { group?: string; plan?: string; memberId?: string; policyNumber?: string } {
+  const result: { group?: string; plan?: string; memberId?: string; policyNumber?: string } = {};
+
+  for (const entry of getCoverageClassEntries(value)) {
+    if (!entry.value) continue;
+
+    if (entry.typeCode === 'group' || entry.typeCode === 'rxgroup') {
+      result.group = entry.value;
+      continue;
+    }
+
+    if (containsIgnoreCase(entry.name, 'group number') || containsIgnoreCase(entry.name, 'group')) {
+      result.group = entry.value;
+      continue;
+    }
+
+    if (entry.typeCode === 'rxid') {
+      result.memberId = entry.value;
+      continue;
+    }
+
+    if (containsIgnoreCase(entry.name, 'policy') || containsIgnoreCase(entry.name, 'id number')) {
+      result.policyNumber = entry.value;
+      continue;
+    }
+
+    if (entry.typeCode === 'plan' || entry.typeCode === 'subplan') {
+      result.plan = entry.value;
     }
   }
 
@@ -284,32 +334,182 @@ function pickCoveragePayorName(
   return undefined;
 }
 
-function parseFhirCoverage(
+function classifyCoverageBucket(
   resource: Record<string, unknown>,
   patientDisplayName?: string,
-): YardiNormalizedCoverage | null {
+): YardiCoverageBucket {
+  const classEntries = getCoverageClassEntries(resource.class);
+  const classText = classEntries
+    .map((entry) => `${entry.name ?? ''} ${entry.value ?? ''}`)
+    .join(' ');
+  const narrative =
+    typeof (resource.text as { div?: string } | undefined)?.div === 'string'
+      ? (resource.text as { div: string }).div
+      : '';
+  const payorName = pickCoveragePayorName(resource, patientDisplayName) ?? '';
+  const haystack = `${classText} ${narrative} ${payorName}`.toLowerCase();
+
+  if (haystack.includes('medicaid')) {
+    return 'medicaid';
+  }
+  if (haystack.includes('medicare')) {
+    return 'medicare';
+  }
+  return 'commercial';
+}
+
+function getSubscriberId(resource: Record<string, unknown>): string | undefined {
+  return typeof resource.subscriberId === 'string' && resource.subscriberId.trim().length > 0
+    ? resource.subscriberId.trim()
+    : undefined;
+}
+
+function parseGovernmentCoverage(
+  resource: Record<string, unknown>,
+  bucket: 'medicare' | 'medicaid',
+): ParsedYardiCoverage {
+  const classEntries = getCoverageClassEntries(resource.class);
+  const label = bucket === 'medicare' ? 'medicare' : 'medicaid';
+  const namedClass =
+    classEntries.find((entry) => containsIgnoreCase(entry.name, label)) ??
+    classEntries.find((entry) => entry.typeCode === 'plan') ??
+    classEntries[0];
+  const classValues = getCoverageClassValues(resource.class);
+  const payors = Array.isArray(resource.payor) ? resource.payor : [];
+  const payorLabel = payors
+    .map((item) => (item as { display?: string }).display?.trim())
+    .find((display) => display && containsIgnoreCase(display, label));
+
+  return {
+    bucket,
+    name:
+      namedClass?.name ??
+      payorLabel ??
+      (bucket === 'medicare' ? 'Medicare' : 'Medicaid'),
+    type: bucket === 'medicare' ? 'Medicare' : 'Medicaid',
+    group: classValues.group ?? null,
+    number:
+      namedClass?.value ??
+      classValues.policyNumber ??
+      classValues.plan ??
+      getSubscriberId(resource) ??
+      getFirstIdentifierValue(resource.identifier) ??
+      null,
+  };
+}
+
+function parseCommercialCoverage(
+  resource: Record<string, unknown>,
+  patientDisplayName?: string,
+): ParsedYardiCoverage | null {
   const name = pickCoveragePayorName(resource, patientDisplayName);
   if (!name) return null;
 
   const classValues = getCoverageClassValues(resource.class);
-  const subscriberId =
-    typeof resource.subscriberId === 'string' && resource.subscriberId.trim().length > 0
-      ? resource.subscriberId.trim()
-      : undefined;
+  const subscriberId = getSubscriberId(resource);
 
   return {
+    bucket: 'commercial',
     name,
     type: getCodeableConceptText(resource.type) ?? null,
     group: classValues.group ?? null,
-    number: subscriberId ?? getFirstIdentifierValue(resource.identifier) ?? classValues.memberId ?? classValues.plan ?? null,
+    number:
+      classValues.policyNumber ??
+      classValues.plan ??
+      subscriberId ??
+      getFirstIdentifierValue(resource.identifier) ??
+      classValues.memberId ??
+      null,
   };
 }
 
-function getNormalizedCoverages(
+function parseFhirCoverage(
+  resource: Record<string, unknown>,
+  patientDisplayName?: string,
+): ParsedYardiCoverage | null {
+  const bucket = classifyCoverageBucket(resource, patientDisplayName);
+  if (bucket === 'medicare' || bucket === 'medicaid') {
+    return parseGovernmentCoverage(resource, bucket);
+  }
+  return parseCommercialCoverage(resource, patientDisplayName);
+}
+
+function isMedicarePartD(coverage: ParsedYardiCoverage): boolean {
+  return (
+    containsIgnoreCase(coverage.name, 'part d') ||
+    containsIgnoreCase(coverage.name, 'medicare d') ||
+    containsIgnoreCase(coverage.name, 'prescription drug')
+  );
+}
+
+function pickPrimaryMedicareCoverage(
+  coverages: ParsedYardiCoverage[],
+): ParsedYardiCoverage | null {
+  const medicareCoverages = coverages.filter((coverage) => coverage.bucket === 'medicare');
+  if (medicareCoverages.length === 0) return null;
+
+  const abCoverage = medicareCoverages.find(
+    (coverage) =>
+      containsIgnoreCase(coverage.name, 'a/b') || containsIgnoreCase(coverage.name, 'medicare a'),
+  );
+  if (abCoverage) return abCoverage;
+
+  const nonPartDCoverage = medicareCoverages.find((coverage) => !isMedicarePartD(coverage));
+  return nonPartDCoverage ?? medicareCoverages[0] ?? null;
+}
+
+function pickPrimaryMedicaidCoverage(
+  coverages: ParsedYardiCoverage[],
+): ParsedYardiCoverage | null {
+  return coverages.find((coverage) => coverage.bucket === 'medicaid') ?? null;
+}
+
+function toNormalizedInsurance(coverage: ParsedYardiCoverage): NormalizedInsurance {
+  return {
+    name: coverage.name,
+    type: coverage.type,
+    group: coverage.group,
+    number: coverage.number,
+    isMedicare:
+      coverage.bucket === 'medicare' ||
+      coverage.bucket === 'medicaid' ||
+      containsIgnoreCase(coverage.name, 'medicare') ||
+      containsIgnoreCase(coverage.name, 'medicaid'),
+  };
+}
+
+export function assignYardiInsuranceSlots(coverages: ParsedYardiCoverage[]): {
+  slot1: NormalizedInsurance | null;
+  slot2: NormalizedInsurance | null;
+} {
+  const commercialCoverages = coverages.filter((coverage) => coverage.bucket === 'commercial');
+  const medicarePrimary = pickPrimaryMedicareCoverage(coverages);
+  if (medicarePrimary) {
+    return {
+      slot1: toNormalizedInsurance(medicarePrimary),
+      slot2: commercialCoverages[0] ? toNormalizedInsurance(commercialCoverages[0]) : null,
+    };
+  }
+
+  const medicaidPrimary = pickPrimaryMedicaidCoverage(coverages);
+  if (medicaidPrimary) {
+    return {
+      slot1: toNormalizedInsurance(medicaidPrimary),
+      slot2: commercialCoverages[0] ? toNormalizedInsurance(commercialCoverages[0]) : null,
+    };
+  }
+
+  return {
+    slot1: commercialCoverages[0] ? toNormalizedInsurance(commercialCoverages[0]) : null,
+    slot2: commercialCoverages[1] ? toNormalizedInsurance(commercialCoverages[1]) : null,
+  };
+}
+
+function getParsedCoverages(
   bundle: FhirBundle,
   patientDisplayName?: string,
-): YardiNormalizedCoverage[] {
-  const coverages: YardiNormalizedCoverage[] = [];
+): ParsedYardiCoverage[] {
+  const coverages: ParsedYardiCoverage[] = [];
   for (const entry of bundle.entry ?? []) {
     const resource = entry.resource;
     if (resource?.resourceType !== 'Coverage') continue;
@@ -322,7 +522,10 @@ function getNormalizedCoverages(
 }
 
 function getCoverageNames(bundle: FhirBundle, patientDisplayName?: string): string[] {
-  return getNormalizedCoverages(bundle, patientDisplayName).map((coverage) => coverage.name);
+  const { slot1, slot2 } = assignYardiInsuranceSlots(
+    getParsedCoverages(bundle, patientDisplayName),
+  );
+  return [slot1?.name, slot2?.name].filter((name): name is string => Boolean(name));
 }
 
 function getFhirTelecomPhone(telecom: unknown): string | undefined {
@@ -447,17 +650,8 @@ export function getYardiNormalizedCoverages(bundle: YardiFhirPatientBundle): {
   slot1: NormalizedInsurance | null;
   slot2: NormalizedInsurance | null;
 } {
-  const coverages = getNormalizedCoverages(
-    bundle.coverageBundle,
-    buildPatientDisplayName(bundle.patient),
-  );
-  return normalizeMedicalInsurances(
-    coverages.map((coverage) => ({
-      payerName: coverage.name,
-      insuranceType: coverage.type,
-      groupNumber: coverage.group,
-      policyNumber: coverage.number,
-    })),
+  return assignYardiInsuranceSlots(
+    getParsedCoverages(bundle.coverageBundle, buildPatientDisplayName(bundle.patient)),
   );
 }
 
