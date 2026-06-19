@@ -74,7 +74,7 @@ describe('yardiFhirDemographics', () => {
   });
 
   it('extracts coverage and condition helper values', () => {
-    expect(getYardiCoverageNames(bundle)).toEqual(['Medicare Part A']);
+    expect(getYardiCoverageNames(bundle)).toEqual(['Medicare']);
     expect(getYardiConditionTexts(bundle)).toEqual(['Hypertension']);
   });
 
@@ -150,13 +150,10 @@ describe('yardiFhirDemographics', () => {
       },
     };
 
-    expect(getYardiCoverageNames(waylonBundle)).toEqual([
-      'Medicare A/B Number',
-      'Big Insurance Co.',
-    ]);
+    expect(getYardiCoverageNames(waylonBundle)).toEqual(['Medicare', 'Big Insurance Co.']);
     expect(getYardiNormalizedCoverages(waylonBundle)).toMatchObject({
       slot1: {
-        name: 'Medicare A/B Number',
+        name: 'Medicare',
         number: '0921921',
         type: 'Medicare',
       },

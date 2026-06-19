@@ -464,9 +464,16 @@ function pickPrimaryMedicaidCoverage(
   return coverages.find((coverage) => coverage.bucket === 'medicaid') ?? null;
 }
 
+function getCaspioInsuranceDisplayName(coverage: ParsedYardiCoverage): string {
+  if (coverage.bucket === 'medicare') {
+    return 'Medicare';
+  }
+  return coverage.name;
+}
+
 function toNormalizedInsurance(coverage: ParsedYardiCoverage): NormalizedInsurance {
   return {
-    name: coverage.name,
+    name: getCaspioInsuranceDisplayName(coverage),
     type: coverage.type,
     group: coverage.group,
     number: coverage.number,
