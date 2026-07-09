@@ -89,6 +89,10 @@ describe('YardiHl7AdtAdapter raw HL7', () => {
     });
     expect(event.eventMessageDate).toMatch(/2022-09-08/);
     expect((event.raw as { message?: string }).message).toContain('MSH|');
+    expect((event.raw as { parsed?: { messageControlId?: string; triggerEvent?: string } }).parsed).toMatchObject({
+      messageControlId: '10529',
+      triggerEvent: 'A01',
+    });
   });
 
   it('still parses the existing JSON envelope', () => {
