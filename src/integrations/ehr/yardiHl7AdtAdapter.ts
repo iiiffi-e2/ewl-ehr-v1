@@ -146,10 +146,8 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
       if (!hl7.messageControlId) {
         throw new Error('Invalid HL7 message: missing message control ID');
       }
-      const eventMessageDate = normalizeHl7DateTime(hl7.messageDateTime);
-      if (!eventMessageDate) {
-        throw new Error('Invalid HL7 message: unparseable message datetime');
-      }
+      const eventMessageDate =
+        normalizeHl7DateTime(hl7.messageDateTime) ?? new Date().toISOString();
       return {
         source: this.source,
         companyKey: 'yardi',
@@ -161,13 +159,14 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
         notificationData: {
           TriggerEvent: hl7.triggerEvent,
           ResidentId: hl7.residentId ?? null,
-          SendingApplication: hl7.sendingApplication,
-          SendingFacility: hl7.sendingFacility,
-          ReceivingApplication: hl7.receivingApplication,
-          ReceivingFacility: hl7.receivingFacility,
+          SendingApplication: hl7.sendingApplication ?? null,
+          SendingFacility: hl7.sendingFacility ?? null,
+          ReceivingApplication: hl7.receivingApplication ?? null,
+          ReceivingFacility: hl7.receivingFacility ?? null,
         },
         raw: {
           message: trimmed,
+          parsed: hl7,
         },
       };
     }
