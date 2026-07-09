@@ -144,3 +144,108 @@ describe('POST /webhook/alis', () => {
     expect(queueAddMock).not.toHaveBeenCalled();
   });
 });
+
+const SAMPLE_YARDI_HL7 = [
+  'MSH|^~\\&|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|20220908043209||ADT^A01|10529|P|2.5',
+  'EVN|A01|20220908043209',
+  'PID|1||418612||Morgan^Denise^||20220901000000|F',
+  'PV1|1|I^Current|AZone1^141^Single^EYELIVE',
+].join('\r');
+
+describe('POST /webhook/yardi/hl7', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('captures raw HL7, does not enqueue, returns HL7 ACK', async () => {
+    recordIncomingEventMock.mockResolvedValueOnce({
+      eventLog: { id: 501 },
+      company: { id: 20, companyKey: 'yardi' },
+      isDuplicate: false,
+    });
+    markEventIgnoredMock.mockResolvedValueOnce(undefined);
+
+    const response = await request(app)
+      .post('/webhook/yardi/hl7')
+      .set('Authorization', authHeader)
+      .set('Content-Type', 'text/plain')
+      .send(SAMPLE_YARDI_HL7);
+
+    expect(response.status).toBe(202);
+    expect(response.text).toContain('MSA|AA|10529');
+    expect(queueAddMock).not.toHaveBeenCalled();
+    expect(markEventIgnoredMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 20,
+        eventMessageId: '10529',
+        source: 'yardi-hl7',
+      }),
+      'capture_only',
+    );
+    expect(recordIncomingEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'yardi-hl7',
+        companyKey: 'yardi',
+        eventMessageId: '10529',
+      }),
+    );
+  });
+
+  it('captures JSON envelope without enqueueing and returns JSON', async () => {
+    recordIncomingEventMock.mockResolvedValueOnce({
+      eventLog: { id: 502 },
+      company: { id: 20, companyKey: 'yardi-company' },
+      isDuplicate: false,
+    });
+    markEventIgnoredMock.mockResolvedValueOnce(undefined);
+
+    const response = await request(app)
+      .post('/webhook/yardi/hl7')
+      .set('Authorization', authHeader)
+      .send({
+        CompanyKey: 'yardi-company',
+        CommunityId: 113,
+        EventMessageId: 'json-1',
+        EventMessageDate: '2026-04-03T12:00:00Z',
+        Message: SAMPLE_YARDI_HL7,
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body).toEqual({ status: 'received', id: 502 });
+    expect(queueAddMock).not.toHaveBeenCalled();
+    expect(markEventIgnoredMock).toHaveBeenCalledWith(
+      expect.objectContaining({ eventMessageId: 'json-1', source: 'yardi-hl7' }),
+      'capture_only',
+    );
+  });
+
+  it('returns HL7 AE ACK for invalid raw body', async () => {
+    const response = await request(app)
+      .post('/webhook/yardi/hl7')
+      .set('Authorization', authHeader)
+      .set('Content-Type', 'text/plain')
+      .send('not-a-message');
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain('MSA|AE|');
+    expect(queueAddMock).not.toHaveBeenCalled();
+  });
+
+  it('returns HL7 AA ACK for duplicate raw HL7 without enqueueing', async () => {
+    recordIncomingEventMock.mockResolvedValueOnce({
+      eventLog: { id: 503 },
+      company: { id: 20, companyKey: 'yardi' },
+      isDuplicate: true,
+    });
+
+    const response = await request(app)
+      .post('/webhook/yardi/hl7')
+      .set('Authorization', authHeader)
+      .set('Content-Type', 'text/plain')
+      .send(SAMPLE_YARDI_HL7);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('MSA|AA|10529');
+    expect(queueAddMock).not.toHaveBeenCalled();
+  });
+});
