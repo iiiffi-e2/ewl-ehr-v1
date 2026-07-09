@@ -27,6 +27,12 @@ type ParsedHl7Message = {
   roomNumber?: string;
   bed?: string;
   residentStatus?: string;
+  messageControlId?: string;
+  messageDateTime?: string;
+  sendingApplication?: string;
+  sendingFacility?: string;
+  receivingApplication?: string;
+  receivingFacility?: string;
 };
 
 function parseField(segment: string, index: number): string | undefined {
@@ -54,6 +60,30 @@ function parseHl7Date(value: string | undefined): string | null {
   return null;
 }
 
+function normalizeHl7DateTime(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed.length >= 14) {
+    const yyyy = trimmed.slice(0, 4);
+    const mm = trimmed.slice(4, 6);
+    const dd = trimmed.slice(6, 8);
+    const HH = trimmed.slice(8, 10);
+    const min = trimmed.slice(10, 12);
+    const ss = trimmed.slice(12, 14);
+    if (!/^\d{14}$/.test(trimmed.slice(0, 14))) return null;
+    return `${yyyy}-${mm}-${dd}T${HH}:${min}:${ss}.000Z`;
+  }
+  if (trimmed.length >= 8) {
+    const datePart = trimmed.slice(0, 8);
+    if (!/^\d{8}$/.test(datePart)) return null;
+    const yyyy = datePart.slice(0, 4);
+    const mm = datePart.slice(4, 6);
+    const dd = datePart.slice(6, 8);
+    return `${yyyy}-${mm}-${dd}T00:00:00.000Z`;
+  }
+  return null;
+}
+
 function toLifecycle(triggerEvent: string): EhrLifecycleKind {
   const normalized = triggerEvent.toUpperCase();
   if (normalized === 'A05') return 'created';
@@ -74,10 +104,12 @@ function parseHl7Message(message: string): ParsedHl7Message {
   const evn = segments.find((line) => line.startsWith('EVN|'));
   const pid = segments.find((line) => line.startsWith('PID|'));
   const pv1 = segments.find((line) => line.startsWith('PV1|'));
+  const msh = segments.find((line) => line.startsWith('MSH|'));
+  const mshParts = (msh ?? '').split('|');
 
   const triggerEvent =
     parseField(evn ?? '', 1) ??
-    parseComponent(parseField(segments.find((line) => line.startsWith('MSH|')) ?? '', 8), 1) ??
+    parseComponent(parseField(msh ?? '', 8), 1) ??
     'UNKNOWN';
 
   const residentIdRaw = parseField(pid ?? '', 3);
@@ -92,6 +124,12 @@ function parseHl7Message(message: string): ParsedHl7Message {
     residentStatus: parseComponent(parseField(pv1 ?? '', 2), 1),
     roomNumber: parseComponent(parseField(pv1 ?? '', 3), 1),
     bed: parseComponent(parseField(pv1 ?? '', 3), 2),
+    messageControlId: mshParts[9],
+    messageDateTime: mshParts[6],
+    sendingApplication: mshParts[2],
+    sendingFacility: mshParts[3],
+    receivingApplication: mshParts[4],
+    receivingFacility: mshParts[5],
   };
 }
 
@@ -99,6 +137,41 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
   readonly source = 'yardi-hl7' as const;
 
   parseInboundEvent(payload: unknown): CanonicalInboundEvent {
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      if (!trimmed.startsWith('MSH|')) {
+        throw new Error('Invalid HL7 message: expected MSH segment');
+      }
+      const hl7 = parseHl7Message(trimmed);
+      if (!hl7.messageControlId) {
+        throw new Error('Invalid HL7 message: missing message control ID');
+      }
+      const eventMessageDate = normalizeHl7DateTime(hl7.messageDateTime);
+      if (!eventMessageDate) {
+        throw new Error('Invalid HL7 message: unparseable message datetime');
+      }
+      return {
+        source: this.source,
+        companyKey: 'yardi',
+        communityId: null,
+        eventType: `hl7.adt.${hl7.triggerEvent.toLowerCase()}`,
+        eventMessageId: hl7.messageControlId,
+        eventMessageDate,
+        lifecycleKind: toLifecycle(hl7.triggerEvent),
+        notificationData: {
+          TriggerEvent: hl7.triggerEvent,
+          ResidentId: hl7.residentId ?? null,
+          SendingApplication: hl7.sendingApplication,
+          SendingFacility: hl7.sendingFacility,
+          ReceivingApplication: hl7.receivingApplication,
+          ReceivingFacility: hl7.receivingFacility,
+        },
+        raw: {
+          message: trimmed,
+        },
+      };
+    }
+
     const parsed = YardiHl7WebhookSchema.parse(payload);
     const hl7 = parseHl7Message(parsed.Message);
     const eventType = parsed.EventType ?? `hl7.adt.${hl7.triggerEvent.toLowerCase()}`;
@@ -114,6 +187,10 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
         ...(parsed.NotificationData ?? {}),
         TriggerEvent: hl7.triggerEvent,
         ResidentId: hl7.residentId ?? null,
+        SendingApplication: hl7.sendingApplication,
+        SendingFacility: hl7.sendingFacility,
+        ReceivingApplication: hl7.receivingApplication,
+        ReceivingFacility: hl7.receivingFacility,
       },
       raw: {
         message: parsed.Message,
