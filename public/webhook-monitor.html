@@ -249,6 +249,21 @@
         .status-badge.failed { background: #da3633; color: white; }
         .status-badge.ignored { background: #6e7681; color: white; }
 
+        .source-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .source-badge.alis { background: #21262d; color: #58a6ff; border: 1px solid #388bfd66; }
+        .source-badge.yardi-hl7 { background: #21262d; color: #3fb950; border: 1px solid #3fb95066; }
+        .source-badge.yardi-fhir { background: #21262d; color: #d2a8ff; border: 1px solid #d2a8ff66; }
+        .source-badge.unknown { background: #21262d; color: #8b949e; border: 1px solid #6e768166; }
+
         .event-payload {
             background: #0d1117;
             padding: 10px;
@@ -516,11 +531,16 @@
             container.innerHTML = events.map(event => {
                 const time = formatTimestamp(event.receivedAt);
                 const payload = JSON.stringify(event.payload, null, 2);
+                const source = event.source || 'alis';
+                const sourceClass = ['alis', 'yardi-hl7', 'yardi-fhir'].includes(source) ? source : 'unknown';
                 
                 return `
                     <div class="event-item">
                         <div class="event-header">
-                            <span class="event-type">${event.eventType}</span>
+                            <span class="event-type">
+                                <span class="source-badge ${sourceClass}">${source}</span>
+                                ${event.eventType}
+                            </span>
                             <span class="event-time">${time}</span>
                         </div>
                         <div class="event-meta">
