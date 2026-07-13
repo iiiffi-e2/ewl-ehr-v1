@@ -68,6 +68,28 @@ const EnvSchema = z
       }),
     YARDI_FHIR_POLL_INTERVAL_MS: z.coerce.number().default(14_400_000),
     YARDI_FHIR_POLL_TARGETS: z.string().optional(),
+    YARDI_HL7_POLL_ENABLED: z
+      .union([z.string(), z.boolean()])
+      .default('false')
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        return val.toLowerCase() === 'true';
+      }),
+    YARDI_HL7_POLL_INTERVAL_MS: z.coerce.number().default(300_000),
+    YARDI_HL7_POLL_MAX_MESSAGES: z.coerce.number().default(50),
+    YARDI_HL7_GET_MESSAGE_URL: z
+      .string()
+      .url()
+      .default('https://test.yardimirthus.com:1021/HL7/GetMessage'),
+    YARDI_HL7_PROCESS_ACK_URL: z
+      .string()
+      .url()
+      .default('https://test.yardimirthus.com:1024/HL7/ProcessACK/'),
+    YARDI_HL7_MAILBOX_PASSWORD: z.string().optional(),
+    YARDI_HL7_SENDING_APPLICATION: z.string().default('EyeWatchLive'),
+    YARDI_HL7_SENDING_FACILITY: z.string().default('EyeWatchLive'),
+    YARDI_HL7_RECEIVING_APPLICATION: z.string().default('Yardi'),
+    YARDI_HL7_RECEIVING_FACILITY: z.string().default('EYELIVE'),
     EHR_ENABLED_COMMUNITY_IDS: z.string().optional(),
   })
   .transform((values) => ({
