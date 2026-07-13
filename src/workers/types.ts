@@ -24,3 +24,5 @@ export type YardiFhirPollJobData = {
   organizationId?: string;
   skipCaspio?: boolean;
 };
+
+export type YardiHl7PollJobData = Record<string, never>;
