@@ -36,7 +36,6 @@ import type { AlisPayload } from '../integrations/alis/types.js';
 
 import { authWebhook } from './middleware/authWebhook.js';
 import { authAdmin } from './middleware/authAdmin.js';
-import { parseYardiHl7Body } from './middleware/parseYardiHl7Body.js';
 
 export const router = Router();
 
@@ -90,19 +89,6 @@ router.post('/webhook/yardi/fhir', authWebhook, async (req, res, next) => {
     next(error);
   }
 });
-
-router.post(
-  '/webhook/yardi/hl7',
-  authWebhook,
-  parseYardiHl7Body,
-  async (req, res, next) => {
-    try {
-      await handleWebhookBySource('yardi-hl7', req, res);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
 
 // Temporary secure endpoint to test ALIS Communities API
 // Protected with BasicAuth but NOT IP allowlist (unlike webhook endpoint)
