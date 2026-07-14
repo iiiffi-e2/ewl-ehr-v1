@@ -90,6 +90,7 @@ describe('YardiHl7BrokerClient', () => {
       expect.objectContaining({
         detail: 'missing_response',
         url: 'https://example.test/GetMessage',
+        requestPreview: expect.stringContaining('Yardi|EYELIVE|EyeWatchLive|EyeWatchLive'),
         bodyLength: expect.any(Number),
         bodyPreview: expect.stringContaining('blocked'),
       }),

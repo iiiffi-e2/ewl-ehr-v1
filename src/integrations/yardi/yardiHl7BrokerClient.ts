@@ -8,6 +8,7 @@ import {
   buildProcessAckXml,
   classifyGetMessageResponse,
   formatBrokerResponseBodyForLog,
+  sanitizeXmlForLog,
   type GetMessageClassification,
   type YardiHl7BrokerIdentity,
 } from './yardiHl7BrokerXml.js';
@@ -66,10 +67,16 @@ export class YardiHl7BrokerClient {
     const data = typeof response.data === 'string' ? response.data : String(response.data ?? '');
     const classification = classifyGetMessageResponse(data);
     if (classification.kind === 'error') {
+      const headers = (response.headers ?? {}) as Record<string, unknown>;
       logger.warn(
         {
           detail: classification.detail,
           url: this.options.getMessageUrl,
+          requestPreview: sanitizeXmlForLog(body, [this.options.identity.password]),
+          responseStatus: response.status,
+          responseContentType: headers['content-type'],
+          responseContentLength: headers['content-length'],
+          responseServer: headers['server'],
           ...formatBrokerResponseBodyForLog(data, [this.options.identity.password]),
         },
         'yardi_hl7_get_message_unclassified',

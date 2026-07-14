@@ -66,6 +66,22 @@ export function buildGetMessageRequestXml(args: {
 
 const BROKER_RESPONSE_LOG_PREVIEW_CHARS = 200;
 
+export function sanitizeXmlForLog(body: string, secrets: string[] = []): string {
+  let sanitized = body;
+  for (const secret of secrets) {
+    if (!secret) continue;
+    sanitized = sanitized.split(secret).join('[REDACTED]');
+  }
+  sanitized = sanitized.replace(
+    /<Password>[\s\S]*?<\/Password>/gi,
+    '<Password>[REDACTED]</Password>',
+  );
+  const collapsed = sanitized.replace(/\s+/g, ' ').trim();
+  return collapsed.length > BROKER_RESPONSE_LOG_PREVIEW_CHARS
+    ? `${collapsed.slice(0, BROKER_RESPONSE_LOG_PREVIEW_CHARS)}…`
+    : collapsed || '(empty)';
+}
+
 export function formatBrokerResponseBodyForLog(
   body: string,
   secrets: string[] = [],
