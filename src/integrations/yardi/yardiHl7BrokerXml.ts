@@ -1,8 +1,20 @@
+/**
+ * Fixed channel identity per Yardi's Restful Message Broker spec. The same
+ * four identifiers are used in BOTH the GetMessage MSH header and the
+ * ProcessACK body, so we name them by role rather than HL7 direction to
+ * avoid the sending/receiving confusion that previously reversed the header.
+ *
+ * GetMessage MSH layout (Yardi-confirmed):
+ *   MSH.3.1 Sending Application ID .......... yardiApplicationId (Yardi)
+ *   MSH.4.1 Sending Facility ID ............. yardiFacilityId (EYELIVE)
+ *   MSH.5.1 Receiving Software ID ........... pharmacySoftwareId (EyeWatchLive)
+ *   MSH.6.1 Receiving Facility / Pharmacy ID  pharmacyId (EyeWatchLive)
+ */
 export type YardiHl7BrokerIdentity = {
-  sendingApplication: string;
-  sendingFacility: string;
-  receivingApplication: string;
-  receivingFacility: string;
+  yardiApplicationId: string;
+  yardiFacilityId: string;
+  pharmacySoftwareId: string;
+  pharmacyId: string;
   password: string;
 };
 
@@ -36,10 +48,10 @@ export function buildGetMessageRequestXml(args: {
   const msh = [
     'MSH',
     '^~\\&',
-    identity.sendingApplication,
-    identity.sendingFacility,
-    identity.receivingApplication,
-    identity.receivingFacility,
+    identity.yardiApplicationId, // MSH.3.1
+    identity.yardiFacilityId, // MSH.4.1
+    identity.pharmacySoftwareId, // MSH.5.1
+    identity.pharmacyId, // MSH.6.1
     args.dateTime,
     identity.password,
     'QBP^Q11',
@@ -150,12 +162,12 @@ export function buildProcessAckXml(args: {
     `<ADTQueue><ID>${escapeXml(controlId)}</ID></ADTQueue>`,
     '<DestinationChannel></DestinationChannel>',
     '<Pharmacy>',
-    `<ExternalSoftwareID>${escapeXml(args.identity.sendingApplication)}</ExternalSoftwareID>`,
-    `<ExternalPharmacyID>${escapeXml(args.identity.sendingFacility)}</ExternalPharmacyID>`,
+    `<ExternalSoftwareID>${escapeXml(args.identity.pharmacySoftwareId)}</ExternalSoftwareID>`,
+    `<ExternalPharmacyID>${escapeXml(args.identity.pharmacyId)}</ExternalPharmacyID>`,
     '</Pharmacy>',
     '<PharmacyPropertyComm>',
-    `<ExternalAppID>${escapeXml(args.identity.receivingApplication)}</ExternalAppID>`,
-    `<ExternalFacilityID>${escapeXml(args.identity.receivingFacility)}</ExternalFacilityID>`,
+    `<ExternalAppID>${escapeXml(args.identity.yardiApplicationId)}</ExternalAppID>`,
+    `<ExternalFacilityID>${escapeXml(args.identity.yardiFacilityId)}</ExternalFacilityID>`,
     `<Password>${escapeXml(args.password)}</Password>`,
     '</PharmacyPropertyComm>',
     '<Response>',

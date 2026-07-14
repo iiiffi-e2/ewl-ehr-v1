@@ -38,10 +38,10 @@ export class YardiHl7BrokerClient {
       getMessageUrl: env.YARDI_HL7_GET_MESSAGE_URL,
       processAckUrl: env.YARDI_HL7_PROCESS_ACK_URL,
       identity: {
-        sendingApplication: env.YARDI_HL7_SENDING_APPLICATION,
-        sendingFacility: env.YARDI_HL7_SENDING_FACILITY,
-        receivingApplication: env.YARDI_HL7_RECEIVING_APPLICATION,
-        receivingFacility: env.YARDI_HL7_RECEIVING_FACILITY,
+        yardiApplicationId: env.YARDI_HL7_SENDING_APPLICATION,
+        yardiFacilityId: env.YARDI_HL7_SENDING_FACILITY,
+        pharmacySoftwareId: env.YARDI_HL7_RECEIVING_APPLICATION,
+        pharmacyId: env.YARDI_HL7_RECEIVING_FACILITY,
         password: env.YARDI_HL7_MAILBOX_PASSWORD,
       },
     });

@@ -14,10 +14,10 @@ jest.mock('../../../src/config/logger.js', () => ({
 }));
 
 const identity: YardiHl7BrokerIdentity = {
-  sendingApplication: 'EyeWatchLive',
-  sendingFacility: 'EyeWatchLive',
-  receivingApplication: 'Yardi',
-  receivingFacility: 'EYELIVE',
+  yardiApplicationId: 'Yardi',
+  yardiFacilityId: 'EYELIVE',
+  pharmacySoftwareId: 'EyeWatchLive',
+  pharmacyId: 'EyeWatchLive',
   password: 'secret',
 };
 

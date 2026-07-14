@@ -10,10 +10,10 @@ import {
 } from '../../../src/integrations/yardi/yardiHl7BrokerXml.js';
 
 const identity: YardiHl7BrokerIdentity = {
-  sendingApplication: 'EyeWatchLive',
-  sendingFacility: 'EyeWatchLive',
-  receivingApplication: 'Yardi',
-  receivingFacility: 'EYELIVE',
+  yardiApplicationId: 'Yardi',
+  yardiFacilityId: 'EYELIVE',
+  pharmacySoftwareId: 'EyeWatchLive',
+  pharmacyId: 'EyeWatchLive',
   password: 'test-pass',
 };
 
@@ -35,10 +35,10 @@ describe('yardiHl7BrokerXml', () => {
     expect(xml).toContain('<request>');
     expect(xml).toContain('QBP^Q11');
     expect(xml).toContain('|test-pass|');
-    expect(xml).toContain('EyeWatchLive');
-    expect(xml).toContain('EYELIVE');
     expect(xml).toContain('QPD|Check Mailbox|Q-CM1||');
     expect(xml).toContain(escapeXml('^~\\&'));
+    // MSH header identity in Yardi-confirmed order: Yardi|EYELIVE|EyeWatchLive|EyeWatchLive
+    expect(unescapeXml(xml)).toContain('|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|');
   });
 
   it('extracts HL7 from broker response XML', () => {

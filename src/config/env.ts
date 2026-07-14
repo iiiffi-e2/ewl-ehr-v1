@@ -86,10 +86,15 @@ const EnvSchema = z
       .url()
       .default('https://test.yardimirthus.com:1024/HL7/ProcessACK/'),
     YARDI_HL7_MAILBOX_PASSWORD: z.string().optional(),
-    YARDI_HL7_SENDING_APPLICATION: z.string().default('EyeWatchLive'),
-    YARDI_HL7_SENDING_FACILITY: z.string().default('EyeWatchLive'),
-    YARDI_HL7_RECEIVING_APPLICATION: z.string().default('Yardi'),
-    YARDI_HL7_RECEIVING_FACILITY: z.string().default('EYELIVE'),
+    // GetMessage MSH header identity (Yardi-confirmed positions):
+    //   MSH.3.1 Sending Application ID = Yardi
+    //   MSH.4.1 Sending Facility ID = EYELIVE
+    //   MSH.5.1 Receiving Software ID = EyeWatchLive
+    //   MSH.6.1 Receiving Facility / Pharmacy ID = EyeWatchLive
+    YARDI_HL7_SENDING_APPLICATION: z.string().default('Yardi'),
+    YARDI_HL7_SENDING_FACILITY: z.string().default('EYELIVE'),
+    YARDI_HL7_RECEIVING_APPLICATION: z.string().default('EyeWatchLive'),
+    YARDI_HL7_RECEIVING_FACILITY: z.string().default('EyeWatchLive'),
     EHR_ENABLED_COMMUNITY_IDS: z.string().optional(),
   })
   .transform((values) => ({
