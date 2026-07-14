@@ -52,6 +52,43 @@ export function buildGetMessageRequestXml(args: {
   return `<HL7MessageBroker><request>${escapeXml(hl7)}</request></HL7MessageBroker>`;
 }
 
+const BROKER_RESPONSE_LOG_PREVIEW_CHARS = 200;
+
+export function formatBrokerResponseBodyForLog(
+  body: string,
+  secrets: string[] = [],
+): {
+  bodyLength: number;
+  bodyPreview: string;
+  hasResponseElement: boolean;
+  responseElementEmpty: boolean;
+} {
+  let sanitized = body;
+  for (const secret of secrets) {
+    if (!secret) continue;
+    sanitized = sanitized.split(secret).join('[REDACTED]');
+  }
+  sanitized = sanitized.replace(
+    /<Password>[\s\S]*?<\/Password>/gi,
+    '<Password>[REDACTED]</Password>',
+  );
+
+  const responseMatch = body.match(/<response\b[^>]*>([\s\S]*?)<\/response>/i);
+  const responseInner = responseMatch?.[1]?.replace(/^[ \t]+|[ \t]+$/g, '') ?? '';
+
+  const preview =
+    sanitized.length > BROKER_RESPONSE_LOG_PREVIEW_CHARS
+      ? `${sanitized.slice(0, BROKER_RESPONSE_LOG_PREVIEW_CHARS)}…`
+      : sanitized;
+
+  return {
+    bodyLength: body.length,
+    bodyPreview: preview.replace(/\s+/g, ' ').trim() || '(empty)',
+    hasResponseElement: Boolean(responseMatch),
+    responseElementEmpty: Boolean(responseMatch) && responseInner.length === 0,
+  };
+}
+
 export function extractHl7FromBrokerResponseXml(xml: string): string | null {
   const match = xml.match(/<response>([\s\S]*?)<\/response>/i);
   if (!match?.[1]) return null;

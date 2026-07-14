@@ -2,10 +2,12 @@ import type { AxiosInstance } from 'axios';
 
 import { createHttpClient } from '../../config/axios.js';
 import { env } from '../../config/env.js';
+import { logger } from '../../config/logger.js';
 import {
   buildGetMessageRequestXml,
   buildProcessAckXml,
   classifyGetMessageResponse,
+  formatBrokerResponseBodyForLog,
   type GetMessageClassification,
   type YardiHl7BrokerIdentity,
 } from './yardiHl7BrokerXml.js';
@@ -62,7 +64,18 @@ export class YardiHl7BrokerClient {
       return { kind: 'error', detail: `http_${response.status}` };
     }
     const data = typeof response.data === 'string' ? response.data : String(response.data ?? '');
-    return classifyGetMessageResponse(data);
+    const classification = classifyGetMessageResponse(data);
+    if (classification.kind === 'error') {
+      logger.warn(
+        {
+          detail: classification.detail,
+          url: this.options.getMessageUrl,
+          ...formatBrokerResponseBodyForLog(data, [this.options.identity.password]),
+        },
+        'yardi_hl7_get_message_unclassified',
+      );
+    }
+    return classification;
   }
 
   async processAck(adtMessage: string): Promise<void> {

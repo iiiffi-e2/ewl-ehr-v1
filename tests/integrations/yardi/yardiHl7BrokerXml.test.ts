@@ -4,6 +4,7 @@ import {
   classifyGetMessageResponse,
   escapeXml,
   extractHl7FromBrokerResponseXml,
+  formatBrokerResponseBodyForLog,
   unescapeXml,
   type YardiHl7BrokerIdentity,
 } from '../../../src/integrations/yardi/yardiHl7BrokerXml.js';
@@ -77,6 +78,17 @@ describe('yardiHl7BrokerXml', () => {
       'MSH|^~\\&|EyeWatchLive|EyeWatchLive|Yardi|EYELIVE|20220906110525|x|ACK^Q11|id|P|2.4\rMSA|CE|id\r';
     const xml = `<HL7MessageBroker><response>${escapeXml(hl7)}</response></HL7MessageBroker>`;
     expect(classifyGetMessageResponse(xml).kind).toBe('error');
+  });
+
+  it('formats broker response body for safe logging', () => {
+    const body =
+      '<HL7MessageBroker><Password>super-secret</Password><response></response></HL7MessageBroker>';
+    const formatted = formatBrokerResponseBodyForLog(body, ['super-secret']);
+    expect(formatted.bodyLength).toBe(body.length);
+    expect(formatted.bodyPreview).toContain('[REDACTED]');
+    expect(formatted.bodyPreview).not.toContain('super-secret');
+    expect(formatted.hasResponseElement).toBe(true);
+    expect(formatted.responseElementEmpty).toBe(true);
   });
 
   it('builds ProcessACK XML for successful ADT delivery', () => {

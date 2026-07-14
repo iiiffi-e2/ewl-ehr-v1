@@ -1,7 +1,17 @@
 import type { AxiosInstance } from 'axios';
 
+import { logger } from '../../../src/config/logger.js';
 import { YardiHl7BrokerClient } from '../../../src/integrations/yardi/yardiHl7BrokerClient.js';
 import type { YardiHl7BrokerIdentity } from '../../../src/integrations/yardi/yardiHl7BrokerXml.js';
+
+jest.mock('../../../src/config/logger.js', () => ({
+  logger: {
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
 
 const identity: YardiHl7BrokerIdentity = {
   sendingApplication: 'EyeWatchLive',
@@ -62,6 +72,28 @@ describe('YardiHl7BrokerClient', () => {
       expect.objectContaining({
         headers: expect.objectContaining({ 'Content-Type': 'text/xml' }),
       }),
+    );
+  });
+
+  it('logs diagnostics when GetMessage response is unclassified', async () => {
+    mockPost.mockResolvedValueOnce({ status: 200, data: '<html>blocked</html>' });
+    const client = new YardiHl7BrokerClient({
+      getMessageUrl: 'https://example.test/GetMessage',
+      processAckUrl: 'https://example.test/ProcessACK/',
+      identity,
+      http: mockHttp,
+    });
+
+    const result = await client.getMessage();
+    expect(result).toEqual({ kind: 'error', detail: 'missing_response' });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: 'missing_response',
+        url: 'https://example.test/GetMessage',
+        bodyLength: expect.any(Number),
+        bodyPreview: expect.stringContaining('blocked'),
+      }),
+      'yardi_hl7_get_message_unclassified',
     );
   });
 
