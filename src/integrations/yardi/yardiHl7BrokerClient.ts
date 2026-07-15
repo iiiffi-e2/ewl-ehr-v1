@@ -61,28 +61,42 @@ export class YardiHl7BrokerClient {
       responseType: 'text',
       validateStatus: () => true,
     });
+    const data = typeof response.data === 'string' ? response.data : String(response.data ?? '');
+
     if (response.status < 200 || response.status >= 300) {
+      this.logUnexpectedResponse(`http_${response.status}`, body, response, data);
       return { kind: 'error', detail: `http_${response.status}` };
     }
-    const data = typeof response.data === 'string' ? response.data : String(response.data ?? '');
+
     const classification = classifyGetMessageResponse(data);
     if (classification.kind === 'error') {
-      const headers = (response.headers ?? {}) as Record<string, unknown>;
-      logger.warn(
-        {
-          detail: classification.detail,
-          url: this.options.getMessageUrl,
-          requestPreview: sanitizeXmlForLog(body, [this.options.identity.password]),
-          responseStatus: response.status,
-          responseContentType: headers['content-type'],
-          responseContentLength: headers['content-length'],
-          responseServer: headers['server'],
-          ...formatBrokerResponseBodyForLog(data, [this.options.identity.password]),
-        },
-        'yardi_hl7_get_message_unclassified',
-      );
+      this.logUnexpectedResponse(classification.detail, body, response, data);
     }
     return classification;
+  }
+
+  private logUnexpectedResponse(
+    detail: string | undefined,
+    requestBody: string,
+    response: { status: number; headers?: unknown },
+    data: string,
+  ): void {
+    const headers = (response.headers ?? {}) as Record<string, unknown>;
+    logger.warn(
+      {
+        detail,
+        method: 'POST',
+        url: this.options.getMessageUrl,
+        requestPreview: sanitizeXmlForLog(requestBody, [this.options.identity.password]),
+        responseStatus: response.status,
+        responseContentType: headers['content-type'],
+        responseContentLength: headers['content-length'],
+        responseServer: headers['server'],
+        responseAllow: headers['allow'],
+        ...formatBrokerResponseBodyForLog(data, [this.options.identity.password]),
+      },
+      'yardi_hl7_get_message_unclassified',
+    );
   }
 
   async processAck(adtMessage: string): Promise<void> {
