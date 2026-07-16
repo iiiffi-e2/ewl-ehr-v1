@@ -82,20 +82,29 @@ export class YardiHl7BrokerClient {
     data: string,
   ): void {
     const headers = (response.headers ?? {}) as Record<string, unknown>;
+    const password = this.options.identity.password;
+    const redactedRequest = password
+      ? requestBody.split(password).join('[REDACTED]')
+      : requestBody;
     logger.warn(
       {
         detail,
         method: 'POST',
         url: this.options.getMessageUrl,
-        requestPreview: sanitizeXmlForLog(requestBody, [this.options.identity.password], {
+        requestPreview: sanitizeXmlForLog(requestBody, [password], {
           revealControlChars: true,
         }),
+        // Verify the CR is serialized as the &#13; entity and NOT a raw CR byte.
+        requestJson: JSON.stringify(redactedRequest),
+        requestHasCharRef13: requestBody.includes('&#13;'),
+        requestHasLiteralBackslashR: requestBody.includes('\\r'),
+        requestHasRawCr: requestBody.includes('\r'),
         responseStatus: response.status,
         responseContentType: headers['content-type'],
         responseContentLength: headers['content-length'],
         responseServer: headers['server'],
         responseAllow: headers['allow'],
-        ...formatBrokerResponseBodyForLog(data, [this.options.identity.password]),
+        ...formatBrokerResponseBodyForLog(data, [password]),
       },
       'yardi_hl7_get_message_unclassified',
     );

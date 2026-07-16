@@ -90,7 +90,10 @@ describe('YardiHl7BrokerClient', () => {
       expect.objectContaining({
         detail: 'missing_response',
         url: 'https://example.test/GetMessage',
-        requestPreview: expect.stringContaining('|P|2.4|\\rQPD|Check Mailbox|Q-CM1||'),
+        requestPreview: expect.stringContaining('|P|2.4|&#13;QPD|Check Mailbox|Q-CM1||'),
+        requestHasCharRef13: true,
+        requestHasRawCr: false,
+        requestHasLiteralBackslashR: false,
         bodyLength: expect.any(Number),
         bodyPreview: expect.stringContaining('blocked'),
       }),

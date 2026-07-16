@@ -62,9 +62,14 @@ export function buildGetMessageRequestXml(args: {
     '2.4',
   ].join('|')}|`;
   const qpd = 'QPD|Check Mailbox|Q-CM1||';
-  // \r is the HL7 segment delimiter (MSH<CR>QPD<CR>)
+  // HL7 segment delimiter is a carriage return (MSH<CR>QPD<CR>). Yardi's broker
+  // requires the CR serialized as the XML numeric character reference &#13; (not
+  // a raw CR byte) so its XML parser reconstructs the HL7 carriage return.
+  // Escape XML entities first, then substitute CRs with &#13; so the literal
+  // ampersand in the reference is not itself escaped to &amp;.
   const hl7 = `${msh}\r${qpd}\r`;
-  return `<HL7MessageBroker><request>${escapeXml(hl7)}</request></HL7MessageBroker>`;
+  const serialized = escapeXml(hl7).replace(/\r/g, '&#13;');
+  return `<HL7MessageBroker><request>${serialized}</request></HL7MessageBroker>`;
 }
 
 const BROKER_RESPONSE_LOG_PREVIEW_CHARS = 200;
