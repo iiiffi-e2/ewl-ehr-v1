@@ -48,6 +48,21 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
     return;
   }
 
+  // Remove any pre-existing repeatable template so option changes (e.g.
+  // attempts) actually take effect; BullMQ persists the template in Redis
+  // and would otherwise keep the stale settings across deploys.
+  try {
+    const existing = await yardiHl7PollQueue.getRepeatableJobs();
+    for (const repeatable of existing) {
+      await yardiHl7PollQueue.removeRepeatableByKey(repeatable.key);
+    }
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'yardi_hl7_poll_repeatable_cleanup_failed',
+    );
+  }
+
   await yardiHl7PollQueue.add(
     'yardi-hl7-poll-scheduled',
     {},
