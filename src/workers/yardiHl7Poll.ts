@@ -56,6 +56,9 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
       repeat: {
         every: env.YARDI_HL7_POLL_INTERVAL_MS,
       },
+      // No in-tick retries: a failed poll waits for the next scheduled cycle
+      // instead of hammering the broker multiple times back-to-back.
+      attempts: 1,
       removeOnComplete: true,
       removeOnFail: false,
     },

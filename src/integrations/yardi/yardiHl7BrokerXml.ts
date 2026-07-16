@@ -45,7 +45,9 @@ export function buildGetMessageRequestXml(args: {
   dateTime: string;
 }): string {
   const { identity } = args;
-  const msh = [
+  // Trailing empty field required after MSH.12 (version) so the MSH segment
+  // ends with a field separator, per Yardi's broker requirement: |P|2.4|
+  const msh = `${[
     'MSH',
     '^~\\&',
     identity.yardiApplicationId, // MSH.3.1
@@ -58,15 +60,20 @@ export function buildGetMessageRequestXml(args: {
     args.messageControlId,
     'P',
     '2.4',
-  ].join('|');
+  ].join('|')}|`;
   const qpd = 'QPD|Check Mailbox|Q-CM1||';
+  // \r is the HL7 segment delimiter (MSH<CR>QPD<CR>)
   const hl7 = `${msh}\r${qpd}\r`;
   return `<HL7MessageBroker><request>${escapeXml(hl7)}</request></HL7MessageBroker>`;
 }
 
 const BROKER_RESPONSE_LOG_PREVIEW_CHARS = 200;
 
-export function sanitizeXmlForLog(body: string, secrets: string[] = []): string {
+export function sanitizeXmlForLog(
+  body: string,
+  secrets: string[] = [],
+  options: { revealControlChars?: boolean } = {},
+): string {
   let sanitized = body;
   for (const secret of secrets) {
     if (!secret) continue;
@@ -76,10 +83,14 @@ export function sanitizeXmlForLog(body: string, secrets: string[] = []): string 
     /<Password>[\s\S]*?<\/Password>/gi,
     '<Password>[REDACTED]</Password>',
   );
-  const collapsed = sanitized.replace(/\s+/g, ' ').trim();
-  return collapsed.length > BROKER_RESPONSE_LOG_PREVIEW_CHARS
-    ? `${collapsed.slice(0, BROKER_RESPONSE_LOG_PREVIEW_CHARS)}…`
-    : collapsed || '(empty)';
+  // For request bodies we want to SEE the HL7 delimiters (\r) rather than
+  // collapse them, so escape control chars into visible \r / \n / \t.
+  const normalized = options.revealControlChars
+    ? sanitized.replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t')
+    : sanitized.replace(/\s+/g, ' ').trim();
+  return normalized.length > BROKER_RESPONSE_LOG_PREVIEW_CHARS
+    ? `${normalized.slice(0, BROKER_RESPONSE_LOG_PREVIEW_CHARS)}…`
+    : normalized || '(empty)';
 }
 
 export function formatBrokerResponseBodyForLog(

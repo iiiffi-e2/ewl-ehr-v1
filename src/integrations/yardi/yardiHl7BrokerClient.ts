@@ -87,7 +87,9 @@ export class YardiHl7BrokerClient {
         detail,
         method: 'POST',
         url: this.options.getMessageUrl,
-        requestPreview: sanitizeXmlForLog(requestBody, [this.options.identity.password]),
+        requestPreview: sanitizeXmlForLog(requestBody, [this.options.identity.password], {
+          revealControlChars: true,
+        }),
         responseStatus: response.status,
         responseContentType: headers['content-type'],
         responseContentLength: headers['content-length'],

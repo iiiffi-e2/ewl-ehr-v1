@@ -39,6 +39,9 @@ describe('yardiHl7BrokerXml', () => {
     expect(xml).toContain(escapeXml('^~\\&'));
     // MSH header identity in Yardi-confirmed order: Yardi|EYELIVE|EyeWatchLive|EyeWatchLive
     expect(unescapeXml(xml)).toContain('|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|');
+    // MSH must end with a trailing field separator after version 2.4, then a
+    // carriage-return segment delimiter before QPD: |P|2.4|\rQPD
+    expect(unescapeXml(xml)).toContain('|P|2.4|\rQPD|Check Mailbox|Q-CM1||\r');
   });
 
   it('extracts HL7 from broker response XML', () => {
