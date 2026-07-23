@@ -101,6 +101,7 @@ async function processJob(job: Job<YardiHl7PollJobData>): Promise<void> {
       jobId: job.id,
       captured: summary.captured,
       duplicates: summary.duplicates,
+      errors: summary.errors,
       empty: summary.empty,
     },
     'yardi_hl7_poll_job_finished',

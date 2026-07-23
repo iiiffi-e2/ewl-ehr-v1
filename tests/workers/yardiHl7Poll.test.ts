@@ -35,10 +35,15 @@ jest.mock('../../src/workers/connection.js', () => ({
   getRedisConnection: jest.fn(() => ({})),
 }));
 
+const getRepeatableJobsMock = jest.fn();
+const removeRepeatableByKeyMock = jest.fn();
+
 jest.mock('../../src/workers/queue.js', () => ({
   YARDI_HL7_POLL_QUEUE: 'yardi-hl7-poll',
   yardiHl7PollQueue: {
     add: addMock,
+    getRepeatableJobs: getRepeatableJobsMock,
+    removeRepeatableByKey: removeRepeatableByKeyMock,
   },
 }));
 
@@ -67,9 +72,12 @@ describe('yardiHl7Poll worker', () => {
     envState.YARDI_HL7_POLL_MAX_MESSAGES = 50;
     envState.YARDI_HL7_MAILBOX_PASSWORD = undefined;
     addMock.mockResolvedValue(undefined);
+    getRepeatableJobsMock.mockResolvedValue([]);
+    removeRepeatableByKeyMock.mockResolvedValue(undefined);
     drainYardiHl7MailboxMock.mockResolvedValue({
       captured: 0,
       duplicates: 0,
+      errors: 0,
       empty: true,
     });
     fromEnvMock.mockReturnValue({ getMessage: jest.fn(), processAck: jest.fn() });
@@ -109,6 +117,7 @@ describe('yardiHl7Poll worker', () => {
         repeat: {
           every: 60_000,
         },
+        attempts: 1,
         removeOnComplete: true,
         removeOnFail: false,
       },

@@ -39,7 +39,7 @@ describe('drainYardiHl7Mailbox', () => {
       maxMessages: 50,
     });
 
-    expect(summary).toEqual({ captured: 1, duplicates: 0, empty: true });
+    expect(summary).toEqual({ captured: 1, duplicates: 0, errors: 0, empty: true });
     expect(markEventIgnored).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'yardi-hl7', eventMessageId: '10529' }),
       'capture_only',
@@ -69,11 +69,39 @@ describe('drainYardiHl7Mailbox', () => {
     expect(processAck).toHaveBeenCalled();
   });
 
-  it('throws on broker error without ProcessACK', async () => {
-    getMessage.mockResolvedValueOnce({ kind: 'error', detail: 'CE' });
+  it('tolerates a transient error then captures the next message', async () => {
+    getMessage
+      .mockResolvedValueOnce({ kind: 'error', detail: 'network_ECONNRESET' })
+      .mockResolvedValueOnce({ kind: 'adt', hl7: SAMPLE_ADT })
+      .mockResolvedValueOnce({ kind: 'empty' });
+    recordIncomingEvent.mockResolvedValueOnce({
+      eventLog: { id: 1 },
+      company: { id: 9 },
+      isDuplicate: false,
+    });
+    markEventIgnored.mockResolvedValueOnce(undefined);
+    processAck.mockResolvedValueOnce(undefined);
+
+    const summary = await drainYardiHl7Mailbox({
+      client: { getMessage, processAck } as any,
+      maxMessages: 50,
+    });
+
+    expect(summary).toEqual({ captured: 1, duplicates: 0, errors: 1, empty: true });
+    expect(processAck).toHaveBeenCalledWith(SAMPLE_ADT);
+    expect(getMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('throws after maxConsecutiveErrors consecutive broker errors', async () => {
+    getMessage.mockResolvedValue({ kind: 'error', detail: 'CE' });
     await expect(
-      drainYardiHl7Mailbox({ client: { getMessage, processAck } as any, maxMessages: 50 }),
+      drainYardiHl7Mailbox({
+        client: { getMessage, processAck } as any,
+        maxMessages: 50,
+        maxConsecutiveErrors: 3,
+      }),
     ).rejects.toThrow(/broker/i);
+    expect(getMessage).toHaveBeenCalledTimes(3);
     expect(processAck).not.toHaveBeenCalled();
   });
 });

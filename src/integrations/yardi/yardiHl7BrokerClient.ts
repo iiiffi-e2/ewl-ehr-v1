@@ -56,11 +56,24 @@ export class YardiHl7BrokerClient {
       messageControlId: stamp,
       dateTime: stamp,
     });
-    const response = await this.http.post<string>(this.options.getMessageUrl, body, {
-      headers: { 'Content-Type': 'text/xml' },
-      responseType: 'text',
-      validateStatus: () => true,
-    });
+
+    let response: { status: number; headers?: unknown; data?: unknown };
+    try {
+      response = await this.http.post<string>(this.options.getMessageUrl, body, {
+        headers: { 'Content-Type': 'text/xml' },
+        responseType: 'text',
+        validateStatus: () => true,
+      });
+    } catch (error) {
+      // Transport-level failure (e.g. ECONNRESET, timeout). Classify it as a
+      // broker error instead of throwing so the drain loop can decide whether
+      // to keep going (a single reset can be the broker clearing a stuck
+      // message) or give up after repeated failures.
+      const detail = toNetworkErrorDetail(error);
+      this.logNetworkError(detail, body, error);
+      return { kind: 'error', detail };
+    }
+
     const data = typeof response.data === 'string' ? response.data : String(response.data ?? '');
 
     if (response.status < 200 || response.status >= 300) {
@@ -73,6 +86,23 @@ export class YardiHl7BrokerClient {
       this.logUnexpectedResponse(classification.detail, body, response, data);
     }
     return classification;
+  }
+
+  private logNetworkError(detail: string, requestBody: string, error: unknown): void {
+    const password = this.options.identity.password;
+    logger.warn(
+      {
+        detail,
+        method: 'POST',
+        url: this.options.getMessageUrl,
+        requestPreview: sanitizeXmlForLog(requestBody, [password], {
+          revealControlChars: true,
+        }),
+        errorCode: (error as { code?: string })?.code,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'yardi_hl7_get_message_network_error',
+    );
   }
 
   private logUnexpectedResponse(
@@ -125,6 +155,11 @@ export class YardiHl7BrokerClient {
       throw new Error(`ProcessACK failed with HTTP ${response.status}`);
     }
   }
+}
+
+function toNetworkErrorDetail(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  return code ? `network_${code}` : 'network_error';
 }
 
 function formatHl7Timestamp(d: Date): string {

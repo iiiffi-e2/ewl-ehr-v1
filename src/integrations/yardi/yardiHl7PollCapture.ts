@@ -7,11 +7,19 @@ export type DrainYardiHl7MailboxArgs = {
   client: Pick<YardiHl7BrokerClient, 'getMessage' | 'processAck'>;
   maxMessages: number;
   adapter?: YardiHl7AdtAdapter;
+  /**
+   * How many consecutive GetMessage errors to tolerate within a single drain
+   * before giving up. Yardi's broker serves oldest-first and a stuck message
+   * can cause a single connection reset before the next request succeeds, so
+   * we retry a couple of times in-tick rather than aborting on the first error.
+   */
+  maxConsecutiveErrors?: number;
 };
 
 export type DrainYardiHl7MailboxSummary = {
   captured: number;
   duplicates: number;
+  errors: number;
   empty: boolean;
 };
 
@@ -19,8 +27,11 @@ export async function drainYardiHl7Mailbox(
   args: DrainYardiHl7MailboxArgs,
 ): Promise<DrainYardiHl7MailboxSummary> {
   const adapter = args.adapter ?? new YardiHl7AdtAdapter();
+  const maxConsecutiveErrors = args.maxConsecutiveErrors ?? 3;
   let captured = 0;
   let duplicates = 0;
+  let errors = 0;
+  let consecutiveErrors = 0;
   let empty = false;
 
   for (let i = 0; i < args.maxMessages; i += 1) {
@@ -30,8 +41,26 @@ export async function drainYardiHl7Mailbox(
       break;
     }
     if (result.kind === 'error') {
-      throw new Error(`Yardi HL7 broker error: ${result.detail ?? 'unknown'}`);
+      errors += 1;
+      consecutiveErrors += 1;
+      logger.warn(
+        {
+          detail: result.detail ?? 'unknown',
+          attempt: i + 1,
+          consecutiveErrors,
+        },
+        'yardi_hl7_get_message_error',
+      );
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        throw new Error(
+          `Yardi HL7 broker error: ${result.detail ?? 'unknown'} ` +
+            `(after ${consecutiveErrors} consecutive errors)`,
+        );
+      }
+      continue;
     }
+
+    consecutiveErrors = 0;
 
     const event = adapter.parseInboundEvent(result.hl7);
     const { eventLog, company, isDuplicate } = await recordIncomingEvent(event);
@@ -72,5 +101,5 @@ export async function drainYardiHl7Mailbox(
     }
   }
 
-  return { captured, duplicates, empty };
+  return { captured, duplicates, errors, empty };
 }
