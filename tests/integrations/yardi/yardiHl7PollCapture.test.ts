@@ -92,15 +92,28 @@ describe('drainYardiHl7Mailbox', () => {
     expect(getMessage).toHaveBeenCalledTimes(3);
   });
 
-  it('throws after maxConsecutiveErrors consecutive broker errors', async () => {
-    getMessage.mockResolvedValue({ kind: 'error', detail: 'CE' });
+  it('throws immediately on application ACK errors without in-tick retry', async () => {
+    getMessage.mockResolvedValue({ kind: 'error', detail: 'CE: Invalid password' });
     await expect(
       drainYardiHl7Mailbox({
         client: { getMessage, processAck } as any,
         maxMessages: 50,
         maxConsecutiveErrors: 3,
       }),
-    ).rejects.toThrow(/broker/i);
+    ).rejects.toThrow(/CE: Invalid password/);
+    expect(getMessage).toHaveBeenCalledTimes(1);
+    expect(processAck).not.toHaveBeenCalled();
+  });
+
+  it('throws after maxConsecutiveErrors consecutive network errors', async () => {
+    getMessage.mockResolvedValue({ kind: 'error', detail: 'network_ECONNRESET' });
+    await expect(
+      drainYardiHl7Mailbox({
+        client: { getMessage, processAck } as any,
+        maxMessages: 50,
+        maxConsecutiveErrors: 3,
+      }),
+    ).rejects.toThrow(/network_ECONNRESET/);
     expect(getMessage).toHaveBeenCalledTimes(3);
     expect(processAck).not.toHaveBeenCalled();
   });

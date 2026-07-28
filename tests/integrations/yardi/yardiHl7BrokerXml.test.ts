@@ -84,6 +84,30 @@ describe('yardiHl7BrokerXml', () => {
     expect(classifyGetMessageResponse(xml).kind).toBe('error');
   });
 
+  it('classifies MSA|CE when response uses &#13; segment delimiters', () => {
+    // Production responses from Yardi come with CR serialized as &#13; (and
+    // sometimes double-escaped as &amp;#13;). Classification must still see MSA.
+    const xml =
+      '<HL7MessageBroker><DestinationIP/><DestinationPort/><response>' +
+      'MSH|^~&amp;|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|20260728011001|pwd|ACK^Q11|20260728011001|P|2.4|' +
+      '&amp;#13;MSA|CE|20260728011001|Invalid Mailbox Password|&amp;#13;' +
+      '</response></HL7MessageBroker>';
+    const result = classifyGetMessageResponse(xml);
+    expect(result).toEqual({
+      kind: 'error',
+      detail: 'CE: Invalid Mailbox Password',
+    });
+  });
+
+  it('classifies empty mailbox when response uses &#13; segment delimiters', () => {
+    const xml =
+      '<HL7MessageBroker><response>' +
+      'MSH|^~\\&amp;|EyeWatchLive|EyeWatchLive|Yardi|EYELIVE|dt|x|ACK^Q11|id|P|2.4|' +
+      '&#13;MSA|CR|id|&#13;' +
+      '</response></HL7MessageBroker>';
+    expect(classifyGetMessageResponse(xml).kind).toBe('empty');
+  });
+
   it('formats broker response body for safe logging', () => {
     const body =
       '<HL7MessageBroker><Password>super-secret</Password><response></response></HL7MessageBroker>';

@@ -32,11 +32,17 @@ export function escapeXml(value: string): string {
 }
 
 export function unescapeXml(value: string): string {
+  // Named entities first so double-escaped CR refs like &amp;#13; become &#13;,
+  // then numeric character references (Yardi serializes HL7 segment breaks as &#13;).
   return value
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&');
+    .replace(/&amp;/g, '&')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(Number.parseInt(dec, 10)));
 }
 
 export function buildGetMessageRequestXml(args: {
@@ -140,16 +146,32 @@ export function extractHl7FromBrokerResponseXml(xml: string): string | null {
   return unescapeXml(match[1].replace(/^[ \t]+|[ \t]+$/g, ''));
 }
 
-function msaAckCode(hl7: string): string | undefined {
-  const msa = hl7.split(/\r?\n|\r/).find((line) => line.startsWith('MSA|'));
-  if (!msa) return undefined;
-  return msa.split('|')[1];
+function splitHl7Segments(hl7: string): string[] {
+  // After XML unescape, segment breaks may still appear as literal "\r" text
+  // from some intermediaries; normalize those before splitting.
+  const normalized = hl7.replace(/\\r/g, '\r');
+  return normalized.split(/\r?\n|\r/);
+}
+
+function msaFields(hl7: string): { code?: string; text?: string } {
+  const msa = splitHl7Segments(hl7).find((line) => line.startsWith('MSA|'));
+  if (!msa) return {};
+  const parts = msa.split('|');
+  return {
+    code: parts[1] || undefined,
+    text: parts[3]?.trim() || undefined,
+  };
 }
 
 function mshMessageType(hl7: string): string | undefined {
-  const msh = hl7.split(/\r?\n|\r/).find((line) => line.startsWith('MSH|'));
+  const msh = splitHl7Segments(hl7).find((line) => line.startsWith('MSH|'));
   if (!msh) return undefined;
   return msh.split('|')[8]; // MSH.9
+}
+
+function ackErrorDetail(code: string | undefined, text: string | undefined): string {
+  if (!code) return text ? `ack: ${text}` : 'ack';
+  return text ? `${code}: ${text}` : code;
 }
 
 export function classifyGetMessageResponse(xml: string): GetMessageClassification {
@@ -157,7 +179,7 @@ export function classifyGetMessageResponse(xml: string): GetMessageClassificatio
   if (!hl7) return { kind: 'error', detail: 'missing_response' };
 
   const type = mshMessageType(hl7) ?? '';
-  const ack = msaAckCode(hl7);
+  const { code: ack, text: ackText } = msaFields(hl7);
 
   if (type.startsWith('ADT^') || type.startsWith('ADT|')) {
     return { kind: 'adt', hl7 };
@@ -168,10 +190,12 @@ export function classifyGetMessageResponse(xml: string): GetMessageClassificatio
   }
   if (ack === 'CR') return { kind: 'empty' };
   if (ack === 'CE' || ack === 'AR' || ack === 'AE') {
-    return { kind: 'error', detail: ack };
+    return { kind: 'error', detail: ackErrorDetail(ack, ackText) };
   }
   if (type.startsWith('ACK')) {
-    return ack === 'CR' ? { kind: 'empty' } : { kind: 'error', detail: ack ?? 'ack' };
+    return ack === 'CR'
+      ? { kind: 'empty' }
+      : { kind: 'error', detail: ackErrorDetail(ack, ackText) };
   }
   return { kind: 'error', detail: 'unrecognized' };
 }

@@ -43,18 +43,24 @@ export async function drainYardiHl7Mailbox(
     if (result.kind === 'error') {
       errors += 1;
       consecutiveErrors += 1;
+      const detail = result.detail ?? 'unknown';
       logger.warn(
         {
-          detail: result.detail ?? 'unknown',
+          detail,
           attempt: i + 1,
           consecutiveErrors,
         },
         'yardi_hl7_get_message_error',
       );
-      if (consecutiveErrors >= maxConsecutiveErrors) {
+      // Only transport failures are worth retrying in-tick (e.g. ECONNRESET while
+      // clearing a stuck message). Application ACKs like MSA|CE are stable
+      // rejections — retrying them just amplifies noise.
+      const isTransient = detail.startsWith('network_');
+      if (!isTransient || consecutiveErrors >= maxConsecutiveErrors) {
         throw new Error(
-          `Yardi HL7 broker error: ${result.detail ?? 'unknown'} ` +
-            `(after ${consecutiveErrors} consecutive errors)`,
+          isTransient
+            ? `Yardi HL7 broker error: ${detail} (after ${consecutiveErrors} consecutive errors)`
+            : `Yardi HL7 broker error: ${detail}`,
         );
       }
       continue;
