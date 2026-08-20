@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { YardiHl7BrokerClient } from '../integrations/yardi/yardiHl7BrokerClient.js';
 import { drainYardiHl7Mailbox } from '../integrations/yardi/yardiHl7PollCapture.js';
+import { getConfiguredYardiHl7PollTargets } from '../integrations/yardi/yardiHl7PollConfig.js';
 
 import { getRedisConnection } from './connection.js';
 import { YARDI_HL7_POLL_QUEUE, yardiHl7PollQueue } from './queue.js';
@@ -46,6 +47,10 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
   if (!env.YARDI_HL7_MAILBOX_PASSWORD) {
     logger.warn('yardi_hl7_poll_enabled_without_mailbox_password');
     return;
+  }
+
+  if (getConfiguredYardiHl7PollTargets().length === 0) {
+    logger.warn('yardi_hl7_poll_enabled_without_targets');
   }
 
   // Remove any pre-existing repeatable template so option changes (e.g.

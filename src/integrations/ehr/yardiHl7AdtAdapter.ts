@@ -26,6 +26,7 @@ type ParsedHl7Message = {
   dateOfBirth?: string;
   roomNumber?: string;
   bed?: string;
+  pv1Facility?: string;
   residentStatus?: string;
   messageControlId?: string;
   messageDateTime?: string;
@@ -113,6 +114,7 @@ function parseHl7Message(message: string): ParsedHl7Message {
     residentStatus: parseComponent(parseField(pv1 ?? '', 2), 1),
     roomNumber: parseComponent(parseField(pv1 ?? '', 3), 1),
     bed: parseComponent(parseField(pv1 ?? '', 3), 2),
+    pv1Facility: parseComponent(parseField(pv1 ?? '', 3), 3),
     messageControlId: mshParts[9],
     messageDateTime: mshParts[6],
     sendingApplication: mshParts[2],
@@ -150,8 +152,10 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
           ResidentId: hl7.residentId ?? null,
           SendingApplication: hl7.sendingApplication ?? null,
           SendingFacility: hl7.sendingFacility ?? null,
+          Pv1Facility: hl7.pv1Facility ?? null,
           ReceivingApplication: hl7.receivingApplication ?? null,
           ReceivingFacility: hl7.receivingFacility ?? null,
+          RoomNumber: hl7.roomNumber ?? null,
         },
         raw: {
           message: trimmed,
@@ -177,8 +181,10 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
         ResidentId: hl7.residentId ?? null,
         SendingApplication: hl7.sendingApplication ?? null,
         SendingFacility: hl7.sendingFacility ?? null,
+        Pv1Facility: hl7.pv1Facility ?? null,
         ReceivingApplication: hl7.receivingApplication ?? null,
         ReceivingFacility: hl7.receivingFacility ?? null,
+        RoomNumber: hl7.roomNumber ?? null,
       },
       raw: {
         message: parsed.Message,

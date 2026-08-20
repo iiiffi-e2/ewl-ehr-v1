@@ -1,12 +1,24 @@
 import { logger } from '../../config/logger.js';
-import { markEventIgnored, recordIncomingEvent } from '../../domains/events.js';
+import { markEventIgnored, markEventQueued, recordIncomingEvent } from '../../domains/events.js';
+import { processAlisEventQueue } from '../../workers/queue.js';
+import type { ProcessAlisEventJobData } from '../../workers/types.js';
 import { YardiHl7AdtAdapter } from '../ehr/yardiHl7AdtAdapter.js';
 import type { YardiHl7BrokerClient } from './yardiHl7BrokerClient.js';
+import {
+  getConfiguredYardiHl7PollTargets,
+  resolveYardiHl7Facility,
+  type YardiHl7PollTarget,
+} from './yardiHl7PollConfig.js';
+import { isSupportedYardiHl7EventType } from './yardiHl7Triggers.js';
 
 export type DrainYardiHl7MailboxArgs = {
   client: Pick<YardiHl7BrokerClient, 'getMessage' | 'processAck'>;
   maxMessages: number;
   adapter?: YardiHl7AdtAdapter;
+  resolveFacility?: (
+    facilityId: string | null | undefined,
+  ) => YardiHl7PollTarget | null;
+  enqueueJob?: (data: ProcessAlisEventJobData) => Promise<void>;
   /**
    * How many consecutive GetMessage errors to tolerate within a single drain
    * before giving up. Yardi's broker serves oldest-first and a stuck message
@@ -27,6 +39,19 @@ export async function drainYardiHl7Mailbox(
   args: DrainYardiHl7MailboxArgs,
 ): Promise<DrainYardiHl7MailboxSummary> {
   const adapter = args.adapter ?? new YardiHl7AdtAdapter();
+  const resolveFacility =
+    args.resolveFacility ??
+    ((facilityId: string | null | undefined) =>
+      resolveYardiHl7Facility(facilityId, getConfiguredYardiHl7PollTargets()));
+  const enqueueJob =
+    args.enqueueJob ??
+    (async (data: ProcessAlisEventJobData) => {
+      await processAlisEventQueue.add('process-alis-event', data, {
+        jobId: `event-yardi-hl7-${data.eventType}-${data.eventMessageId}`,
+        removeOnComplete: true,
+        removeOnFail: false,
+      });
+    });
   const maxConsecutiveErrors = args.maxConsecutiveErrors ?? 3;
   let captured = 0;
   let duplicates = 0;
@@ -69,20 +94,52 @@ export async function drainYardiHl7Mailbox(
     consecutiveErrors = 0;
 
     const event = adapter.parseInboundEvent(result.hl7);
+    const sendingFacility = event.notificationData.SendingFacility;
+    const pv1Facility = event.notificationData.Pv1Facility;
+    const facilityId =
+      typeof sendingFacility === 'string' && sendingFacility.trim().length > 0
+        ? sendingFacility
+        : typeof pv1Facility === 'string'
+          ? pv1Facility
+          : null;
+    const target = resolveFacility(facilityId);
+    if (target) {
+      event.companyKey = target.companyKey;
+      event.communityId = target.communityId;
+    }
+    event.notificationData.Message = result.hl7;
+
     const { eventLog, company, isDuplicate } = await recordIncomingEvent(event);
 
     if (isDuplicate) {
       duplicates += 1;
     } else {
-      await markEventIgnored(
-        {
-          companyId: company.id,
-          eventType: event.eventType,
-          eventMessageId: event.eventMessageId,
+      const identity = {
+        companyId: company.id,
+        eventType: event.eventType,
+        eventMessageId: event.eventMessageId,
+        source: event.source,
+      };
+
+      if (!target) {
+        await markEventIgnored(identity, 'unknown_facility');
+      } else if (!isSupportedYardiHl7EventType(event.eventType)) {
+        await markEventIgnored(identity, 'unsupported_trigger');
+      } else {
+        const job: ProcessAlisEventJobData = {
           source: event.source,
-        },
-        'capture_only',
-      );
+          eventMessageId: event.eventMessageId,
+          eventType: event.eventType,
+          companyKey: event.companyKey,
+          companyId: company.id,
+          communityId: event.communityId,
+          notificationData: event.notificationData,
+          eventMessageDate: event.eventMessageDate,
+        };
+        await enqueueJob(job);
+        await markEventQueued(identity);
+      }
+
       captured += 1;
       logger.info(
         {

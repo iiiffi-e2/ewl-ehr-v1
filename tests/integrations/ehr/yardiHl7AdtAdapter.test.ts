@@ -83,8 +83,10 @@ describe('YardiHl7AdtAdapter raw HL7', () => {
         ResidentId: 418612,
         SendingApplication: 'Yardi',
         SendingFacility: 'EYELIVE',
+        Pv1Facility: 'EYELIVE',
         ReceivingApplication: 'EyeWatchLive',
         ReceivingFacility: 'EyeWatchLive',
+        RoomNumber: '141',
       }),
     });
     expect(event.eventMessageDate).toMatch(/2022-09-08/);

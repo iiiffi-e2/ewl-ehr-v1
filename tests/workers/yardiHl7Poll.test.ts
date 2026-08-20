@@ -2,6 +2,7 @@ const addMock = jest.fn();
 const drainYardiHl7MailboxMock = jest.fn();
 const fromEnvMock = jest.fn();
 const mockWorkerOn = jest.fn();
+const getConfiguredYardiHl7PollTargetsMock = jest.fn();
 let mockWorkerProcessor: ((job: { id?: string; data: Record<string, never> }) => Promise<void>) | undefined;
 
 const envState = {
@@ -57,6 +58,10 @@ jest.mock('../../src/integrations/yardi/yardiHl7PollCapture.js', () => ({
   drainYardiHl7Mailbox: drainYardiHl7MailboxMock,
 }));
 
+jest.mock('../../src/integrations/yardi/yardiHl7PollConfig.js', () => ({
+  getConfiguredYardiHl7PollTargets: getConfiguredYardiHl7PollTargetsMock,
+}));
+
 import { logger } from '../../src/config/logger.js';
 import {
   registerYardiHl7PollSchedule,
@@ -74,6 +79,9 @@ describe('yardiHl7Poll worker', () => {
     addMock.mockResolvedValue(undefined);
     getRepeatableJobsMock.mockResolvedValue([]);
     removeRepeatableByKeyMock.mockResolvedValue(undefined);
+    getConfiguredYardiHl7PollTargetsMock.mockReturnValue([
+      { companyKey: 'yourlife', communityId: 113, facilityId: 'EYELIVE' },
+    ]);
     drainYardiHl7MailboxMock.mockResolvedValue({
       captured: 0,
       duplicates: 0,
@@ -129,6 +137,17 @@ describe('yardiHl7Poll worker', () => {
       },
       'yardi_hl7_poll_schedule_registered',
     );
+  });
+
+  it('warns but registers when enabled without targets', async () => {
+    envState.YARDI_HL7_POLL_ENABLED = true;
+    envState.YARDI_HL7_MAILBOX_PASSWORD = 'secret';
+    getConfiguredYardiHl7PollTargetsMock.mockReturnValue([]);
+
+    await registerYardiHl7PollSchedule();
+
+    expect(logger.warn).toHaveBeenCalledWith('yardi_hl7_poll_enabled_without_targets');
+    expect(addMock).toHaveBeenCalled();
   });
 
   it('processJob drains mailbox via broker client', async () => {
