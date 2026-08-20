@@ -68,6 +68,7 @@ const EnvSchema = z
       }),
     YARDI_FHIR_POLL_INTERVAL_MS: z.coerce.number().default(14_400_000),
     YARDI_FHIR_POLL_TARGETS: z.string().optional(),
+    YARDI_HL7_POLL_TARGETS: z.string().optional(),
     YARDI_HL7_POLL_ENABLED: z
       .union([z.string(), z.boolean()])
       .default('false')
