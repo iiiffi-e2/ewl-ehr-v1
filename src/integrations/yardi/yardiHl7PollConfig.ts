@@ -27,9 +27,10 @@ export function parseYardiHl7PollTargets(raw: string | undefined): YardiHl7PollT
     .map((part) => {
       const [companyKeyRaw, communityIdRaw, facilityIdRaw] = part.split(':');
       const companyKey = companyKeyRaw?.trim() ?? '';
+      const communityIdTrimmed = communityIdRaw?.trim() ?? '';
       const facilityId = facilityIdRaw?.trim() ?? '';
-      const communityId = Number(communityIdRaw?.trim());
-      if (!companyKey || !facilityId || !Number.isFinite(communityId)) {
+      const communityId = Number(communityIdTrimmed);
+      if (!companyKey || !communityIdTrimmed || !facilityId || !Number.isFinite(communityId)) {
         throw new Error(
           `Invalid YARDI_HL7_POLL_TARGETS entry '${part}'. Expected companyKey:communityId:facilityId`,
         );

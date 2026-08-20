@@ -39,6 +39,10 @@ describe('parseYardiHl7PollTargets', () => {
   it('rejects compact entries with whitespace-only fields', () => {
     expect(() => parseYardiHl7PollTargets(' :113: ')).toThrow(/YARDI_HL7_POLL_TARGETS/);
   });
+
+  it('rejects compact entries with whitespace-only communityId', () => {
+    expect(() => parseYardiHl7PollTargets('yourlife: :EYELIVE')).toThrow(/YARDI_HL7_POLL_TARGETS/);
+  });
 });
 
 describe('resolveYardiHl7Facility', () => {
