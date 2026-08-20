@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
 import type { EhrAdapter, FetchResidentBundleArgs, ResolveResidentIdArgs } from './adapter.js';
+import { lifecycleFromYardiHl7Trigger } from '../yardi/yardiHl7Triggers.js';
 import type {
   CanonicalInboundEvent,
   CanonicalResidentBundle,
   CanonicalResidentDemographics,
-  EhrLifecycleKind,
 } from './types.js';
 
 const YardiHl7WebhookSchema = z.object({
@@ -84,17 +84,6 @@ function normalizeHl7DateTime(value: string | undefined): string | null {
   return null;
 }
 
-function toLifecycle(triggerEvent: string): EhrLifecycleKind {
-  const normalized = triggerEvent.toUpperCase();
-  if (normalized === 'A05') return 'created';
-  if (normalized === 'A01') return 'move_in';
-  if (normalized === 'A03') return 'move_out';
-  if (normalized === 'A21') return 'leave_start';
-  if (normalized === 'A22') return 'leave_end';
-  if (normalized === 'A08' || normalized === 'A02' || normalized === 'A60') return 'update';
-  return 'unknown';
-}
-
 function parseHl7Message(message: string): ParsedHl7Message {
   const segments = message
     .split(/\r?\n|\r/)
@@ -155,7 +144,7 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
         eventType: `hl7.adt.${hl7.triggerEvent.toLowerCase()}`,
         eventMessageId: hl7.messageControlId,
         eventMessageDate,
-        lifecycleKind: toLifecycle(hl7.triggerEvent),
+        lifecycleKind: lifecycleFromYardiHl7Trigger(hl7.triggerEvent),
         notificationData: {
           TriggerEvent: hl7.triggerEvent,
           ResidentId: hl7.residentId ?? null,
@@ -181,7 +170,7 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
       eventType,
       eventMessageId: parsed.EventMessageId,
       eventMessageDate: parsed.EventMessageDate,
-      lifecycleKind: toLifecycle(hl7.triggerEvent),
+      lifecycleKind: lifecycleFromYardiHl7Trigger(hl7.triggerEvent),
       notificationData: {
         ...(parsed.NotificationData ?? {}),
         TriggerEvent: hl7.triggerEvent,
