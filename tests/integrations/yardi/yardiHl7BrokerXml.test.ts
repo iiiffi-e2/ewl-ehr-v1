@@ -37,8 +37,8 @@ describe('yardiHl7BrokerXml', () => {
     expect(xml).toContain('|test-pass|');
     expect(xml).toContain('QPD|Check Mailbox|Q-CM1||');
     expect(xml).toContain(escapeXml('^~\\&'));
-    // MSH header identity in Yardi-confirmed order: Yardi|EYELIVE|EyeWatchLive|EyeWatchLive
-    expect(unescapeXml(xml)).toContain('|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|');
+    // MSH header per latest Yardi guidance: EyeWatchLive|EyeWatchLive|Yardi|EYELIVE
+    expect(unescapeXml(xml)).toContain('|EyeWatchLive|EyeWatchLive|Yardi|EYELIVE|');
     // MSH ends with a trailing field separator after version 2.4, and segment
     // delimiters are serialized as the XML entity &#13; (not raw CR bytes).
     expect(xml).toContain('|P|2.4|&#13;QPD|Check Mailbox|Q-CM1||&#13;');

@@ -1,14 +1,15 @@
 /**
- * Fixed channel identity per Yardi's Restful Message Broker spec. The same
- * four identifiers are used in BOTH the GetMessage MSH header and the
- * ProcessACK body, so we name them by role rather than HL7 direction to
- * avoid the sending/receiving confusion that previously reversed the header.
+ * Fixed channel identity per Yardi's Restful Message Broker spec. Field names
+ * are by role (Yardi vs our pharmacy software), not HL7 sending/receiving,
+ * because GetMessage and ProcessACK place the same IDs in different slots.
  *
- * GetMessage MSH layout (Yardi-confirmed):
- *   MSH.3.1 Sending Application ID .......... yardiApplicationId (Yardi)
- *   MSH.4.1 Sending Facility ID ............. yardiFacilityId (EYELIVE)
- *   MSH.5.1 Receiving Software ID ........... pharmacySoftwareId (EyeWatchLive)
- *   MSH.6.1 Receiving Facility / Pharmacy ID  pharmacyId (EyeWatchLive)
+ * GetMessage MSH layout (latest Yardi guidance — try this when MSA|CE):
+ *   MSH.3.1 Sending Application ID .......... pharmacySoftwareId (EyeWatchLive)
+ *   MSH.4.1 Sending Facility ID ............. pharmacyId (EyeWatchLive)
+ *   MSH.5.1 Receiving Software ID ........... yardiApplicationId (Yardi)
+ *   MSH.6.1 Receiving Facility ID ........... yardiFacilityId (EYELIVE)
+ *
+ * ProcessACK keeps Pharmacy = EyeWatchLive and PharmacyPropertyComm = Yardi/EYELIVE.
  */
 export type YardiHl7BrokerIdentity = {
   yardiApplicationId: string;
@@ -56,10 +57,10 @@ export function buildGetMessageRequestXml(args: {
   const msh = `${[
     'MSH',
     '^~\\&',
-    identity.yardiApplicationId, // MSH.3.1
-    identity.yardiFacilityId, // MSH.4.1
-    identity.pharmacySoftwareId, // MSH.5.1
-    identity.pharmacyId, // MSH.6.1
+    identity.pharmacySoftwareId, // MSH.3.1 Sending Application
+    identity.pharmacyId, // MSH.4.1 Sending Facility
+    identity.yardiApplicationId, // MSH.5.1 Receiving Application
+    identity.yardiFacilityId, // MSH.6.1 Receiving Facility
     args.dateTime,
     identity.password,
     'QBP^Q11',
