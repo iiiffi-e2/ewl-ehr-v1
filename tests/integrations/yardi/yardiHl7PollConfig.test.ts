@@ -27,6 +27,18 @@ describe('parseYardiHl7PollTargets', () => {
   it('rejects incomplete compact entries', () => {
     expect(() => parseYardiHl7PollTargets('yourlife:113')).toThrow(/YARDI_HL7_POLL_TARGETS/);
   });
+
+  it('rejects JSON roster entries with string communityId', () => {
+    expect(() =>
+      parseYardiHl7PollTargets(
+        '[{"companyKey":"yourlife","communityId":"113","facilityId":"EYELIVE"}]',
+      ),
+    ).toThrow(/YARDI_HL7_POLL_TARGETS|Poll target/);
+  });
+
+  it('rejects compact entries with whitespace-only fields', () => {
+    expect(() => parseYardiHl7PollTargets(' :113: ')).toThrow(/YARDI_HL7_POLL_TARGETS/);
+  });
 });
 
 describe('resolveYardiHl7Facility', () => {

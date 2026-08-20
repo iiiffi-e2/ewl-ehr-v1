@@ -25,17 +25,19 @@ export function parseYardiHl7PollTargets(raw: string | undefined): YardiHl7PollT
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const [companyKey, communityIdRaw, facilityId] = part.split(':');
-      const communityId = Number(communityIdRaw);
+      const [companyKeyRaw, communityIdRaw, facilityIdRaw] = part.split(':');
+      const companyKey = companyKeyRaw?.trim() ?? '';
+      const facilityId = facilityIdRaw?.trim() ?? '';
+      const communityId = Number(communityIdRaw?.trim());
       if (!companyKey || !facilityId || !Number.isFinite(communityId)) {
         throw new Error(
           `Invalid YARDI_HL7_POLL_TARGETS entry '${part}'. Expected companyKey:communityId:facilityId`,
         );
       }
       return {
-        companyKey: companyKey.trim(),
+        companyKey,
         communityId,
-        facilityId: facilityId.trim(),
+        facilityId,
       };
     });
 }
@@ -47,12 +49,7 @@ function parsePollTargetRecord(value: unknown): YardiHl7PollTarget {
   const record = value as Record<string, unknown>;
   const companyKey = typeof record.companyKey === 'string' ? record.companyKey.trim() : '';
   const facilityId = typeof record.facilityId === 'string' ? record.facilityId.trim() : '';
-  const communityId =
-    typeof record.communityId === 'number'
-      ? record.communityId
-      : typeof record.communityId === 'string'
-        ? Number(record.communityId)
-        : NaN;
+  const communityId = typeof record.communityId === 'number' ? record.communityId : NaN;
 
   if (!companyKey || !facilityId || !Number.isFinite(communityId)) {
     throw new Error('Poll target requires companyKey, communityId, and facilityId');
