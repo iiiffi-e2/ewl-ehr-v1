@@ -160,6 +160,7 @@ describe('handleYardiHl7Event', () => {
   it('upserts the A01 patient and service using the enriched CUID', async () => {
     await handleYardiHl7Event(baseInput());
 
+    expect(getCommunityEnrichmentMock).toHaveBeenCalledWith(113, '141', undefined);
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'CarePatientTable_API',
       [
@@ -324,6 +325,48 @@ describe('handleYardiHl7Event', () => {
       }),
     );
     expect(upsertByFieldsMock).not.toHaveBeenCalled();
+  });
+
+  it('strips move and presence fields from a FHIR-overlaid A08 patch', async () => {
+    findRecordByFieldsMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+    buildYardiFhirCaspioRecordsMock.mockResolvedValue({
+      patientRecord: {
+        PatientNumber: '418612',
+        FirstName: 'FHIR Denise',
+        Move_in_Date: '01/01/2020 00:00:00',
+        On_Prem: true,
+        On_Prem_Date: '01/01/2020 00:00:00',
+        Off_Prem: false,
+        Off_Prem_Date: '01/02/2020 00:00:00',
+      },
+    });
+    const input = baseInput('hl7.adt.a08', { trigger: 'A08' });
+    input.residentBundle!.vendorPayload = {
+      hl7: 'MSH|...',
+      parsed: {},
+      fhirBundle: { resourceType: 'Bundle', entry: [] },
+    } as any;
+
+    await handleYardiHl7Event(input);
+
+    const patientPatch = updateRecordByIdMock.mock.calls.find(
+      ([table, id]) => table === 'CarePatientTable_API' && id === 'patient-1',
+    )?.[2];
+    expect(patientPatch).toEqual(
+      expect.objectContaining({
+        PatientNumber: '418612',
+        FirstName: 'FHIR Denise',
+      }),
+    );
+    expect(patientPatch).not.toHaveProperty('Move_in_Date');
+    expect(patientPatch).not.toHaveProperty('On_Prem');
+    expect(patientPatch).not.toHaveProperty('On_Prem_Date');
+    expect(patientPatch).not.toHaveProperty('Off_Prem');
+    expect(patientPatch).not.toHaveProperty('Off_Prem_Date');
   });
 
   it('updates the patient and closes the latest service for A03', async () => {

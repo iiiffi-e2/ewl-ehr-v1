@@ -110,13 +110,7 @@ async function handleYardiMoveIn(
     notificationString(input.event.notificationData, ['RoomNumber']);
   const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
   const fhirBundle = vendorPayload?.fhirBundle;
-  const communityName =
-    (fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined) ??
-    notificationString(input.event.notificationData, [
-      'CommunityName',
-      'SendingFacility',
-      'Pv1Facility',
-    ]);
+  const communityName = fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined;
   const enrichment = await getCommunityEnrichment(
     communityId,
     roomNumber,
@@ -235,13 +229,7 @@ async function getRequiredEnrichment(
     notificationString(input.event.notificationData, ['RoomNumber']);
   const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
   const fhirBundle = vendorPayload?.fhirBundle;
-  const communityName =
-    (fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined) ??
-    notificationString(input.event.notificationData, [
-      'CommunityName',
-      'SendingFacility',
-      'Pv1Facility',
-    ]);
+  const communityName = fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined;
   const enrichment = await getCommunityEnrichment(
     communityId,
     roomNumber,
@@ -282,8 +270,14 @@ async function buildYardiPatientPatch(
       { ...bundle, vendorPayload: fhirBundle },
       communityId,
     );
+    const patientRecord = { ...records.patientRecord };
+    delete patientRecord.Move_in_Date;
+    delete patientRecord.On_Prem;
+    delete patientRecord.On_Prem_Date;
+    delete patientRecord.Off_Prem;
+    delete patientRecord.Off_Prem_Date;
     return {
-      ...records.patientRecord,
+      ...patientRecord,
       PatientNumber: demographics.externalResidentId,
       RoomNumber: roomNumber,
       CUID: enrichment.CUID,

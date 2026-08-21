@@ -35,7 +35,7 @@ const SAMPLE_ADT_A11 = [
 
 describe('drainYardiHl7Mailbox', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 
   it('enqueues supported ADT for a rostered facility', async () => {
@@ -156,15 +156,17 @@ describe('drainYardiHl7Mailbox', () => {
     expect(processAck).toHaveBeenCalledWith(SAMPLE_ADT_A11);
   });
 
-  it('ProcessACKs duplicates without markEventIgnored', async () => {
+  it('re-enqueues a duplicate whose event log is still received', async () => {
     getMessage
       .mockResolvedValueOnce({ kind: 'adt', hl7: SAMPLE_ADT })
       .mockResolvedValueOnce({ kind: 'empty' });
     recordIncomingEvent.mockResolvedValueOnce({
-      eventLog: { id: 1 },
+      eventLog: { id: 1, status: 'received' },
       company: { id: 9 },
       isDuplicate: true,
     });
+    enqueueJob.mockResolvedValueOnce(undefined);
+    markEventQueued.mockResolvedValueOnce(undefined);
     processAck.mockResolvedValueOnce(undefined);
     resolveFacility.mockReturnValue({
       companyKey: 'yourlife',
@@ -181,9 +183,53 @@ describe('drainYardiHl7Mailbox', () => {
 
     expect(summary.duplicates).toBe(1);
     expect(markEventIgnored).not.toHaveBeenCalled();
-    expect(enqueueJob).not.toHaveBeenCalled();
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'yardi-hl7',
+        eventType: 'hl7.adt.a01',
+        eventMessageId: '10529',
+        companyId: 9,
+        communityId: 113,
+      }),
+    );
+    expect(markEventQueued).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'yardi-hl7', eventMessageId: '10529' }),
+    );
     expect(processAck).toHaveBeenCalled();
   });
+
+  it.each(['queued', 'processed'])(
+    'ProcessACKs a duplicate with %s status without re-enqueueing',
+    async (status) => {
+      getMessage
+        .mockResolvedValueOnce({ kind: 'adt', hl7: SAMPLE_ADT })
+        .mockResolvedValueOnce({ kind: 'empty' });
+      recordIncomingEvent.mockResolvedValueOnce({
+        eventLog: { id: 1, status },
+        company: { id: 9 },
+        isDuplicate: true,
+      });
+      processAck.mockResolvedValueOnce(undefined);
+      resolveFacility.mockReturnValue({
+        companyKey: 'yourlife',
+        communityId: 113,
+        facilityId: 'EYELIVE',
+      });
+
+      const summary = await drainYardiHl7Mailbox({
+        client: { getMessage, processAck } as any,
+        maxMessages: 50,
+        resolveFacility,
+        enqueueJob,
+      });
+
+      expect(summary.duplicates).toBe(1);
+      expect(markEventIgnored).not.toHaveBeenCalled();
+      expect(enqueueJob).not.toHaveBeenCalled();
+      expect(markEventQueued).not.toHaveBeenCalled();
+      expect(processAck).toHaveBeenCalledWith(SAMPLE_ADT);
+    },
+  );
 
   it('does not ProcessACK when enqueue fails', async () => {
     getMessage.mockResolvedValueOnce({ kind: 'adt', hl7: SAMPLE_ADT });

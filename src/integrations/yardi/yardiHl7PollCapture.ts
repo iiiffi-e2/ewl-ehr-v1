@@ -110,32 +110,39 @@ export async function drainYardiHl7Mailbox(
     event.notificationData.Message = result.hl7;
 
     const { eventLog, company, isDuplicate } = await recordIncomingEvent(event);
+    const identity = {
+      companyId: company.id,
+      eventType: event.eventType,
+      eventMessageId: event.eventMessageId,
+      source: event.source,
+    };
+    const job: ProcessAlisEventJobData = {
+      source: event.source,
+      eventMessageId: event.eventMessageId,
+      eventType: event.eventType,
+      companyKey: event.companyKey,
+      companyId: company.id,
+      communityId: event.communityId,
+      notificationData: event.notificationData,
+      eventMessageDate: event.eventMessageDate,
+    };
 
     if (isDuplicate) {
       duplicates += 1;
+      if (
+        (eventLog.status === 'received' || eventLog.status === 'failed') &&
+        target &&
+        isSupportedYardiHl7EventType(event.eventType)
+      ) {
+        await enqueueJob(job);
+        await markEventQueued(identity);
+      }
     } else {
-      const identity = {
-        companyId: company.id,
-        eventType: event.eventType,
-        eventMessageId: event.eventMessageId,
-        source: event.source,
-      };
-
       if (!target) {
         await markEventIgnored(identity, 'unknown_facility');
       } else if (!isSupportedYardiHl7EventType(event.eventType)) {
         await markEventIgnored(identity, 'unsupported_trigger');
       } else {
-        const job: ProcessAlisEventJobData = {
-          source: event.source,
-          eventMessageId: event.eventMessageId,
-          eventType: event.eventType,
-          companyKey: event.companyKey,
-          companyId: company.id,
-          communityId: event.communityId,
-          notificationData: event.notificationData,
-          eventMessageDate: event.eventMessageDate,
-        };
         await enqueueJob(job);
         await markEventQueued(identity);
       }
