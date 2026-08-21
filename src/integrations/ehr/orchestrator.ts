@@ -1,4 +1,5 @@
 import { handleAlisEvent } from '../caspio/eventOrchestrator.js';
+import { handleYardiHl7Event } from '../caspio/yardiHl7EventOrchestrator.js';
 import { canonicalToAlisEvent } from './alisAdapter.js';
 import { pushYardiFhirBundleToCaspio } from '../yardi/yardiFhirSync.js';
 import type { CanonicalEventOrchestrationInput } from './types.js';
@@ -18,6 +19,11 @@ export async function handleEhrEvent(input: CanonicalEventOrchestrationInput): P
       throw new Error('Yardi FHIR event orchestration requires communityId');
     }
     await pushYardiFhirBundleToCaspio(input.residentBundle, input.residentBundle.communityId);
+    return;
+  }
+
+  if (input.source === 'yardi-hl7') {
+    await handleYardiHl7Event(input);
     return;
   }
 
