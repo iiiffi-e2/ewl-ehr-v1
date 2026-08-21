@@ -13,6 +13,7 @@ import { getCommunityEnrichment } from '../integrations/caspio/caspioCommunityEn
 import { errorToIssueDetails, recordEventIssue } from '../domains/eventIssues.js';
 import { markEventFailed, markEventProcessed } from '../domains/events.js';
 import { upsertResident } from '../domains/residents.js';
+import { lifecycleFromYardiHl7EventType } from '../integrations/yardi/yardiHl7Triggers.js';
 
 import { getRedisConnection } from './connection.js';
 import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
@@ -108,6 +109,10 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       return;
     }
 
+    const rawMessage =
+      source === 'yardi-hl7' && typeof notificationData?.Message === 'string'
+        ? notificationData.Message
+        : undefined;
     const canonicalEvent: CanonicalInboundEvent = {
       source,
       companyKey,
@@ -115,9 +120,10 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       eventType,
       eventMessageId,
       eventMessageDate,
-      lifecycleKind: 'unknown',
+      lifecycleKind:
+        source === 'yardi-hl7' ? lifecycleFromYardiHl7EventType(eventType) : 'unknown',
       notificationData: notificationData ?? {},
-      raw: notificationData ?? {},
+      raw: rawMessage ? { message: rawMessage, ...(notificationData ?? {}) } : notificationData ?? {},
     };
 
     let residentId: number | string;
@@ -225,6 +231,29 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
       residentId,
       event: canonicalEvent,
     });
+
+    const fhirOverlayError =
+      typeof residentBundle.vendorPayload === 'object' &&
+      residentBundle.vendorPayload !== null &&
+      typeof (residentBundle.vendorPayload as { fhirOverlayError?: unknown }).fhirOverlayError ===
+        'string'
+        ? (residentBundle.vendorPayload as { fhirOverlayError: string }).fhirOverlayError
+        : undefined;
+    if (fhirOverlayError) {
+      await recordEventIssue({
+        companyId,
+        source,
+        eventType,
+        eventMessageId,
+        residentId: issueResidentId,
+        communityId,
+        stage: 'fhir_overlay',
+        severity: 'warning',
+        message: fhirOverlayError,
+        details: { fhirOverlayError },
+        retryable: false,
+      });
+    }
 
     if (!isContactEvent || shouldProcessCaspio) {
       const maybeFullData = (residentBundle.vendorPayload as { fullResidentData?: any } | undefined)

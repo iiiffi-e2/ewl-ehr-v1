@@ -176,4 +176,60 @@ describe('processAlisEvent worker', () => {
       }),
     );
   });
+
+  it('rebuilds yardi-hl7 lifecycle and preserves the raw HL7 message', async () => {
+    resolveResidentIdMock.mockReturnValue(418612);
+    fetchResidentBundleMock.mockImplementation(async ({ event }) => ({
+      event,
+      demographics: {
+        externalResidentId: '418612',
+        status: 'CurrentResident',
+      },
+      vendorPayload: {
+        fhirOverlayError: 'FHIR overlay unavailable',
+      },
+    }));
+
+    startProcessAlisEventWorker();
+    expect(mockWorkerProcessor).toBeDefined();
+
+    await mockWorkerProcessor?.({
+      data: {
+        source: 'yardi-hl7',
+        eventMessageId: 'evt-hl7-a01',
+        eventType: 'hl7.adt.a01',
+        companyKey: 'yardi-company',
+        companyId: 10,
+        communityId: 113,
+        notificationData: { Message: 'MSH|...', ResidentId: 418612 },
+        eventMessageDate: '2026-08-20T12:00:00Z',
+      },
+    });
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'fhir_overlay',
+        severity: 'warning',
+        message: 'FHIR overlay unavailable',
+        retryable: false,
+      }),
+    );
+    expect(handleEhrEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'yardi-hl7',
+        event: expect.objectContaining({
+          lifecycleKind: 'move_in',
+          raw: expect.objectContaining({
+            message: 'MSH|...',
+          }),
+        }),
+      }),
+    );
+    expect(markEventProcessedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'yardi-hl7',
+        eventMessageId: 'evt-hl7-a01',
+      }),
+    );
+  });
 });
