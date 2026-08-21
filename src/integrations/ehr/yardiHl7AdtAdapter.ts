@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
+import { logger } from '../../config/logger.js';
 import type { EhrAdapter, FetchResidentBundleArgs, ResolveResidentIdArgs } from './adapter.js';
+import { YardiFhirClient } from '../yardi/yardiFhirClient.js';
+import { mapYardiFhirBundleToDemographics } from '../yardi/yardiFhirDemographics.js';
+import { getConfiguredYardiFhirPollTargets } from '../yardi/yardiFhirPollConfig.js';
 import { lifecycleFromYardiHl7Trigger } from '../yardi/yardiHl7Triggers.js';
 import type {
   CanonicalInboundEvent,
@@ -124,6 +128,20 @@ function parseHl7Message(message: string): ParsedHl7Message {
   };
 }
 
+function getHl7Message(event: CanonicalInboundEvent): string {
+  const fromNotification = event.notificationData?.Message;
+  if (typeof fromNotification === 'string' && fromNotification.startsWith('MSH|')) {
+    return fromNotification;
+  }
+  const raw = event.raw as { message?: string } | undefined;
+  if (typeof raw?.message === 'string') return raw.message;
+  return '';
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export class YardiHl7AdtAdapter implements EhrAdapter {
   readonly source = 'yardi-hl7' as const;
 
@@ -156,6 +174,7 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
           ReceivingApplication: hl7.receivingApplication ?? null,
           ReceivingFacility: hl7.receivingFacility ?? null,
           RoomNumber: hl7.roomNumber ?? null,
+          Message: trimmed,
         },
         raw: {
           message: trimmed,
@@ -216,9 +235,9 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
   }
 
   async fetchResidentBundle(args: FetchResidentBundleArgs): Promise<CanonicalResidentBundle> {
-    const raw = args.event.raw as { message?: string } | undefined;
-    const parsed = parseHl7Message(raw?.message ?? '');
-    const demographics: CanonicalResidentDemographics = {
+    const hl7Message = getHl7Message(args.event);
+    const parsed = parseHl7Message(hl7Message);
+    let demographics: CanonicalResidentDemographics = {
       externalResidentId: String(args.residentId),
       status: parsed.residentStatus ?? null,
       firstName: parsed.patientFirstName ?? null,
@@ -238,6 +257,49 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
       offPremDate: null,
       updatedAtUtc: args.event.eventMessageDate,
     };
+    const vendorPayload: Record<string, unknown> = {
+      hl7: hl7Message || null,
+      parsed,
+    };
+
+    if (args.event.communityId != null) {
+      try {
+        const target = getConfiguredYardiFhirPollTargets().find(
+          (candidate) =>
+            candidate.companyKey === args.companyKey &&
+            candidate.communityId === args.event.communityId,
+        );
+        if (target) {
+          const fhirBundle = await YardiFhirClient.createConfigured().fetchPatientBundle(
+            String(args.residentId),
+          );
+          vendorPayload.fhirBundle = fhirBundle;
+          demographics = mapYardiFhirBundleToDemographics(fhirBundle, {
+            externalResidentId: demographics.externalResidentId,
+            ...(demographics.status != null ? { status: demographics.status } : {}),
+            ...(demographics.firstName != null ? { firstName: demographics.firstName } : {}),
+            ...(demographics.lastName != null ? { lastName: demographics.lastName } : {}),
+            ...(demographics.dateOfBirth != null ? { dateOfBirth: demographics.dateOfBirth } : {}),
+            ...(demographics.roomNumber != null ? { roomNumber: demographics.roomNumber } : {}),
+            ...(demographics.bed != null ? { bed: demographics.bed } : {}),
+            ...(demographics.room != null ? { room: demographics.room } : {}),
+            updatedAtUtc: args.event.eventMessageDate,
+          });
+        }
+      } catch (error) {
+        const message = getErrorMessage(error);
+        vendorPayload.fhirOverlayError = message;
+        logger.warn(
+          {
+            error: message,
+            companyKey: args.companyKey,
+            communityId: args.event.communityId,
+            residentId: args.residentId,
+          },
+          'yardi_hl7_fhir_overlay_failed',
+        );
+      }
+    }
 
     return {
       source: this.source,
@@ -247,12 +309,9 @@ export class YardiHl7AdtAdapter implements EhrAdapter {
       residentId: args.residentId,
       event: args.event,
       demographics,
-      vendorPayload: {
-        hl7: raw?.message ?? null,
-        parsed,
-      },
+      vendorPayload,
       raw: {
-        hl7: raw?.message ?? null,
+        hl7: hl7Message || null,
         parsed,
       },
     };

@@ -87,6 +87,7 @@ describe('YardiHl7AdtAdapter raw HL7', () => {
         ReceivingApplication: 'EyeWatchLive',
         ReceivingFacility: 'EyeWatchLive',
         RoomNumber: '141',
+        Message: SAMPLE_YARDI_RAW,
       }),
     });
     expect(event.eventMessageDate).toMatch(/2022-09-08/);
@@ -95,6 +96,25 @@ describe('YardiHl7AdtAdapter raw HL7', () => {
       messageControlId: '10529',
       triggerEvent: 'A01',
     });
+  });
+
+  it('builds resident bundle from notificationData.Message when raw is missing', async () => {
+    const adapter = new YardiHl7AdtAdapter();
+    const event = adapter.parseInboundEvent(SAMPLE_YARDI_RAW);
+    const workerEvent = {
+      ...event,
+      raw: {},
+      notificationData: { ...event.notificationData, Message: SAMPLE_YARDI_RAW },
+    };
+    const bundle = await adapter.fetchResidentBundle({
+      companyId: 10,
+      companyKey: 'yourlife',
+      event: workerEvent,
+      residentId: 418612,
+    });
+
+    expect(bundle.demographics.roomNumber).toBe('141');
+    expect(bundle.demographics.firstName).toBe('Denise');
   });
 
   it('still parses the existing JSON envelope', () => {
