@@ -198,7 +198,7 @@ describe('drainYardiHl7Mailbox', () => {
     expect(processAck).toHaveBeenCalled();
   });
 
-  it.each(['queued', 'processed'])(
+  it.each(['failed', 'queued', 'processed'])(
     'ProcessACKs a duplicate with %s status without re-enqueueing',
     async (status) => {
       getMessage

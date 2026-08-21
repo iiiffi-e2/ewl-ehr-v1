@@ -130,7 +130,7 @@ export async function drainYardiHl7Mailbox(
     if (isDuplicate) {
       duplicates += 1;
       if (
-        (eventLog.status === 'received' || eventLog.status === 'failed') &&
+        eventLog.status === 'received' &&
         target &&
         isSupportedYardiHl7EventType(event.eventType)
       ) {
