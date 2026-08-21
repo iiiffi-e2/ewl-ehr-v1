@@ -264,6 +264,152 @@ async function getRequiredEnrichment(
   };
 }
 
+async function buildYardiPatientPatch(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+  enrichment: { CUID: string; CommunityName?: string },
+): Promise<Record<string, unknown>> {
+  const bundle = input.residentBundle!;
+  const demographics = bundle.demographics;
+  const roomNumber =
+    demographics.roomNumber ??
+    notificationString(input.event.notificationData, ['RoomNumber']);
+  const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
+  const fhirBundle = vendorPayload?.fhirBundle;
+
+  if (fhirBundle) {
+    const records = await buildYardiFhirCaspioRecords(
+      { ...bundle, vendorPayload: fhirBundle },
+      communityId,
+    );
+    return {
+      ...records.patientRecord,
+      PatientNumber: demographics.externalResidentId,
+      RoomNumber: roomNumber,
+      CUID: enrichment.CUID,
+    };
+  }
+
+  return {
+    PatientNumber: demographics.externalResidentId,
+    FirstName: demographics.firstName ?? undefined,
+    LastName: demographics.lastName ?? undefined,
+    PatientDOB: formatCaspioDate(demographics.dateOfBirth),
+    RoomNumber: roomNumber,
+    CUID: enrichment.CUID,
+    CommunityName: enrichment.CommunityName,
+    PatientCommunity: enrichment.CommunityName,
+  };
+}
+
+async function openYardiService(
+  input: CanonicalEventOrchestrationInput,
+  enrichment: { CUID: string; CommunityName?: string },
+  startDate: string,
+): Promise<void> {
+  const demographics = input.residentBundle!.demographics;
+  const patientNumber = String(demographics.externalResidentId);
+  const serviceType =
+    demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
+  const serviceRecord = mapServiceRecord({
+    patientNumber,
+    cuid: enrichment.CUID,
+    roomNumber: demographics.roomNumber ?? undefined,
+    serviceType,
+    startDate,
+    communityName: enrichment.CommunityName,
+  });
+  await upsertByFields(
+    env.CASPIO_SERVICE_TABLE_NAME,
+    [
+      { field: 'CUID', value: enrichment.CUID },
+      { field: 'PatientNumber', value: patientNumber },
+      { field: 'ServiceType', value: serviceType },
+      { field: 'StartDate', value: startDate },
+    ],
+    serviceRecord,
+  );
+}
+
+async function handleYardiUpdate(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+  options: { insertIfMissing: boolean; isTransfer: boolean },
+): Promise<void> {
+  const enrichment = await getRequiredEnrichment(input, communityId);
+  if (!enrichment) return;
+
+  const patientNumber = String(
+    input.residentBundle!.demographics.externalResidentId,
+  );
+  const existing = await findExistingPatient(patientNumber, enrichment.CUID);
+  const trigger = normalizeYardiHl7Trigger(
+    String(
+      input.event.notificationData.TriggerEvent ??
+        triggerFromYardiHl7EventType(input.event.eventType),
+    ),
+  );
+  const eventDate = formatCaspioDateTime(input.event.eventMessageDate);
+  const patientPatch = await buildYardiPatientPatch(input, communityId, enrichment);
+
+  if (!existing.found || !existing.id) {
+    if (!options.insertIfMissing) {
+      await recordYardiIssue(
+        input,
+        'patient_not_found',
+        `${trigger} event skipped because resident was not found in Caspio`,
+        communityId,
+      );
+      return;
+    }
+
+    const patientRecord = {
+      ...patientPatch,
+      Move_in_Date: eventDate,
+      Service_Start_Date: eventDate,
+      On_Prem: true,
+    };
+    await upsertByFields(
+      env.CASPIO_TABLE_NAME,
+      [
+        { field: 'PatientNumber', value: patientNumber },
+        { field: 'CUID', value: enrichment.CUID },
+      ],
+      patientRecord,
+    );
+    await openYardiService(input, enrichment, eventDate);
+    return;
+  }
+
+  if (options.isTransfer) {
+    const previousCuid =
+      typeof existing.record?.CUID === 'string'
+        ? existing.record.CUID.trim()
+        : undefined;
+    if (previousCuid && previousCuid !== enrichment.CUID) {
+      const serviceRow = await findActiveOrLatestServiceRow({
+        patientNumber,
+        cuid: previousCuid,
+      });
+      if (serviceRow.found && serviceRow.id) {
+        await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
+          EndDate: eventDate,
+        });
+      } else {
+        await recordYardiIssue(
+          input,
+          'service_not_found',
+          'Transfer completed but no previous service row was found to close',
+          communityId,
+        );
+      }
+      await openYardiService(input, enrichment, eventDate);
+    }
+  }
+
+  await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patientPatch);
+}
+
 async function requireExistingPatient(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
@@ -431,8 +577,27 @@ export async function handleYardiHl7Event(
     case 'A01':
       await handleYardiMoveIn(input, communityId);
       return;
+    case 'A02':
+      await handleYardiUpdate(input, communityId, {
+        insertIfMissing: false,
+        isTransfer: true,
+      });
+      return;
     case 'A03':
       await handleYardiMoveOut(input, communityId);
+      return;
+    case 'A05':
+      await handleYardiUpdate(input, communityId, {
+        insertIfMissing: true,
+        isTransfer: false,
+      });
+      return;
+    case 'A08':
+    case 'A60':
+      await handleYardiUpdate(input, communityId, {
+        insertIfMissing: false,
+        isTransfer: false,
+      });
       return;
     case 'A21':
       await handleYardiLeaveStart(input, communityId);

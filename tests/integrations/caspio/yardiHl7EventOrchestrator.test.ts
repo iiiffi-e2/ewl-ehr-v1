@@ -198,6 +198,134 @@ describe('handleYardiHl7Event', () => {
     expect(handleAlisEventMock).not.toHaveBeenCalled();
   });
 
+  it('transfers A02 from the previous CUID service to the enriched room CUID', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: 'new-cuid',
+      CommunityName: 'EyeWatch Live',
+    });
+    findByPatientNumberMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      raw: { PatientNumber: '418612', CUID: 'old-cuid', RoomNumber: '100' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'old-service-1',
+      record: { CUID: 'old-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a02', { trigger: 'A02' }));
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: 'room-cuid',
+      CommunityName: 'EyeWatch Live',
+    });
+    findByPatientNumberMock.mockResolvedValue({ found: false });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({ found: false });
+
+    expect(findActiveOrLatestServiceRowMock).toHaveBeenCalledWith({
+      patientNumber: '418612',
+      cuid: 'old-cuid',
+    });
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      'old-service-1',
+      { EndDate: '08/20/2026 14:15:16' },
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: 'new-cuid' },
+        { field: 'PatientNumber', value: '418612' },
+        { field: 'StartDate', value: '08/20/2026 14:15:16' },
+      ]),
+      expect.objectContaining({
+        CUID: 'new-cuid',
+        PatientNumber: '418612',
+        RoomNumber: '141',
+        StartDate: '08/20/2026 14:15:16',
+      }),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        PatientNumber: '418612',
+        RoomNumber: '141',
+        CUID: 'new-cuid',
+      }),
+    );
+  });
+
+  it('inserts an A05 patient and service when the patient is missing', async () => {
+    await handleYardiHl7Event(baseInput('hl7.adt.a05', { trigger: 'A05' }));
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [
+        { field: 'PatientNumber', value: '418612' },
+        { field: 'CUID', value: 'room-cuid' },
+      ],
+      expect.objectContaining({
+        PatientNumber: '418612',
+        CUID: 'room-cuid',
+        RoomNumber: '141',
+      }),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: 'room-cuid' },
+        { field: 'PatientNumber', value: '418612' },
+      ]),
+      expect.objectContaining({
+        CUID: 'room-cuid',
+        PatientNumber: '418612',
+      }),
+    );
+  });
+
+  it.each(['A08', 'A60'])(
+    'records an issue and skips %s when the patient is missing',
+    async (trigger) => {
+      await handleYardiHl7Event(
+        baseInput(`hl7.adt.${trigger.toLowerCase()}`, { trigger }),
+      );
+
+      expect(recordEventIssueMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'patient_not_found',
+          message: `${trigger} event skipped because resident was not found in Caspio`,
+        }),
+      );
+      expect(updateRecordByIdMock).not.toHaveBeenCalled();
+      expect(upsertByFieldsMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['A08', 'A60'])('updates the existing patient for %s', async (trigger) => {
+    findRecordByFieldsMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(
+      baseInput(`hl7.adt.${trigger.toLowerCase()}`, { trigger }),
+    );
+    findRecordByFieldsMock.mockResolvedValue({ found: false });
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        PatientNumber: '418612',
+        RoomNumber: '141',
+        CUID: 'room-cuid',
+      }),
+    );
+    expect(upsertByFieldsMock).not.toHaveBeenCalled();
+  });
+
   it('updates the patient and closes the latest service for A03', async () => {
     findRecordByFieldsMock.mockResolvedValueOnce({
       found: true,
@@ -371,8 +499,8 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
-  it('requires an enriched CUID before A03/A21/A22 writes', async () => {
-    for (const trigger of ['A03', 'A21', 'A22']) {
+  it('requires an enriched CUID before update workflow writes', async () => {
+    for (const trigger of ['A02', 'A03', 'A05', 'A08', 'A21', 'A22', 'A60']) {
       jest.clearAllMocks();
       getCommunityEnrichmentMock.mockResolvedValueOnce({ CommunityName: 'EyeWatch Live' });
 
