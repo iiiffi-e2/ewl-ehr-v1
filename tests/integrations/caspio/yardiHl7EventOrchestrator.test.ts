@@ -4,6 +4,8 @@ const updateRecordByIdMock = jest.fn();
 const findRecordByFieldsMock = jest.fn();
 const findByPatientNumberMock = jest.fn();
 const findActiveOrLatestServiceRowMock = jest.fn();
+const findOpenOffPremEpisodeMock = jest.fn();
+const upsertOffPremEpisodeByEpisodeIdMock = jest.fn();
 const recordEventIssueMock = jest.fn();
 const handleAlisEventMock = jest.fn();
 const buildYardiFhirCaspioRecordsMock = jest.fn();
@@ -18,6 +20,8 @@ jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findRecordByFields: findRecordByFieldsMock,
   findByPatientNumber: findByPatientNumberMock,
   findActiveOrLatestServiceRow: findActiveOrLatestServiceRowMock,
+  findOpenOffPremEpisode: findOpenOffPremEpisodeMock,
+  upsertOffPremEpisodeByEpisodeId: upsertOffPremEpisodeByEpisodeIdMock,
 }));
 
 jest.mock('../../../src/domains/eventIssues.js', () => ({
@@ -108,6 +112,15 @@ describe('handleYardiHl7Event', () => {
       CommunityName: 'EyeWatch Live',
     });
     upsertByFieldsMock.mockResolvedValue({ action: 'insert', id: 'record-1' });
+    updateRecordByIdMock.mockResolvedValue({});
+    findRecordByFieldsMock.mockResolvedValue({ found: false });
+    findByPatientNumberMock.mockResolvedValue({ found: false });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({ found: false });
+    findOpenOffPremEpisodeMock.mockResolvedValue({ found: false });
+    upsertOffPremEpisodeByEpisodeIdMock.mockResolvedValue({
+      action: 'insert',
+      id: 'episode-1',
+    });
   });
 
   it('records a non-retryable warning and skips writes when communityId is missing', async () => {
@@ -183,5 +196,194 @@ describe('handleYardiHl7Event', () => {
     await handleYardiHl7Event(baseInput());
 
     expect(handleAlisEventMock).not.toHaveBeenCalled();
+  });
+
+  it('updates the patient and closes the latest service for A03', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'service-1',
+      record: { Service_ID: 'service-id' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a03', { trigger: 'A03' }));
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', 'patient-1', {
+      Move_Out_Date: '08/20/2026 14:15:16',
+      Service_End_Date: '08/20/2026 14:15:16',
+      On_Prem: false,
+    });
+    expect(findActiveOrLatestServiceRowMock).toHaveBeenCalledWith({
+      patientNumber: '418612',
+      cuid: 'room-cuid',
+    });
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'service-1', {
+      EndDate: '08/20/2026 14:15:16',
+    });
+  });
+
+  it('records an issue and skips A03 updates when the patient is missing', async () => {
+    await handleYardiHl7Event(baseInput('hl7.adt.a03', { trigger: 'A03' }));
+
+    expect(findRecordByFieldsMock).toHaveBeenCalledWith('CarePatientTable_API', [
+      { field: 'PatientNumber', value: '418612' },
+      { field: 'CUID', value: 'room-cuid' },
+    ]);
+    expect(findByPatientNumberMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      '418612',
+    );
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'patient_not_found',
+        message: 'Move-out event skipped because resident was not found in Caspio',
+      }),
+    );
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the A03 patient update when no service row is found', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a03', { trigger: 'A03' }));
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({ On_Prem: false }),
+    );
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'service_not_found' }),
+    );
+  });
+
+  it('marks the patient off-prem and starts an episode for A21', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a21', { trigger: 'A21' }));
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', 'patient-1', {
+      Off_Prem: true,
+      On_Prem: false,
+      Off_Prem_Date: '08/20/2026 14:15:16',
+    });
+    expect(upsertOffPremEpisodeByEpisodeIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        PatientNumber: '418612',
+        CUID: 'room-cuid',
+        CommunityName: 'EyeWatch Live',
+        OffPremStart: '08/20/2026 14:15:16',
+        IsOpen: true,
+      }),
+    );
+  });
+
+  it('records an issue and skips A21 when the patient is missing', async () => {
+    await handleYardiHl7Event(baseInput('hl7.adt.a21', { trigger: 'A21' }));
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'patient_not_found',
+      }),
+    );
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(upsertOffPremEpisodeByEpisodeIdMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the open episode and marks the patient on-prem for A22', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+    findOpenOffPremEpisodeMock.mockResolvedValueOnce({
+      found: true,
+      id: 'episode-1',
+      record: {
+        Episode_ID: 'leave-episode-1',
+        OffPremStart: '08/20/2026 12:15:16',
+      },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a22', { trigger: 'A22' }));
+
+    expect(findOpenOffPremEpisodeMock).toHaveBeenCalledWith({
+      patientNumber: '418612',
+      cuid: 'room-cuid',
+    });
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'PatientOffPremHistory_API',
+      'episode-1',
+      expect.objectContaining({
+        OffPremEnd: '08/20/2026 14:15:16',
+        DurationMinutes: 120,
+        DurationHours: 2,
+        IsOpen: false,
+        CloseReason: 'leave_end',
+      }),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('CarePatientTable_API', 'patient-1', {
+      Off_Prem: false,
+      On_Prem: true,
+    });
+  });
+
+  it('records an issue and skips A22 when the patient is missing', async () => {
+    await handleYardiHl7Event(baseInput('hl7.adt.a22', { trigger: 'A22' }));
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'patient_not_found',
+      }),
+    );
+    expect(findOpenOffPremEpisodeMock).not.toHaveBeenCalled();
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+  });
+
+  it('marks the A22 patient on-prem when no open episode is found', async () => {
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a22', { trigger: 'A22' }));
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'open_off_prem_episode_not_found' }),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      { Off_Prem: false, On_Prem: true },
+    );
+  });
+
+  it('requires an enriched CUID before A03/A21/A22 writes', async () => {
+    for (const trigger of ['A03', 'A21', 'A22']) {
+      jest.clearAllMocks();
+      getCommunityEnrichmentMock.mockResolvedValueOnce({ CommunityName: 'EyeWatch Live' });
+
+      await handleYardiHl7Event(
+        baseInput(`hl7.adt.${trigger.toLowerCase()}`, { trigger }),
+      );
+
+      expect(recordEventIssueMock).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'missing_cuid' }),
+      );
+      expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    }
   });
 });

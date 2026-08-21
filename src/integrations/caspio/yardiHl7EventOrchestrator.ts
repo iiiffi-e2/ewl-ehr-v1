@@ -14,9 +14,21 @@ import {
   triggerFromYardiHl7EventType,
 } from '../yardi/yardiHl7Triggers.js';
 
-import { upsertByFields } from './caspioClient.js';
+import {
+  findActiveOrLatestServiceRow,
+  findByPatientNumber,
+  findOpenOffPremEpisode,
+  findRecordByFields,
+  updateRecordById,
+  upsertByFields,
+  upsertOffPremEpisodeByEpisodeId,
+} from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
-import { mapServiceRecord } from './caspioMapper.js';
+import {
+  mapOffPremEndPatch,
+  mapOffPremStartEpisode,
+  mapServiceRecord,
+} from './caspioMapper.js';
 import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from './serviceLineTypes.js';
 
 type YardiHl7VendorPayload = {
@@ -189,6 +201,209 @@ async function handleYardiMoveIn(
   );
 }
 
+async function findExistingPatient(
+  patientNumber: string,
+  cuid: string,
+): Promise<{ found: boolean; id?: string; record?: Record<string, unknown> }> {
+  const match = await findRecordByFields(env.CASPIO_TABLE_NAME, [
+    { field: 'PatientNumber', value: patientNumber },
+    { field: 'CUID', value: cuid },
+  ]);
+  if (match.found) {
+    return {
+      found: true,
+      id: match.id,
+      record: match.record as Record<string, unknown> | undefined,
+    };
+  }
+
+  const fallback = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
+  return {
+    found: fallback.found,
+    id: fallback.id,
+    record: fallback.raw as Record<string, unknown> | undefined,
+  };
+}
+
+async function getRequiredEnrichment(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+): Promise<{ CUID: string; CommunityName?: string } | undefined> {
+  const bundle = input.residentBundle!;
+  const roomNumber =
+    bundle.demographics.roomNumber ??
+    notificationString(input.event.notificationData, ['RoomNumber']);
+  const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
+  const fhirBundle = vendorPayload?.fhirBundle;
+  const communityName =
+    (fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined) ??
+    notificationString(input.event.notificationData, [
+      'CommunityName',
+      'SendingFacility',
+      'Pv1Facility',
+    ]);
+  const enrichment = await getCommunityEnrichment(
+    communityId,
+    roomNumber,
+    communityName,
+  );
+  const cuid = enrichment.CUID?.trim();
+  if (!cuid) {
+    await recordYardiIssue(
+      input,
+      'missing_cuid',
+      `No Caspio CUID found for Yardi HL7 community '${communityId}' and room '${roomNumber ?? ''}'`,
+      communityId,
+    );
+    return undefined;
+  }
+
+  return {
+    CUID: cuid,
+    CommunityName: enrichment.CommunityName ?? communityName,
+  };
+}
+
+async function requireExistingPatient(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+  cuid: string,
+  missingMessage: string,
+): Promise<
+  { patientNumber: string; existing: { id: string; record?: Record<string, unknown> } } | undefined
+> {
+  const patientNumber = String(input.residentBundle!.demographics.externalResidentId);
+  const existing = await findExistingPatient(patientNumber, cuid);
+  if (!existing.found || !existing.id) {
+    await recordYardiIssue(
+      input,
+      'patient_not_found',
+      missingMessage,
+      communityId,
+    );
+    return undefined;
+  }
+
+  return {
+    patientNumber,
+    existing: { id: existing.id, record: existing.record },
+  };
+}
+
+async function handleYardiMoveOut(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+): Promise<void> {
+  const enrichment = await getRequiredEnrichment(input, communityId);
+  if (!enrichment) return;
+
+  const patient = await requireExistingPatient(
+    input,
+    communityId,
+    enrichment.CUID,
+    'Move-out event skipped because resident was not found in Caspio',
+  );
+  if (!patient) return;
+
+  const endDate = formatCaspioDateTime(input.event.eventMessageDate);
+  await updateRecordById(env.CASPIO_TABLE_NAME, patient.existing.id, {
+    Move_Out_Date: endDate,
+    Service_End_Date: endDate,
+    On_Prem: false,
+  });
+
+  const serviceRow = await findActiveOrLatestServiceRow({
+    patientNumber: patient.patientNumber,
+    cuid: enrichment.CUID,
+  });
+  if (!serviceRow.found || !serviceRow.id) {
+    await recordYardiIssue(
+      input,
+      'service_not_found',
+      'Move-out completed but no service row was found to close',
+      communityId,
+    );
+    return;
+  }
+
+  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
+    EndDate: endDate,
+  });
+}
+
+async function handleYardiLeaveStart(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+): Promise<void> {
+  const enrichment = await getRequiredEnrichment(input, communityId);
+  if (!enrichment) return;
+
+  const patient = await requireExistingPatient(
+    input,
+    communityId,
+    enrichment.CUID,
+    'Leave-start event skipped because resident was not found in Caspio',
+  );
+  if (!patient) return;
+
+  const offPremStart = formatCaspioDateTime(input.event.eventMessageDate);
+  await updateRecordById(env.CASPIO_TABLE_NAME, patient.existing.id, {
+    Off_Prem: true,
+    On_Prem: false,
+    Off_Prem_Date: offPremStart,
+  });
+  await upsertOffPremEpisodeByEpisodeId(
+    mapOffPremStartEpisode({
+      patientNumber: patient.patientNumber,
+      cuid: enrichment.CUID,
+      communityName: enrichment.CommunityName,
+      offPremStart,
+    }),
+  );
+}
+
+async function handleYardiLeaveEnd(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+): Promise<void> {
+  const enrichment = await getRequiredEnrichment(input, communityId);
+  if (!enrichment) return;
+
+  const patient = await requireExistingPatient(
+    input,
+    communityId,
+    enrichment.CUID,
+    'Leave-end event skipped because resident was not found in Caspio',
+  );
+  if (!patient) return;
+
+  const offPremEnd = formatCaspioDateTime(input.event.eventMessageDate);
+  const openEpisode = await findOpenOffPremEpisode({
+    patientNumber: patient.patientNumber,
+    cuid: enrichment.CUID,
+  });
+  const offPremStart = openEpisode.record?.OffPremStart;
+  if (openEpisode.found && openEpisode.id && typeof offPremStart === 'string') {
+    await updateRecordById(
+      env.CASPIO_OFF_PREM_HISTORY_TABLE_NAME,
+      openEpisode.id,
+      mapOffPremEndPatch({ offPremStart, offPremEnd }),
+    );
+  } else {
+    await recordYardiIssue(
+      input,
+      'open_off_prem_episode_not_found',
+      'Leave-end event found no open off-prem episode to close',
+      communityId,
+    );
+  }
+
+  await updateRecordById(env.CASPIO_TABLE_NAME, patient.existing.id, {
+    Off_Prem: false,
+    On_Prem: true,
+  });
+}
+
 export async function handleYardiHl7Event(
   input: CanonicalEventOrchestrationInput,
 ): Promise<void> {
@@ -215,6 +430,15 @@ export async function handleYardiHl7Event(
   switch (trigger) {
     case 'A01':
       await handleYardiMoveIn(input, communityId);
+      return;
+    case 'A03':
+      await handleYardiMoveOut(input, communityId);
+      return;
+    case 'A21':
+      await handleYardiLeaveStart(input, communityId);
+      return;
+    case 'A22':
+      await handleYardiLeaveEnd(input, communityId);
       return;
     default:
       await recordYardiIssue(
