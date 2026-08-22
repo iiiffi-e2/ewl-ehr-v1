@@ -213,6 +213,11 @@
             font-size: 14px;
         }
 
+        .event-type-label {
+            color: #8b949e;
+            font-weight: 500;
+        }
+
         .event-time {
             font-size: 12px;
             color: #8b949e;
@@ -501,6 +506,31 @@
             return `${datePart} ${timePart}`;
         }
 
+        const YARDI_HL7_EVENT_LABELS = {
+            A01: 'Move-in',
+            A02: 'Room transfer',
+            A03: 'Move-out',
+            A05: 'New resident',
+            A08: 'Patient update',
+            A21: 'Leave start',
+            A22: 'Leave end',
+            A60: 'Patient update',
+            A11: 'Cancel admit',
+            A12: 'Cancel transfer',
+            A13: 'Cancel discharge',
+            A38: 'Cancel leave',
+        };
+
+        function yardiHl7EventLabel(eventType) {
+            if (!eventType) return '';
+            const normalized = String(eventType).trim().toLowerCase();
+            const prefix = 'hl7.adt.';
+            const code = (normalized.startsWith(prefix)
+                ? normalized.slice(prefix.length)
+                : normalized).toUpperCase();
+            return YARDI_HL7_EVENT_LABELS[code] || '';
+        }
+
         function updateStats() {
             document.getElementById('totalEvents').textContent = stats.total;
             document.getElementById('processedCount').textContent = stats.processed;
@@ -533,13 +563,14 @@
                 const payload = JSON.stringify(event.payload, null, 2);
                 const source = event.source || 'alis';
                 const sourceClass = ['alis', 'yardi-hl7', 'yardi-fhir'].includes(source) ? source : 'unknown';
+                const yardiLabel = source === 'yardi-hl7' ? yardiHl7EventLabel(event.eventType) : '';
                 
                 return `
                     <div class="event-item">
                         <div class="event-header">
                             <span class="event-type">
                                 <span class="source-badge ${sourceClass}">${source}</span>
-                                ${event.eventType}
+                                ${event.eventType}${yardiLabel ? ` <span class="event-type-label">· ${yardiLabel}</span>` : ''}
                             </span>
                             <span class="event-time">${time}</span>
                         </div>
