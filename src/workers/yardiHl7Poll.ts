@@ -49,8 +49,15 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
     return;
   }
 
-  if (getConfiguredYardiHl7PollTargets().length === 0) {
-    logger.warn('yardi_hl7_poll_enabled_without_targets');
+  const pollTargets = getConfiguredYardiHl7PollTargets();
+  if (pollTargets.length === 0) {
+    logger.warn(
+      {
+        hasTargetsEnv: Boolean(env.YARDI_HL7_POLL_TARGETS?.trim()),
+        targetsEnvLength: env.YARDI_HL7_POLL_TARGETS?.length ?? 0,
+      },
+      'yardi_hl7_poll_enabled_without_targets',
+    );
   }
 
   // Remove any pre-existing repeatable template so option changes (e.g.
@@ -88,6 +95,8 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
     {
       intervalMs: env.YARDI_HL7_POLL_INTERVAL_MS,
       maxMessages: env.YARDI_HL7_POLL_MAX_MESSAGES,
+      targetCount: pollTargets.length,
+      facilityIds: pollTargets.map((row) => row.facilityId),
     },
     'yardi_hl7_poll_schedule_registered',
   );

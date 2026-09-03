@@ -18,6 +18,7 @@ import {
   yardiFhirPollQueue,
 } from '../workers/queue.js';
 import { parseYardiFhirPollTargets } from '../integrations/yardi/yardiFhirPollConfig.js';
+import { getConfiguredYardiHl7PollTargets } from '../integrations/yardi/yardiHl7PollConfig.js';
 import { YardiFhirClient } from '../integrations/yardi/yardiFhirClient.js';
 import { logger } from '../config/logger.js';
 import { alisWebhookHandler, handleWebhookBySource } from '../webhook/handler.js';
@@ -656,6 +657,27 @@ router.post('/admin/yardi-fhir-sync/run', authAdmin, async (req, res) => {
   } catch (error) {
     logger.error({ error }, 'admin_yardi_fhir_sync_failed');
     return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/admin/yardi-hl7-poll/config', authAdmin, (_req, res) => {
+  try {
+    const targets = getConfiguredYardiHl7PollTargets();
+    return res.json({
+      success: true,
+      pollEnabled: env.YARDI_HL7_POLL_ENABLED,
+      pollIntervalMs: env.YARDI_HL7_POLL_INTERVAL_MS,
+      hasTargetsEnv: Boolean(env.YARDI_HL7_POLL_TARGETS?.trim()),
+      targetsEnvLength: env.YARDI_HL7_POLL_TARGETS?.length ?? 0,
+      targets,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return res.status(400).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString(),

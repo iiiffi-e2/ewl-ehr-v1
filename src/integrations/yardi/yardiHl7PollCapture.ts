@@ -139,6 +139,16 @@ export async function drainYardiHl7Mailbox(
       }
     } else {
       if (!target) {
+        const configured = getConfiguredYardiHl7PollTargets();
+        logger.warn(
+          {
+            eventMessageId: event.eventMessageId,
+            inboundFacility: facilityId,
+            configuredFacilityIds: configured.map((row) => row.facilityId),
+            configuredTargetCount: configured.length,
+          },
+          'yardi_hl7_unknown_facility',
+        );
         await markEventIgnored(identity, 'unknown_facility');
       } else if (!isSupportedYardiHl7EventType(event.eventType)) {
         await markEventIgnored(identity, 'unsupported_trigger');

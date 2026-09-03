@@ -134,6 +134,8 @@ describe('yardiHl7Poll worker', () => {
       {
         intervalMs: 60_000,
         maxMessages: 50,
+        targetCount: 1,
+        facilityIds: ['EYELIVE'],
       },
       'yardi_hl7_poll_schedule_registered',
     );
@@ -146,7 +148,13 @@ describe('yardiHl7Poll worker', () => {
 
     await registerYardiHl7PollSchedule();
 
-    expect(logger.warn).toHaveBeenCalledWith('yardi_hl7_poll_enabled_without_targets');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasTargetsEnv: false,
+        targetsEnvLength: 0,
+      }),
+      'yardi_hl7_poll_enabled_without_targets',
+    );
     expect(addMock).toHaveBeenCalled();
   });
 
