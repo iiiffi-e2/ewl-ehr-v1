@@ -32,6 +32,11 @@ import {
   runYardiFhirTestSync,
   testYardiFhirAuthentication,
 } from '../admin/yardiFhirTest.js';
+import {
+  getYardiHl7TestConfig,
+  runYardiHl7Test,
+  YardiHl7TestValidationError,
+} from '../admin/yardiHl7Test.js';
 
 import type { AlisPayload } from '../integrations/alis/types.js';
 
@@ -62,6 +67,11 @@ router.get('/admin/event-issues-page', authAdmin, (_req, res) => {
 // Admin page: Yardi FHIR API tester
 router.get('/admin/yardi-fhir-test', authAdmin, (_req, res) => {
   res.redirect('/public/yardi-fhir-test.html');
+});
+
+// Admin page: Yardi HL7 workflow tester
+router.get('/admin/yardi-hl7-test', authAdmin, (_req, res) => {
+  res.redirect('/public/yardi-hl7-test.html');
 });
 
 // Admin page: Event processing issues
@@ -746,6 +756,47 @@ router.get('/admin/yardi-fhir-test/config', authAdmin, (_req, res) => {
     config: getYardiFhirTestConfig(),
     timestamp: new Date().toISOString(),
   });
+});
+
+router.get('/admin/yardi-hl7-test/config', authAdmin, (_req, res) => {
+  try {
+    return res.json({
+      success: true,
+      config: getYardiHl7TestConfig(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/admin/yardi-hl7-test/run', authAdmin, async (req, res) => {
+  try {
+    logger.info({ source: req.body?.source, mode: req.body?.mode }, 'admin_yardi_hl7_test_run_called');
+    const result = await runYardiHl7Test(req.body ?? {});
+    return res.json({
+      ...result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof YardiHl7TestValidationError) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    logger.error({ error }, 'admin_yardi_hl7_test_run_failed');
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 router.post('/admin/yardi-fhir-test/auth', authAdmin, async (_req, res) => {
