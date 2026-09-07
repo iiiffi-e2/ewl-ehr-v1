@@ -60,6 +60,8 @@ jest.mock('../../src/db/prisma.js', () => ({
   },
 }));
 
+import { env } from '../../src/config/env.js';
+import { noteCaspioWrite } from '../../src/integrations/caspio/caspioWriteRecorder.js';
 import { YardiHl7TestValidationError, runYardiHl7Test } from '../../src/admin/yardiHl7Test.js';
 
 const SAMPLE_HL7 = [
@@ -307,5 +309,157 @@ describe('runYardiHl7Test', () => {
     expect(processAlisEventJobMock).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     expect(result.caspio.skipReason).toBe('unknown_facility');
+  });
+
+  it('replays a yardi-hl7 EventLog row through processAlisEventJob with a reminted id', async () => {
+    eventLogFindFirstMock.mockResolvedValue({
+      id: 7,
+      source: 'yardi-hl7',
+      payload: { notificationData: { Message: SAMPLE_HL7 } },
+    });
+    recordIncomingEventMock.mockImplementation(async (event: { eventMessageId: string; eventType: string }) => ({
+      eventLog: {
+        id: 99,
+        eventMessageId: event.eventMessageId,
+        eventType: event.eventType,
+        status: 'received',
+        communityId: 113,
+        error: null,
+        payload: {},
+      },
+      company: { id: 10, companyKey: 'yourlife' },
+      isDuplicate: false,
+    }));
+    eventLogFindUniqueMock.mockResolvedValue({
+      id: 99,
+      eventMessageId: 'x',
+      eventType: 'hl7.adt.a01',
+      status: 'processed',
+      communityId: 113,
+      error: null,
+      payload: {},
+      company: { companyKey: 'yourlife' },
+    });
+    issueFindManyMock.mockResolvedValue([]);
+    getCommunityEnrichmentMock.mockResolvedValue({ CUID: 'cuid-141', CommunityName: 'EyeWatch Live' });
+
+    const result = await runYardiHl7Test({
+      mode: 'inline',
+      source: 'eventLog',
+      eventLogId: 7,
+    });
+
+    expect(eventLogFindFirstMock).toHaveBeenCalledWith({ where: { id: 7 } });
+    expect(result.success).toBe(true);
+    expect(result.event.eventMessageId).not.toBe('10529');
+    expect(result.hl7).toContain(result.event.eventMessageId);
+    expect(result.hl7).not.toContain('|10529|');
+    expect(processAlisEventJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'yardi-hl7',
+        eventType: 'hl7.adt.a01',
+        companyKey: 'yourlife',
+        communityId: 113,
+      }),
+    );
+    expect(queueAddMock).not.toHaveBeenCalled();
+  });
+
+  it('reports ehr_shadow_mode when the worker writes nothing', async () => {
+    env.EHR_SHADOW_MODE = true;
+    recordIncomingEventMock.mockImplementation(async (event: { eventMessageId: string; eventType: string }) => ({
+      eventLog: {
+        id: 99,
+        eventMessageId: event.eventMessageId,
+        eventType: event.eventType,
+        status: 'received',
+        communityId: 113,
+        error: null,
+        payload: {},
+      },
+      company: { id: 10, companyKey: 'yourlife' },
+      isDuplicate: false,
+    }));
+    eventLogFindUniqueMock.mockResolvedValue({
+      id: 99,
+      eventMessageId: 'x',
+      eventType: 'hl7.adt.a01',
+      status: 'processed',
+      communityId: 113,
+      error: null,
+      payload: {},
+      company: { companyKey: 'yourlife' },
+    });
+    issueFindManyMock.mockResolvedValue([]);
+    getCommunityEnrichmentMock.mockResolvedValue({ CUID: 'cuid-141' });
+
+    try {
+      const result = await runYardiHl7Test({
+        mode: 'inline',
+        source: 'hl7',
+        hl7: SAMPLE_HL7,
+      });
+      expect(processAlisEventJobMock).toHaveBeenCalled();
+      expect(result.caspio.wrote).toBe(false);
+      expect(result.caspio.skipReason).toBe('ehr_shadow_mode');
+    } finally {
+      env.EHR_SHADOW_MODE = false;
+    }
+  });
+
+  it('returns success false and recorded operations when processAlisEventJob throws', async () => {
+    processAlisEventJobMock.mockImplementation(async () => {
+      noteCaspioWrite({
+        table: 'CarePatientTable_API',
+        action: 'upsert',
+        record: { PatientNumber: '418612' },
+      });
+      throw new Error('worker exploded');
+    });
+    recordIncomingEventMock.mockImplementation(async (event: { eventMessageId: string; eventType: string }) => ({
+      eventLog: {
+        id: 99,
+        eventMessageId: event.eventMessageId,
+        eventType: event.eventType,
+        status: 'received',
+        communityId: 113,
+        error: null,
+        payload: {},
+      },
+      company: { id: 10, companyKey: 'yourlife' },
+      isDuplicate: false,
+    }));
+    eventLogFindUniqueMock.mockResolvedValue({
+      id: 99,
+      eventMessageId: 'x',
+      eventType: 'hl7.adt.a01',
+      status: 'failed',
+      communityId: 113,
+      error: 'worker exploded',
+      payload: {},
+      company: { companyKey: 'yourlife' },
+    });
+    issueFindManyMock.mockResolvedValue([
+      { stage: 'caspio', severity: 'error', message: 'worker exploded' },
+    ]);
+
+    const result = await runYardiHl7Test({
+      mode: 'inline',
+      source: 'hl7',
+      hl7: SAMPLE_HL7,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.caspio.wrote).toBe(false);
+    expect(result.caspio.operations).toEqual([
+      {
+        table: 'CarePatientTable_API',
+        action: 'upsert',
+        record: { PatientNumber: '418612' },
+      },
+    ]);
+    expect(result.issues).toEqual([
+      { stage: 'caspio', severity: 'error', message: 'worker exploded' },
+    ]);
   });
 });

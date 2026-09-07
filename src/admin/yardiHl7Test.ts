@@ -3,7 +3,10 @@ import { prisma } from '../db/prisma.js';
 import { markEventIgnored, markEventQueued, recordIncomingEvent } from '../domains/events.js';
 import { YardiHl7AdtAdapter } from '../integrations/ehr/yardiHl7AdtAdapter.js';
 import { getCommunityEnrichment } from '../integrations/caspio/caspioCommunityEnrichment.js';
-import { runWithCaspioWriteRecorder } from '../integrations/caspio/caspioWriteRecorder.js';
+import {
+  getRecordedCaspioOperations,
+  runWithCaspioWriteRecorder,
+} from '../integrations/caspio/caspioWriteRecorder.js';
 import type { CaspioRecordedOperation } from '../integrations/caspio/caspioWriteRecorder.js';
 import {
   getConfiguredYardiHl7PollTargets,
@@ -287,6 +290,7 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
       }
     } catch (error) {
       success = false;
+      operations = getRecordedCaspioOperations(error);
       const reloadedFailed = await prisma.eventLog.findUnique({
         where: {
           companyId_source_eventType_eventMessageId: {

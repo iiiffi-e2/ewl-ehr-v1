@@ -15,13 +15,28 @@ type RecorderStore = {
 
 const storage = new AsyncLocalStorage<RecorderStore>();
 
+export function getRecordedCaspioOperations(error: unknown): CaspioRecordedOperation[] {
+  if (error && typeof error === 'object' && 'caspioOperations' in error) {
+    const operations = (error as { caspioOperations?: unknown }).caspioOperations;
+    return Array.isArray(operations) ? (operations as CaspioRecordedOperation[]) : [];
+  }
+  return [];
+}
+
 export async function runWithCaspioWriteRecorder<T>(
   options: { dryRun: boolean },
   fn: () => Promise<T>,
 ): Promise<{ result: T; operations: CaspioRecordedOperation[] }> {
   const store: RecorderStore = { dryRun: options.dryRun, operations: [] };
-  const result = await storage.run(store, fn);
-  return { result, operations: store.operations };
+  try {
+    const result = await storage.run(store, fn);
+    return { result, operations: store.operations };
+  } catch (error) {
+    if (error && typeof error === 'object') {
+      (error as { caspioOperations?: CaspioRecordedOperation[] }).caspioOperations = store.operations;
+    }
+    throw error;
+  }
 }
 
 export function noteCaspioWrite(operation: CaspioRecordedOperation): 'passthrough' | 'block' {

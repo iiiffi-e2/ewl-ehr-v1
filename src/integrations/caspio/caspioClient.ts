@@ -462,6 +462,21 @@ export async function insertRecord(
   tableName: string,
   record: Record<string, unknown>,
 ): Promise<AxiosResponse> {
+  const writeDecision = noteCaspioWrite({
+    table: tableName,
+    action: 'upsert',
+    record,
+  });
+  if (writeDecision === 'block') {
+    return {
+      data: { dryRun: true },
+      status: 200,
+      statusText: 'DRY_RUN',
+      headers: {},
+      config: {} as never,
+    } as AxiosResponse;
+  }
+
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const url = `/integrations/rest/v3/tables/${encodeURIComponent(tableName)}/records`;

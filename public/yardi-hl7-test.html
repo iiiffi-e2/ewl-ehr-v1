@@ -155,7 +155,7 @@
     $('runBtn').addEventListener('click', async () => {
       $('error').hidden = true;
       const body = buildBody();
-      if (body.mode === 'inline') {
+      if (body.mode !== 'dry-run') {
         const ok = confirm(
           `Live Caspio write?\nTrigger: ${body.trigger || 'from HL7 / EventLog'}\nResident: ${body.residentId || 'from HL7 / EventLog'}\nRoom: ${body.roomNumber || 'from HL7 / EventLog'}\nFacility: ${body.facilityId || 'from HL7 / EventLog'}`,
         );
