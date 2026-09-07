@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { getConfiguredYardiFhirPollTargets } from './yardiFhirPollConfig.js';
 
 export type YardiHl7PollTarget = {
   companyKey: string;
@@ -6,12 +7,41 @@ export type YardiHl7PollTarget = {
   facilityId: string;
 };
 
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
+function normalizeRosterRaw(raw: string | undefined): string {
+  if (!raw) {
+    return '';
+  }
+  return stripWrappingQuotes(raw.replace(/^\uFEFF/, ''));
+}
+
+function parseCommunityId(value: unknown): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return Number(value.trim());
+  }
+  return NaN;
+}
+
 export function parseYardiHl7PollTargets(raw: string | undefined): YardiHl7PollTarget[] {
-  if (!raw || raw.trim().length === 0) {
+  const trimmed = normalizeRosterRaw(raw);
+  if (trimmed.length === 0) {
     return [];
   }
 
-  const trimmed = raw.trim();
   if (trimmed.startsWith('[')) {
     const parsed = JSON.parse(trimmed) as unknown;
     if (!Array.isArray(parsed)) {
@@ -26,9 +56,9 @@ export function parseYardiHl7PollTargets(raw: string | undefined): YardiHl7PollT
     .filter(Boolean)
     .map((part) => {
       const [companyKeyRaw, communityIdRaw, facilityIdRaw] = part.split(':');
-      const companyKey = companyKeyRaw?.trim() ?? '';
-      const communityIdTrimmed = communityIdRaw?.trim() ?? '';
-      const facilityId = facilityIdRaw?.trim() ?? '';
+      const companyKey = stripWrappingQuotes(companyKeyRaw ?? '');
+      const communityIdTrimmed = stripWrappingQuotes(communityIdRaw ?? '');
+      const facilityId = stripWrappingQuotes(facilityIdRaw ?? '');
       const communityId = Number(communityIdTrimmed);
       if (!companyKey || !communityIdTrimmed || !facilityId || !Number.isFinite(communityId)) {
         throw new Error(
@@ -50,7 +80,7 @@ function parsePollTargetRecord(value: unknown): YardiHl7PollTarget {
   const record = value as Record<string, unknown>;
   const companyKey = typeof record.companyKey === 'string' ? record.companyKey.trim() : '';
   const facilityId = typeof record.facilityId === 'string' ? record.facilityId.trim() : '';
-  const communityId = typeof record.communityId === 'number' ? record.communityId : NaN;
+  const communityId = parseCommunityId(record.communityId);
 
   if (!companyKey || !facilityId || !Number.isFinite(communityId)) {
     throw new Error('Poll target requires companyKey, communityId, and facilityId');
@@ -59,8 +89,33 @@ function parsePollTargetRecord(value: unknown): YardiHl7PollTarget {
   return { companyKey, communityId, facilityId };
 }
 
+export function deriveYardiHl7PollTargetsFromFhir(
+  fhirTargets: Array<{ companyKey: string; communityId: number }>,
+  sendingFacility: string,
+): YardiHl7PollTarget[] {
+  const facilityId = sendingFacility.trim();
+  if (!facilityId || fhirTargets.length !== 1) {
+    return [];
+  }
+  const [target] = fhirTargets;
+  return [
+    {
+      companyKey: target.companyKey,
+      communityId: target.communityId,
+      facilityId,
+    },
+  ];
+}
+
 export function getConfiguredYardiHl7PollTargets(): YardiHl7PollTarget[] {
-  return parseYardiHl7PollTargets(env.YARDI_HL7_POLL_TARGETS);
+  const explicit = parseYardiHl7PollTargets(env.YARDI_HL7_POLL_TARGETS);
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  return deriveYardiHl7PollTargetsFromFhir(
+    getConfiguredYardiFhirPollTargets(),
+    env.YARDI_HL7_SENDING_FACILITY,
+  );
 }
 
 export function resolveYardiHl7Facility(
