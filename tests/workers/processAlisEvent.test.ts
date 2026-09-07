@@ -85,7 +85,7 @@ jest.mock('../../src/workers/queue.js', () => ({
   PROCESS_ALIS_EVENT_QUEUE: 'process-alis-event',
 }));
 
-import { startProcessAlisEventWorker } from '../../src/workers/processAlisEvent.js';
+import { processAlisEventJob, startProcessAlisEventWorker } from '../../src/workers/processAlisEvent.js';
 
 describe('processAlisEvent worker', () => {
   beforeEach(() => {
@@ -231,5 +231,45 @@ describe('processAlisEvent worker', () => {
         eventMessageId: 'evt-hl7-a01',
       }),
     );
+  });
+
+  it('exports processAlisEventJob for inline admin runs', async () => {
+    handleEhrEventMock.mockResolvedValue(undefined);
+    requiresResidentFetchMock.mockReturnValue(true);
+    resolveResidentIdMock.mockReturnValue(70508);
+    fetchResidentBundleMock.mockResolvedValue({
+      event: {
+        source: 'alis',
+        companyKey: 'appstoresandbox',
+        communityId: 113,
+        eventType: 'residents.move_in',
+        eventMessageId: 'evt-inline',
+        eventMessageDate: '2026-04-28T12:00:00Z',
+        lifecycleKind: 'move_in',
+        notificationData: { ResidentId: 70508 },
+        raw: {},
+      },
+      demographics: { externalResidentId: '70508', status: 'CurrentResident' },
+      vendorPayload: {},
+    });
+
+    await processAlisEventJob({
+      source: 'alis',
+      eventMessageId: 'evt-inline',
+      eventType: 'residents.move_in',
+      companyKey: 'appstoresandbox',
+      companyId: 10,
+      communityId: 113,
+      notificationData: { ResidentId: 70508 },
+      eventMessageDate: '2026-04-28T12:00:00Z',
+    });
+
+    expect(handleEhrEventMock).toHaveBeenCalled();
+    expect(markEventProcessedMock).toHaveBeenCalledWith({
+      companyId: 10,
+      eventType: 'residents.move_in',
+      eventMessageId: 'evt-inline',
+      source: 'alis',
+    });
   });
 });

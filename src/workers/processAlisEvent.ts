@@ -69,7 +69,7 @@ export function startProcessAlisEventWorker(): Worker<ProcessAlisEventJobData> {
   return worker;
 }
 
-async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
+export async function processAlisEventJob(data: ProcessAlisEventJobData): Promise<void> {
   const {
     source,
     eventMessageId,
@@ -79,7 +79,7 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     communityId,
     notificationData,
     eventMessageDate,
-  } = job.data;
+  } = data;
 
   logger.info({ source, eventMessageId, eventType, companyKey }, 'worker_processing_event');
 
@@ -377,4 +377,8 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
     await markEventFailed({ companyId, eventType, eventMessageId, source }, error);
     throw error;
   }
+}
+
+async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
+  await processAlisEventJob(job.data);
 }
