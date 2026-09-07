@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yardi HL7 Workflow Tester</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    header, .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 16px; padding: 16px; }
+    h1 { color: #58a6ff; font-size: 24px; margin-bottom: 8px; }
+    .muted { color: #8b949e; font-size: 13px; }
+    label { display: block; margin: 10px 0 6px; color: #8b949e; font-size: 12px; text-transform: uppercase; }
+    input, select, textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 10px; border-radius: 6px; }
+    textarea { min-height: 140px; font-family: Consolas, Monaco, monospace; font-size: 12px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .checks { display: flex; gap: 16px; margin: 12px 0; align-items: center; }
+    .checks label { margin: 0; text-transform: none; color: #c9d1d9; }
+    button { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0d1117; padding: 12px; border-radius: 6px; font-size: 12px; }
+    .error { background: rgba(248, 81, 73, 0.12); border: 1px solid rgba(248, 81, 73, 0.35); color: #f85149; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
+    a { color: #58a6ff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Yardi HL7 Workflow Tester</h1>
+      <p class="muted">Fire a specific ADT through the same Caspio workflow as the poller. Live write is the default. This never ProcessACKs the Yardi mailbox. <a href="/monitor">Open monitor</a></p>
+      <p class="muted" id="configFlags"></p>
+    </header>
+    <section class="card">
+      <div class="checks">
+        <label><input type="radio" name="source" value="form" checked> Build ADT</label>
+        <label><input type="radio" name="source" value="hl7"> Paste HL7</label>
+        <label><input type="radio" name="source" value="eventLog"> Replay EventLog</label>
+      </div>
+      <div id="formFields">
+        <div class="row">
+          <div><label>Trigger</label><select id="trigger"></select></div>
+          <div><label>Facility</label><select id="facilityId"></select></div>
+        </div>
+        <div class="row">
+          <div><label>Resident ID</label><input id="residentId" /></div>
+          <div><label>Room</label><input id="roomNumber" /></div>
+        </div>
+        <div class="row">
+          <div><label>First name</label><input id="firstName" placeholder="Test" /></div>
+          <div><label>Last name</label><input id="lastName" placeholder="Resident" /></div>
+        </div>
+        <div class="row">
+          <div><label>DOB</label><input id="dateOfBirth" placeholder="YYYY-MM-DD" /></div>
+          <div><label>Gender</label><input id="gender" placeholder="F" /></div>
+        </div>
+      </div>
+      <div id="hl7Fields" hidden>
+        <label>Raw HL7</label>
+        <textarea id="hl7"></textarea>
+      </div>
+      <div id="eventLogFields" hidden>
+        <label>EventLog id or eventMessageId</label>
+        <input id="eventLogRef" />
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="dryRun"> Dry-run</label>
+        <label><input type="checkbox" id="enqueue"> Enqueue like the poller</label>
+      </div>
+      <button id="runBtn" type="button">Run</button>
+    </section>
+    <section class="card">
+      <div id="error" class="error" hidden></div>
+      <pre id="result">No run yet.</pre>
+    </section>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const sourceRadios = () => [...document.querySelectorAll('input[name="source"]')];
+
+    function selectedSource() {
+      return sourceRadios().find((el) => el.checked)?.value || 'form';
+    }
+
+    function showSource() {
+      const source = selectedSource();
+      $('formFields').hidden = source !== 'form';
+      $('hl7Fields').hidden = source !== 'hl7';
+      $('eventLogFields').hidden = source !== 'eventLog';
+    }
+
+    $('dryRun').addEventListener('change', () => {
+      if ($('dryRun').checked) $('enqueue').checked = false;
+    });
+    $('enqueue').addEventListener('change', () => {
+      if ($('enqueue').checked) $('dryRun').checked = false;
+    });
+    sourceRadios().forEach((el) => el.addEventListener('change', showSource));
+
+    async function loadConfig() {
+      const res = await fetch('/admin/yardi-hl7-test/config', { credentials: 'same-origin' });
+      if (res.status === 401) {
+        $('error').hidden = false;
+        $('error').textContent = 'Admin BasicAuth required.';
+        return;
+      }
+      const data = await res.json();
+      const config = data.config || {};
+      (config.supportedTriggers || []).forEach((code) => {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code;
+        $('trigger').appendChild(opt);
+      });
+      (config.targets || []).forEach((target) => {
+        const opt = document.createElement('option');
+        opt.value = target.facilityId;
+        opt.textContent = `${target.facilityId} · ${target.companyKey} · ${target.communityId}`;
+        $('facilityId').appendChild(opt);
+      });
+      $('configFlags').textContent = `Poll ${config.pollEnabled ? 'on' : 'off'} · patient ${config.caspioPatientTable} · adapter ${config.ehrAdapterEnabled} · shadow ${config.ehrShadowMode}`;
+    }
+
+    function currentMode() {
+      if ($('dryRun').checked) return 'dry-run';
+      if ($('enqueue').checked) return 'enqueue';
+      return 'inline';
+    }
+
+    function buildBody() {
+      const mode = currentMode();
+      const source = selectedSource();
+      if (source === 'form') {
+        return {
+          mode,
+          source,
+          trigger: $('trigger').value,
+          residentId: $('residentId').value,
+          roomNumber: $('roomNumber').value,
+          facilityId: $('facilityId').value,
+          firstName: $('firstName').value,
+          lastName: $('lastName').value,
+          dateOfBirth: $('dateOfBirth').value,
+          gender: $('gender').value,
+        };
+      }
+      if (source === 'hl7') {
+        return { mode, source, hl7: $('hl7').value };
+      }
+      const ref = $('eventLogRef').value.trim();
+      if (/^\d+$/.test(ref)) return { mode, source, eventLogId: Number(ref) };
+      return { mode, source, eventMessageId: ref };
+    }
+
+    $('runBtn').addEventListener('click', async () => {
+      $('error').hidden = true;
+      const body = buildBody();
+      if (body.mode === 'inline') {
+        const ok = confirm(
+          `Live Caspio write?\nTrigger: ${body.trigger || 'from HL7 / EventLog'}\nResident: ${body.residentId || 'from HL7 / EventLog'}\nRoom: ${body.roomNumber || 'from HL7 / EventLog'}\nFacility: ${body.facilityId || 'from HL7 / EventLog'}`,
+        );
+        if (!ok) return;
+      }
+      $('runBtn').disabled = true;
+      try {
+        const res = await fetch('/admin/yardi-hl7-test/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          $('error').hidden = false;
+          $('error').textContent = data.error || res.statusText;
+        }
+        $('result').textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        $('error').hidden = false;
+        $('error').textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        $('runBtn').disabled = false;
+      }
+    });
+
+    showSource();
+    loadConfig();
+  </script>
+</body>
+</html>
