@@ -317,6 +317,7 @@
     <div class="container">
         <header>
             <h1>🔴 Webhook Event Monitor - Real-Time</h1>
+            <p style="margin-top: 8px;"><a href="/admin/yardi-hl7-test" style="color: #58a6ff;">HL7 workflow tester</a></p>
             <p>Live stream of webhook events from ALIS</p>
             <div class="status">
                 <div class="status-indicator" id="statusIndicator"></div>
@@ -531,6 +532,47 @@
             return YARDI_HL7_EVENT_LABELS[code] || '';
         }
 
+        function extractMonitorHl7(event) {
+            const payload = event && event.payload;
+            if (!payload || typeof payload !== 'object') return '';
+            const fromNotification = payload.notificationData && payload.notificationData.Message;
+            if (typeof fromNotification === 'string' && fromNotification.indexOf('MSH|') === 0) {
+                return fromNotification;
+            }
+            const fromRaw = payload.raw && payload.raw.message;
+            if (typeof fromRaw === 'string' && fromRaw.indexOf('MSH|') === 0) {
+                return fromRaw;
+            }
+            return '';
+        }
+
+        function authHeaderFromForm() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            return { 'Authorization': 'Basic ' + btoa(username + ':' + password), 'Content-Type': 'application/json' };
+        }
+
+        async function runMonitorReplay(eventId, mode) {
+            const event = events.find((row) => row.id === eventId);
+            if (!event) return;
+            if (mode === 'inline') {
+                const ok = confirm(
+                    'Live Caspio write for this captured HL7?\n' +
+                    'Type: ' + event.eventType + '\n' +
+                    'Company: ' + event.companyKey + '\n' +
+                    'Community: ' + (event.communityId || ''),
+                );
+                if (!ok) return;
+            }
+            const res = await fetch('/admin/yardi-hl7-test/run', {
+                method: 'POST',
+                headers: authHeaderFromForm(),
+                body: JSON.stringify({ source: 'eventLog', eventLogId: event.id, mode: mode }),
+            });
+            const data = await res.json();
+            alert((data.success ? 'OK ' : 'Failed ') + (data.event && data.event.eventMessageId ? data.event.eventMessageId : '') + ' — ' + (data.caspio && data.caspio.skipReason ? data.caspio.skipReason : data.error || data.event && data.event.status || res.status));
+        }
+
         function updateStats() {
             document.getElementById('totalEvents').textContent = stats.total;
             document.getElementById('processedCount').textContent = stats.processed;
@@ -564,6 +606,13 @@
                 const source = event.source || 'alis';
                 const sourceClass = ['alis', 'yardi-hl7', 'yardi-fhir'].includes(source) ? source : 'unknown';
                 const yardiLabel = source === 'yardi-hl7' ? yardiHl7EventLabel(event.eventType) : '';
+                const canReplay = source === 'yardi-hl7' && extractMonitorHl7(event);
+                const actions = canReplay
+                    ? `<div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button type="button" class="secondary" onclick="runMonitorReplay(${event.id}, 'dry-run')">Dry-run</button>
+                        <button type="button" onclick="runMonitorReplay(${event.id}, 'inline')">Replay</button>
+                       </div>`
+                    : '';
                 
                 return `
                     <div class="event-item">
@@ -581,6 +630,7 @@
                             ${event.communityId ? `<span><strong>Community:</strong> ${event.communityId}</span>` : ''}
                             ${event.error ? `<span style="color: #f85149;"><strong>Error:</strong> ${event.error}</span>` : ''}
                         </div>
+                        ${actions}
                         <details>
                             <summary style="cursor: pointer; color: #58a6ff; font-size: 12px; margin-top: 8px;">View Payload</summary>
                             <div class="event-payload">${payload}</div>
