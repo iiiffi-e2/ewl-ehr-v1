@@ -3,6 +3,7 @@ import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import { createHttpClient } from '../../config/axios.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { noteCaspioWrite } from './caspioWriteRecorder.js';
 
 type TokenCache = {
   token: string;
@@ -559,6 +560,22 @@ export async function updateRecordById(
   id: string | number,
   record: Record<string, unknown>,
 ): Promise<AxiosResponse> {
+  const writeDecision = noteCaspioWrite({
+    table: tableName,
+    action: 'update',
+    id,
+    record,
+  });
+  if (writeDecision === 'block') {
+    return {
+      data: { dryRun: true },
+      status: 200,
+      statusText: 'DRY_RUN',
+      headers: {},
+      config: {} as never,
+    } as AxiosResponse;
+  }
+
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
 
@@ -1643,6 +1660,16 @@ export async function upsertByFields(
   filters: Array<{ field: string; value: string | number | boolean }>,
   record: Record<string, unknown>,
 ): Promise<{ action: 'insert' | 'update'; id?: string }> {
+  const writeDecision = noteCaspioWrite({
+    table: tableName,
+    action: 'upsert',
+    fields: filters,
+    record,
+  });
+  if (writeDecision === 'block') {
+    return { action: 'insert', id: 'dry-run' };
+  }
+
   let searchResult: { found: boolean; id?: string; record?: unknown };
 
   try {
