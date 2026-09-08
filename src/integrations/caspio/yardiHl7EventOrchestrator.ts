@@ -195,6 +195,18 @@ async function handleYardiMoveIn(
   );
 }
 
+function cuidFromRecord(record?: Record<string, unknown>): string | undefined {
+  const value = record?.CUID;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
 async function findExistingPatient(
   patientNumber: string,
   cuid: string,
@@ -376,10 +388,7 @@ async function handleYardiUpdate(
   }
 
   if (options.isTransfer) {
-    const previousCuid =
-      typeof existing.record?.CUID === 'string'
-        ? existing.record.CUID.trim()
-        : undefined;
+    const previousCuid = cuidFromRecord(existing.record);
     if (previousCuid && previousCuid !== enrichment.CUID) {
       const serviceRow = await findActiveOrLatestServiceRow({
         patientNumber,

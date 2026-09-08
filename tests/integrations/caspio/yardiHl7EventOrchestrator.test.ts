@@ -257,6 +257,52 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
+  it('transfers A02 when the existing patient CUID is numeric', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '3001',
+      CommunityName: 'Yardi Test',
+    });
+    findByPatientNumberMock.mockResolvedValue({
+      found: true,
+      id: '795',
+      raw: { PatientNumber: '123999', CUID: 3002, RoomNumber: '200' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'old-service-200',
+      record: { CUID: 3002, RoomNumber: '200' },
+    });
+
+    await handleYardiHl7Event(
+      baseInput('hl7.adt.a02', {
+        trigger: 'A02',
+        communityId: 237,
+        demographics: { externalResidentId: '123999', roomNumber: '202' },
+      }),
+    );
+
+    expect(findActiveOrLatestServiceRowMock).toHaveBeenCalledWith({
+      patientNumber: '123999',
+      cuid: '3002',
+    });
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      'old-service-200',
+      { EndDate: '08/20/2026 14:15:16' },
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([
+        { field: 'CUID', value: '3001' },
+        { field: 'PatientNumber', value: '123999' },
+      ]),
+      expect.objectContaining({
+        CUID: '3001',
+        RoomNumber: '202',
+      }),
+    );
+  });
+
   it('inserts an A05 patient and service when the patient is missing', async () => {
     await handleYardiHl7Event(baseInput('hl7.adt.a05', { trigger: 'A05' }));
 
