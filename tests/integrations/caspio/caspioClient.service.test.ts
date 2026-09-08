@@ -230,4 +230,40 @@ describe('caspioClient service helpers', () => {
     expect(result.id).toBe('502');
     expect((result.record as Record<string, unknown>).PatientNumber).toBeUndefined();
   });
+
+  it('finds the latest open service for a patient when CUID is omitted', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        {
+          PK_ID: 20,
+          PatientNumber: '123999',
+          CUID: 3002,
+          RoomNumber: '200',
+          StartDate: '2026-09-01',
+          EndDate: '',
+        },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findActiveOrLatestServiceRow } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+    const result = await findActiveOrLatestServiceRow({ patientNumber: '123999' });
+
+    expect(result.found).toBe(true);
+    expect(result.id).toBe('20');
+    expect((result.record as Record<string, unknown>).CUID).toBe(3002);
+  });
 });

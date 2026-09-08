@@ -1370,20 +1370,20 @@ export async function upsertPatientByPatientNumber(
 
 export async function findActiveOrLatestServiceRow(params: {
   patientNumber: string;
-  cuid: string;
+  cuid?: string;
 }): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
   const records = (await caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const patientNumberString = String(params.patientNumber).trim();
-    const cuidString = String(params.cuid).trim();
+    const cuidString = params.cuid?.trim() ?? '';
     const patientVariants: Array<string | number> = [patientNumberString];
-    const cuidVariants: Array<string | number> = [cuidString];
+    const cuidVariants: Array<string | number> = cuidString ? [cuidString] : [];
     const parsedPatientNumber = Number(patientNumberString);
     const parsedCuid = Number(cuidString);
     if (/^-?\d+(\.\d+)?$/.test(patientNumberString) && Number.isFinite(parsedPatientNumber)) {
       patientVariants.push(parsedPatientNumber);
     }
-    if (/^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
+    if (cuidString && /^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
       cuidVariants.push(parsedCuid);
     }
 
@@ -1401,13 +1401,15 @@ export async function findActiveOrLatestServiceRow(params: {
       }
     };
 
-    for (const patientVariant of patientVariants) {
-      for (const cuidVariant of cuidVariants) {
-        const whereClause = buildWhereClause([
-          { field: 'PatientNumber', value: patientVariant },
-          { field: 'CUID', value: cuidVariant },
-        ]);
-        appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+    if (cuidVariants.length > 0) {
+      for (const patientVariant of patientVariants) {
+        for (const cuidVariant of cuidVariants) {
+          const whereClause = buildWhereClause([
+            { field: 'PatientNumber', value: patientVariant },
+            { field: 'CUID', value: cuidVariant },
+          ]);
+          appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+        }
       }
     }
 
@@ -1433,7 +1435,11 @@ export async function findActiveOrLatestServiceRow(params: {
       'patient_number',
     ]);
     const recordCuid = readComparableField(record, ['CUID', 'cuid']);
-    return recordPatientNumber === params.patientNumber && recordCuid === params.cuid;
+    const patientMatches = recordPatientNumber === params.patientNumber;
+    if (!params.cuid) {
+      return patientMatches;
+    }
+    return patientMatches && recordCuid === params.cuid;
   });
 
   if (exactMatches.length === 0) {

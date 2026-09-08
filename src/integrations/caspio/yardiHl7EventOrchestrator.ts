@@ -388,24 +388,29 @@ async function handleYardiUpdate(
   }
 
   if (options.isTransfer) {
-    const previousCuid = cuidFromRecord(existing.record);
-    if (previousCuid && previousCuid !== enrichment.CUID) {
-      const serviceRow = await findActiveOrLatestServiceRow({
-        patientNumber,
-        cuid: previousCuid,
+    const previousCuidFromPatient = cuidFromRecord(existing.record);
+    const lookupPreviousCuid =
+      previousCuidFromPatient && previousCuidFromPatient !== enrichment.CUID
+        ? previousCuidFromPatient
+        : undefined;
+    const serviceRow = await findActiveOrLatestServiceRow(
+      lookupPreviousCuid
+        ? { patientNumber, cuid: lookupPreviousCuid }
+        : { patientNumber },
+    );
+    const serviceCuid = cuidFromRecord(serviceRow.record as Record<string, unknown> | undefined);
+    if (serviceRow.found && serviceRow.id && serviceCuid && serviceCuid !== enrichment.CUID) {
+      await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
+        EndDate: eventDate,
       });
-      if (serviceRow.found && serviceRow.id) {
-        await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
-          EndDate: eventDate,
-        });
-      } else {
-        await recordYardiIssue(
-          input,
-          'service_not_found',
-          'Transfer completed but no previous service row was found to close',
-          communityId,
-        );
-      }
+      await openYardiService(input, enrichment, eventDate);
+    } else if (lookupPreviousCuid && (!serviceRow.found || !serviceRow.id)) {
+      await recordYardiIssue(
+        input,
+        'service_not_found',
+        'Transfer completed but no previous service row was found to close',
+        communityId,
+      );
       await openYardiService(input, enrichment, eventDate);
     }
   }
