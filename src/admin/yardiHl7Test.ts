@@ -15,6 +15,7 @@ import {
 import {
   isSupportedYardiHl7EventType,
   isSupportedYardiHl7Trigger,
+  labelForYardiHl7Trigger,
   SUPPORTED_YARDI_HL7_TRIGGERS,
 } from '../integrations/yardi/yardiHl7Triggers.js';
 import {
@@ -52,6 +53,7 @@ export type YardiHl7TestConfig = {
   targets: ReturnType<typeof getConfiguredYardiHl7PollTargets>;
   sendingFacility: string;
   supportedTriggers: string[];
+  triggerLabels: Record<string, string>;
   caspioPatientTable: string;
   caspioCommunityTable: string;
   caspioServiceTable: string;
@@ -112,6 +114,9 @@ export function getYardiHl7TestConfig(): YardiHl7TestConfig {
     targets: getConfiguredYardiHl7PollTargets(),
     sendingFacility: env.YARDI_HL7_SENDING_FACILITY,
     supportedTriggers: [...SUPPORTED_YARDI_HL7_TRIGGERS],
+    triggerLabels: Object.fromEntries(
+      [...SUPPORTED_YARDI_HL7_TRIGGERS].map((code) => [code, labelForYardiHl7Trigger(code)]),
+    ),
     caspioPatientTable: env.CASPIO_TABLE_NAME,
     caspioCommunityTable: env.CASPIO_COMMUNITY_TABLE_NAME,
     caspioServiceTable: env.CASPIO_SERVICE_TABLE_NAME,

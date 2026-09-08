@@ -1,6 +1,7 @@
 import {
   isSupportedYardiHl7EventType,
   isSupportedYardiHl7Trigger,
+  labelForYardiHl7Trigger,
   lifecycleFromYardiHl7EventType,
   lifecycleFromYardiHl7Trigger,
 } from '../../../src/integrations/yardi/yardiHl7Triggers.js';
@@ -22,6 +23,13 @@ describe('yardiHl7Triggers', () => {
       expect(isSupportedYardiHl7Trigger(code)).toBe(false);
       expect(isSupportedYardiHl7EventType(`hl7.adt.${code.toLowerCase()}`)).toBe(false);
     }
+  });
+
+  it('labels supported trigger codes', () => {
+    expect(labelForYardiHl7Trigger('A01')).toBe('Move-in');
+    expect(labelForYardiHl7Trigger('a02')).toBe('Room transfer');
+    expect(labelForYardiHl7Trigger('A03')).toBe('Move-out');
+    expect(labelForYardiHl7Trigger('A21')).toBe('Leave start');
   });
 
   it('parses eventType hl7.adt.a01', () => {

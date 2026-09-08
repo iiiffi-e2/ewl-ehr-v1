@@ -11,6 +11,26 @@ export const SUPPORTED_YARDI_HL7_TRIGGERS: ReadonlySet<string> = new Set([
   'A60',
 ]);
 
+export const YARDI_HL7_TRIGGER_LABELS: Readonly<Record<string, string>> = {
+  A01: 'Move-in',
+  A02: 'Room transfer',
+  A03: 'Move-out',
+  A05: 'New resident',
+  A08: 'Patient update',
+  A21: 'Leave start',
+  A22: 'Leave end',
+  A60: 'Patient update',
+  A11: 'Cancel admit',
+  A12: 'Cancel transfer',
+  A13: 'Cancel discharge',
+  A38: 'Cancel leave',
+};
+
+export function labelForYardiHl7Trigger(trigger: string): string {
+  const normalized = normalizeYardiHl7Trigger(trigger);
+  return YARDI_HL7_TRIGGER_LABELS[normalized] ?? '';
+}
+
 export function normalizeYardiHl7Trigger(value: string | undefined): string {
   return (value ?? '').trim().toUpperCase();
 }

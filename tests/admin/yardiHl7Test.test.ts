@@ -116,6 +116,8 @@ describe('getYardiHl7TestConfig', () => {
     expect(config.supportedTriggers).toEqual(
       expect.arrayContaining(['A01', 'A03', 'A08']),
     );
+    expect(config.triggerLabels.A01).toBe('Move-in');
+    expect(config.triggerLabels.A03).toBe('Move-out');
   });
 });
 

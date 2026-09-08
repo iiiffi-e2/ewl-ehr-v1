@@ -116,10 +116,12 @@
           return;
         }
         const config = data.config || {};
+        const triggerLabels = config.triggerLabels || {};
         (config.supportedTriggers || []).forEach((code) => {
           const opt = document.createElement('option');
           opt.value = code;
-          opt.textContent = code;
+          const meaning = triggerLabels[code];
+          opt.textContent = meaning ? `${code} — ${meaning}` : code;
           $('trigger').appendChild(opt);
         });
         const list = $('facilityList');
