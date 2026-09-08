@@ -40,7 +40,11 @@
       <div id="formFields">
         <div class="row">
           <div><label>Trigger</label><select id="trigger"></select></div>
-          <div><label>Facility</label><select id="facilityId"></select></div>
+          <div>
+            <label>Facility</label>
+            <input id="facilityId" list="facilityList" placeholder="EYELIVE" autocomplete="off" />
+            <datalist id="facilityList"></datalist>
+          </div>
         </div>
         <div class="row">
           <div><label>Resident ID</label><input id="residentId" /></div>
@@ -98,27 +102,53 @@
     sourceRadios().forEach((el) => el.addEventListener('change', showSource));
 
     async function loadConfig() {
-      const res = await fetch('/admin/yardi-hl7-test/config', { credentials: 'same-origin' });
-      if (res.status === 401) {
+      try {
+        const res = await fetch('/admin/yardi-hl7-test/config', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          $('error').hidden = false;
+          $('error').textContent = 'Admin BasicAuth required. Open /admin/yardi-hl7-test and sign in, then reload.';
+          return;
+        }
+        if (!res.ok) {
+          $('error').hidden = false;
+          $('error').textContent = data.error || `Config failed (${res.status}).`;
+          return;
+        }
+        const config = data.config || {};
+        (config.supportedTriggers || []).forEach((code) => {
+          const opt = document.createElement('option');
+          opt.value = code;
+          opt.textContent = code;
+          $('trigger').appendChild(opt);
+        });
+        const list = $('facilityList');
+        const targets = Array.isArray(config.targets) ? config.targets : [];
+        targets.forEach((target) => {
+          const opt = document.createElement('option');
+          opt.value = target.facilityId;
+          opt.label = `${target.facilityId} · ${target.companyKey} · ${target.communityId}`;
+          list.appendChild(opt);
+        });
+        const fallback = (config.sendingFacility || 'EYELIVE').trim();
+        if (targets.length === 0 && fallback) {
+          const opt = document.createElement('option');
+          opt.value = fallback;
+          list.appendChild(opt);
+          $('facilityId').value = fallback;
+          $('error').hidden = false;
+          $('error').textContent =
+            'HL7 roster is empty (YARDI_HL7_POLL_TARGETS). Facility is prefilled from YARDI_HL7_SENDING_FACILITY — you can type another id.';
+        } else if (targets.length === 1) {
+          $('facilityId').value = targets[0].facilityId;
+        } else if (!$('facilityId').value && fallback) {
+          $('facilityId').value = fallback;
+        }
+        $('configFlags').textContent = `Poll ${config.pollEnabled ? 'on' : 'off'} · roster ${targets.length} · patient ${config.caspioPatientTable} · adapter ${config.ehrAdapterEnabled} · shadow ${config.ehrShadowMode}`;
+      } catch (error) {
         $('error').hidden = false;
-        $('error').textContent = 'Admin BasicAuth required.';
-        return;
+        $('error').textContent = error instanceof Error ? error.message : String(error);
       }
-      const data = await res.json();
-      const config = data.config || {};
-      (config.supportedTriggers || []).forEach((code) => {
-        const opt = document.createElement('option');
-        opt.value = code;
-        opt.textContent = code;
-        $('trigger').appendChild(opt);
-      });
-      (config.targets || []).forEach((target) => {
-        const opt = document.createElement('option');
-        opt.value = target.facilityId;
-        opt.textContent = `${target.facilityId} · ${target.companyKey} · ${target.communityId}`;
-        $('facilityId').appendChild(opt);
-      });
-      $('configFlags').textContent = `Poll ${config.pollEnabled ? 'on' : 'off'} · patient ${config.caspioPatientTable} · adapter ${config.ehrAdapterEnabled} · shadow ${config.ehrShadowMode}`;
     }
 
     function currentMode() {

@@ -50,6 +50,7 @@ export type YardiHl7TestConfig = {
   pollEnabled: boolean;
   pollIntervalMs: number;
   targets: ReturnType<typeof getConfiguredYardiHl7PollTargets>;
+  sendingFacility: string;
   supportedTriggers: string[];
   caspioPatientTable: string;
   caspioCommunityTable: string;
@@ -109,6 +110,7 @@ export function getYardiHl7TestConfig(): YardiHl7TestConfig {
     pollEnabled: env.YARDI_HL7_POLL_ENABLED,
     pollIntervalMs: env.YARDI_HL7_POLL_INTERVAL_MS,
     targets: getConfiguredYardiHl7PollTargets(),
+    sendingFacility: env.YARDI_HL7_SENDING_FACILITY,
     supportedTriggers: [...SUPPORTED_YARDI_HL7_TRIGGERS],
     caspioPatientTable: env.CASPIO_TABLE_NAME,
     caspioCommunityTable: env.CASPIO_COMMUNITY_TABLE_NAME,

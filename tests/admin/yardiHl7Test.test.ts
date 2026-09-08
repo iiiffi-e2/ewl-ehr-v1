@@ -16,6 +16,7 @@ jest.mock('../../src/config/env.js', () => ({
     LOG_LEVEL: 'silent',
     YARDI_HL7_POLL_ENABLED: true,
     YARDI_HL7_POLL_INTERVAL_MS: 300000,
+    YARDI_HL7_SENDING_FACILITY: 'EYELIVE',
     CASPIO_TABLE_NAME: 'CarePatientTable_API',
     CASPIO_COMMUNITY_TABLE_NAME: 'CommunityTable_API',
     CASPIO_SERVICE_TABLE_NAME: 'Service_Table_API',
@@ -62,7 +63,11 @@ jest.mock('../../src/db/prisma.js', () => ({
 
 import { env } from '../../src/config/env.js';
 import { noteCaspioWrite } from '../../src/integrations/caspio/caspioWriteRecorder.js';
-import { YardiHl7TestValidationError, runYardiHl7Test } from '../../src/admin/yardiHl7Test.js';
+import {
+  getYardiHl7TestConfig,
+  YardiHl7TestValidationError,
+  runYardiHl7Test,
+} from '../../src/admin/yardiHl7Test.js';
 
 const SAMPLE_HL7 = [
   'MSH|^~\\&|Yardi|EYELIVE|EyeWatchLive|EyeWatchLive|20220908043209||ADT^A01|10529|P|2.5',
@@ -97,6 +102,22 @@ function mockPersistedEvent(eventMessageId: string) {
     CommunityName: 'EyeWatch Live',
   });
 }
+
+describe('getYardiHl7TestConfig', () => {
+  it('includes roster targets and the sending-facility fallback', () => {
+    getConfiguredYardiHl7PollTargetsMock.mockReturnValue([
+      { companyKey: 'eyewatch', communityId: 237, facilityId: 'EYELIVE' },
+    ]);
+    const config = getYardiHl7TestConfig();
+    expect(config.targets).toEqual([
+      { companyKey: 'eyewatch', communityId: 237, facilityId: 'EYELIVE' },
+    ]);
+    expect(config.sendingFacility).toBe('EYELIVE');
+    expect(config.supportedTriggers).toEqual(
+      expect.arrayContaining(['A01', 'A03', 'A08']),
+    );
+  });
+});
 
 describe('runYardiHl7Test', () => {
   beforeEach(() => {
