@@ -50,4 +50,23 @@ describe('caspioCommunityEnrichment', () => {
     expect(findCommunityByIdAndRoomNumberMock).not.toHaveBeenCalled();
     expect(enrichment.CUID).toBe('community-default-cuid');
   });
+
+  it('looks up CUID by community id and room when community name is unknown', async () => {
+    findCommunityByIdMock.mockResolvedValueOnce({ found: false });
+    findCommunityByIdAndRoomNumberMock.mockResolvedValueOnce({
+      found: true,
+      record: {
+        CommunityID: 237,
+        RoomNumber: '200',
+        CUID: '3002',
+        CommunityName: 'Yardi Test',
+      },
+    });
+
+    const enrichment = await getCommunityEnrichment(237, '200');
+
+    expect(findCommunityByIdAndRoomNumberMock).toHaveBeenCalledWith(237, '200', undefined);
+    expect(enrichment.CUID).toBe('3002');
+    expect(enrichment.CommunityName).toBe('Yardi Test');
+  });
 });

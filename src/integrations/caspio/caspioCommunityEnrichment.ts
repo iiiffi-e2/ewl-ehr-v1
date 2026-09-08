@@ -72,7 +72,7 @@ export async function getCommunityEnrichment(
   }
 
   const lookupCommunityName = requestedCommunityName ?? enrichment.CommunityName;
-  if (normalizedRoom && lookupCommunityName) {
+  if (normalizedRoom) {
     const roomLookup = await findCommunityByIdAndRoomNumber(
       communityId,
       normalizedRoom,

@@ -932,15 +932,17 @@ export async function findCommunityById(
 export async function findCommunityByIdAndRoomNumber(
   communityId: number,
   roomNumber: string,
-  communityName: string,
+  communityName?: string,
 ): Promise<{ found: boolean; record?: CommunityTableRecord }> {
   return caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
 
     try {
-      const normalizedCommunityName = communityName.trim();
-      const normalizedCommunityNameForMatch =
-        normalizeCommunityNameForMatch(normalizedCommunityName) ?? normalizedCommunityName;
+      const normalizedCommunityName = communityName?.trim() ?? '';
+      const hasCommunityName = normalizedCommunityName.length > 0;
+      const normalizedCommunityNameForMatch = hasCommunityName
+        ? (normalizeCommunityNameForMatch(normalizedCommunityName) ?? normalizedCommunityName)
+        : undefined;
       const normalizedRoom = roomNumber.trim();
       const normalizedRoomForMatch = normalizeRoomNumberForMatch(normalizedRoom) ?? normalizedRoom;
       const baseRoomForMatch = getBaseRoomNumberForMatch(normalizedRoomForMatch);
@@ -975,7 +977,7 @@ export async function findCommunityByIdAndRoomNumber(
         logger.info(
           {
             communityId,
-            communityName: normalizedCommunityName,
+            communityName: hasCommunityName ? normalizedCommunityName : undefined,
             roomNumber: normalizedRoom,
             scannedCount: scanned.length,
           },
@@ -984,11 +986,14 @@ export async function findCommunityByIdAndRoomNumber(
       };
       for (const communityFilterValue of communityFilterValues) {
         for (const roomFilterValue of roomFilterValues) {
-          const whereClause = buildWhereClause([
+          const filters: Array<{ field: string; value: string | number }> = [
             { field: 'CommunityID', value: communityFilterValue },
-            { field: 'CommunityName', value: normalizedCommunityName },
             { field: 'RoomNumber', value: roomFilterValue },
-          ]);
+          ];
+          if (hasCommunityName) {
+            filters.splice(1, 0, { field: 'CommunityName', value: normalizedCommunityName });
+          }
+          const whereClause = buildWhereClause(filters);
           try {
             const filtered = await fetchRecordsWithWherePaged(
               env.CASPIO_COMMUNITY_TABLE_NAME,
@@ -1045,9 +1050,12 @@ export async function findCommunityByIdAndRoomNumber(
             'CommunityName',
             'communityName',
           ]);
+          const communityNameMatches =
+            !hasCommunityName ||
+            normalizeCommunityNameForMatch(recordCommunityName) === normalizedCommunityNameForMatch;
           return (
             recordCommunityId === String(communityId) &&
-            normalizeCommunityNameForMatch(recordCommunityName) === normalizedCommunityNameForMatch &&
+            communityNameMatches &&
             normalizeRoomNumberForMatch(recordRoomNumber) === targetRoomNumber
           );
         }) as CommunityTableRecord[];

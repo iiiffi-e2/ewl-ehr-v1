@@ -416,4 +416,38 @@ describe('caspioClient community lookup exact matching', () => {
     );
   });
 
+  it('matches CommunityID + RoomNumber when community name is omitted', async () => {
+    const mockAuthPost = jest.fn().mockResolvedValue({
+      data: {
+        access_token: 'token-1',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      },
+    });
+    const mockApiGet = jest.fn().mockResolvedValue({
+      data: [
+        { CommunityID: 237, RoomNumber: '202', CUID: '3001', CommunityName: 'Yardi Test' },
+        { CommunityID: 237, RoomNumber: '200', CUID: '3002', CommunityName: 'Yardi Test' },
+      ],
+    });
+
+    const { createHttpClient } = require('../../../src/config/axios.js');
+    createHttpClient
+      .mockImplementationOnce(() => ({ post: mockAuthPost }))
+      .mockImplementationOnce(() => ({ get: mockApiGet, post: jest.fn(), put: jest.fn() }));
+
+    const { findCommunityByIdAndRoomNumber } = await import(
+      '../../../src/integrations/caspio/caspioClient.js'
+    );
+
+    const result = await findCommunityByIdAndRoomNumber(237, '200');
+    expect(result.found).toBe(true);
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        CommunityID: 237,
+        RoomNumber: '200',
+        CUID: '3002',
+      }),
+    );
+  });
 });
