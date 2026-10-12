@@ -14,6 +14,7 @@ import {
 import { mapServiceRecord } from '../caspio/caspioMapper.js';
 import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../caspio/serviceLineTypes.js';
 
+import { syncYardiCarePlanServiceForPatient } from './yardiCarePlanService.js';
 import { YardiFhirClient } from './yardiFhirClient.js';
 import {
   extractYardiCommunityNameFromPatient,
@@ -204,6 +205,29 @@ export async function runYardiFhirSyncForTarget(
         await pushYardiFhirBundleToCaspio(residentBundle, target.communityId, {
           skipService: options.skipService,
         });
+      }
+
+      if (!shouldSkipCaspio) {
+        try {
+          await syncYardiCarePlanServiceForPatient({
+            client,
+            patientId,
+            patientNumber: residentBundle.demographics.externalResidentId,
+            communityId: target.communityId,
+            roomNumber: residentBundle.demographics.roomNumber,
+            communityName: extractYardiCommunityName(bundle),
+          });
+        } catch (error) {
+          logger.warn(
+            {
+              companyKey: target.companyKey,
+              communityId: target.communityId,
+              patientId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'yardi_careplan_service_sync_failed',
+          );
+        }
       }
 
       detail.status = 'succeeded';

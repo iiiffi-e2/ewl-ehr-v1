@@ -43,6 +43,10 @@ jest.mock('../../src/integrations/yardi/yardiFhirSync.js', () => ({
   runYardiFhirSyncForTarget: runYardiFhirSyncForTargetMock,
 }));
 
+jest.mock('../../src/integrations/yardi/yardiCarePlanService.js', () => ({
+  runYardiCarePlanServiceCheck: jest.fn(),
+}));
+
 jest.mock('../../src/config/axios.js', () => ({
   createHttpClient: createHttpClientMock,
 }));
@@ -50,6 +54,7 @@ jest.mock('../../src/config/axios.js', () => ({
 import {
   executeYardiFhirGetRequest,
   normalizeQueryParams,
+  parseYardiCarePlanCheckInput,
   parseYardiFhirTestSyncInput,
   runYardiFhirTestSync,
   testYardiFhirAuthentication,
@@ -171,6 +176,36 @@ describe('yardiFhirTest admin helpers', () => {
       organizationId: '237-1',
       skipCaspio: false,
       skipService: false,
+    });
+  });
+
+  it('parses a care plan check for one patient or a whole organization', () => {
+    expect(
+      parseYardiCarePlanCheckInput({
+        companyKey: 'eyewatch',
+        communityId: '237',
+        organizationId: '237-1',
+        patientId: '31924-2',
+      }),
+    ).toEqual({
+      companyKey: 'eyewatch',
+      communityId: 237,
+      organizationId: '237-1',
+      patientId: '31924-2',
+    });
+
+    expect(
+      parseYardiCarePlanCheckInput({
+        companyKey: 'eyewatch',
+        communityId: 237,
+        organizationId: '237-1',
+        patientId: '  ',
+      }),
+    ).toEqual({
+      companyKey: 'eyewatch',
+      communityId: 237,
+      organizationId: '237-1',
+      patientId: undefined,
     });
   });
 

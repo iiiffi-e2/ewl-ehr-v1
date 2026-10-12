@@ -4,6 +4,10 @@ import { createHttpClient } from '../config/axios.js';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { YardiFhirClient } from '../integrations/yardi/yardiFhirClient.js';
+import {
+  runYardiCarePlanServiceCheck,
+  type YardiCarePlanServiceCheckSummary,
+} from '../integrations/yardi/yardiCarePlanService.js';
 import { parseYardiFhirPollTargets } from '../integrations/yardi/yardiFhirPollConfig.js';
 import { createRedisSyncCursorStore } from '../integrations/yardi/yardiFhirPollCursor.js';
 import { runYardiFhirSyncForTarget } from '../integrations/yardi/yardiFhirSync.js';
@@ -102,6 +106,59 @@ export function parseYardiFhirTestSyncInput(body: unknown): YardiFhirTestSyncInp
     skipCaspio: record.skipCaspio === true,
     skipService: record.skipService !== false,
   };
+}
+
+export type YardiCarePlanCheckInput = {
+  companyKey: string;
+  communityId: number;
+  organizationId: string;
+  patientId?: string;
+};
+
+export function parseYardiCarePlanCheckInput(body: unknown): YardiCarePlanCheckInput {
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const companyKey = typeof record.companyKey === 'string' ? record.companyKey.trim() : '';
+  const organizationId =
+    typeof record.organizationId === 'string' ? record.organizationId.trim() : '';
+  const patientId = typeof record.patientId === 'string' ? record.patientId.trim() : '';
+  const communityIdRaw = record.communityId;
+  const communityId =
+    typeof communityIdRaw === 'number'
+      ? communityIdRaw
+      : typeof communityIdRaw === 'string'
+        ? Number(communityIdRaw)
+        : NaN;
+
+  if (!companyKey || !organizationId || !Number.isFinite(communityId)) {
+    throw new Error('companyKey, communityId, and organizationId are required');
+  }
+
+  return {
+    companyKey,
+    communityId,
+    organizationId,
+    patientId: patientId || undefined,
+  };
+}
+
+export async function runYardiCarePlanCheck(
+  input: YardiCarePlanCheckInput,
+): Promise<YardiCarePlanServiceCheckSummary> {
+  YardiFhirClient.assertConfigured();
+
+  const company = await prisma.company.findUnique({
+    where: { companyKey: input.companyKey },
+  });
+  if (!company) {
+    throw new Error(`Company not found for key '${input.companyKey}'`);
+  }
+
+  return runYardiCarePlanServiceCheck({
+    client: YardiFhirClient.createConfigured(),
+    communityId: input.communityId,
+    organizationId: input.organizationId,
+    patientId: input.patientId,
+  });
 }
 
 export async function runYardiFhirTestSync(

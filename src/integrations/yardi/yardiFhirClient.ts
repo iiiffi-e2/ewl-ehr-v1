@@ -112,6 +112,15 @@ export class YardiFhirClient {
     return collectPatientIdsFromEncounterBundles(bundles);
   }
 
+  async listActiveCarePlans(patientId: string): Promise<FhirBundle[]> {
+    return this.searchAllPages('/CarePlan', {
+      patient: patientId,
+      category: 'http://hl7.org/fhir/us/core/CodeSystem/careplan-category|assess-plan',
+      status: 'active',
+      _count: 20,
+    });
+  }
+
   async fetchPatientBundle(patientId: string): Promise<YardiFhirPatientBundle> {
     const [patient, encounterBundle, coverageBundle, conditionBundle] = await Promise.all([
       this.readPatient(patientId),

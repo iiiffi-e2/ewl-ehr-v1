@@ -298,6 +298,10 @@ function isDefaultServiceEndDate(value: string): boolean {
   );
 }
 
+export function isServiceRowOpen(endDate: unknown): boolean {
+  return isOpenServiceEndDate(endDate);
+}
+
 function isOpenServiceEndDate(endDate: unknown): boolean {
   if (endDate === undefined || endDate === null) {
     return true;
@@ -1368,10 +1372,10 @@ export async function upsertPatientByPatientNumber(
   }
 }
 
-export async function findActiveOrLatestServiceRow(params: {
+export async function listServiceRowsForPatient(params: {
   patientNumber: string;
   cuid?: string;
-}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
   const records = (await caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const patientNumberString = String(params.patientNumber).trim();
@@ -1424,7 +1428,7 @@ export async function findActiveOrLatestServiceRow(params: {
   })) as Array<Record<string, unknown>>;
 
   if (records.length === 0) {
-    return { found: false };
+    return [];
   }
 
   const exactMatches = records.filter((record) => {
@@ -1451,25 +1455,34 @@ export async function findActiveOrLatestServiceRow(params: {
       },
       'caspio_service_rows_no_exact_match_after_lookup',
     );
-    return { found: false };
+    return [];
   }
 
   const withIds = exactMatches
-    .map((record) => ({ record, id: extractRecordId(record) }))
-    .filter((entry) => entry.id);
+    .map((record) => ({ record: record as ServiceTableRecord, id: extractRecordId(record) }))
+    .filter((entry): entry is { record: ServiceTableRecord; id: string } => Boolean(entry.id));
 
   if (withIds.length === 0) {
     logger.warn(
       { patientNumber: params.patientNumber, cuid: params.cuid, matchCount: exactMatches.length },
       'caspio_service_rows_found_without_ids',
     );
+    return [];
+  }
+
+  return withIds;
+}
+
+export async function findActiveOrLatestServiceRow(params: {
+  patientNumber: string;
+  cuid?: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const withIds = await listServiceRowsForPatient(params);
+  if (withIds.length === 0) {
     return { found: false };
   }
 
-  const activeRows = withIds.filter(({ record }) => {
-    const endDate = record.EndDate;
-    return isOpenServiceEndDate(endDate);
-  });
+  const activeRows = withIds.filter(({ record }) => isOpenServiceEndDate(record.EndDate));
   const sourceRows = activeRows.length > 0 ? activeRows : withIds;
 
   sourceRows.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
@@ -1477,7 +1490,7 @@ export async function findActiveOrLatestServiceRow(params: {
   return {
     found: true,
     id: selected.id,
-    record: selected.record as ServiceTableRecord,
+    record: selected.record,
   };
 }
 

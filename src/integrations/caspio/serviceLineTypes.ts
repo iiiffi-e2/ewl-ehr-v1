@@ -19,3 +19,7 @@ export const POST_MOVE_OUT_RESIDENT_SERVICE_TYPE = ROOM_VACANCY_SERVICE_TYPE;
  * `SERVICE_LINE_UNASSIGNED_CLASSIFICATION` ServiceType even though the string matches.
  */
 export const UNASSIGNED_ROOM_LABEL = 'Unassigned';
+
+/** Caspio ServiceType values for an EyeWatch care-plan service line. */
+export const EYEWATCH_DETECT_SERVICE_TYPE = 'Detect';
+export const EYEWATCH_INTERVENE_SERVICE_TYPE = 'Intervene';

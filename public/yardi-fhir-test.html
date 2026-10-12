@@ -398,13 +398,30 @@
         <input id="syncSkipService" type="checkbox" checked>
         <label for="syncSkipService">Skip service table (patient table only)</label>
       </div>
-      <p class="muted">Yardi does not provide service type yet. Leave checked to write only the care patient table.</p>
+      <p class="muted">The census pull does not write service rows. Use Care Plan Service Check below for EyeWatch Detect and Intervene.</p>
 
       <div class="button-row">
         <button type="button" id="runSyncButton">Run Yardi Pull</button>
       </div>
       <div id="syncOutput" class="output">No sync run yet.</div>
       <div id="syncDetails"></div>
+    </section>
+
+    <section class="card">
+      <h2>Care Plan Service Check</h2>
+      <p class="muted" style="margin-bottom: 12px;">
+        Reads active Yardi care plans and writes EyeWatch Detect or Intervene to the service table.
+        Uses the company, community, and organization above. Leave patient ID blank to check every active patient.
+      </p>
+      <div>
+        <label for="carePlanPatientId">Patient ID (optional)</label>
+        <input id="carePlanPatientId" type="text" placeholder="31924-2">
+      </div>
+      <div class="button-row">
+        <button type="button" class="warn" id="runCarePlanButton">Check Care Plans and Write Service Table</button>
+      </div>
+      <div id="carePlanOutput" class="output">No care plan check run yet.</div>
+      <div id="carePlanDetails"></div>
     </section>
 
     <section class="card">
@@ -469,6 +486,10 @@
     const syncOutput = document.getElementById('syncOutput');
     const syncDetails = document.getElementById('syncDetails');
     const runSyncButton = document.getElementById('runSyncButton');
+    const carePlanPatientId = document.getElementById('carePlanPatientId');
+    const carePlanOutput = document.getElementById('carePlanOutput');
+    const carePlanDetails = document.getElementById('carePlanDetails');
+    const runCarePlanButton = document.getElementById('runCarePlanButton');
 
     const renderJson = (value) => JSON.stringify(value, null, 2);
 
@@ -771,6 +792,102 @@
       }
     };
 
+    const carePlanActionLabel = (patient) => {
+      if (patient.error) return 'Failed';
+      if (patient.action === 'open') return `Opened ${patient.serviceType}`;
+      if (patient.action === 'close') return 'Ended EyeWatch service';
+      if (patient.action === 'replace') return `Switched to ${patient.serviceType}`;
+      if (patient.action === 'skipped') return 'Skipped';
+      return 'Unchanged';
+    };
+
+    const renderCarePlanResult = (data, responseOk) => {
+      carePlanDetails.innerHTML = '';
+      if (!responseOk && data.error) {
+        carePlanOutput.textContent = `Care plan check failed (${data.error})`;
+        carePlanDetails.innerHTML = `<div class="error-banner">${escapeHtml(data.error)}</div>`;
+        return;
+      }
+
+      const summary = data.summary;
+      if (!summary) {
+        carePlanOutput.textContent = 'Care plan check finished without summary data.';
+        return;
+      }
+
+      carePlanOutput.textContent = data.success
+        ? 'Care plan check completed'
+        : 'Care plan check completed with errors';
+
+      const patients = Array.isArray(summary.patients) ? summary.patients : [];
+      const cards = patients.map((patient) => {
+        const name = `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || patient.patientId;
+        const level = patient.serviceType || (patient.monitoringWithoutLevel ? 'EyeWatch level unknown' : 'None');
+        const detail = patient.error || patient.skipReason || '';
+        return `
+          <article class="patient-detail-card ${patient.error ? 'failed' : ''}">
+            <div class="patient-detail-header">
+              <h3>${escapeHtml(name)} <span class="muted">(${escapeHtml(patient.patientId)})</span></h3>
+              <span class="status-pill ${patient.error ? 'status-bad' : 'status-ok'}">${escapeHtml(carePlanActionLabel(patient))}</span>
+            </div>
+            <pre>Room: ${escapeHtml(patient.roomNumber || '—')}
+EyeWatch: ${escapeHtml(level)}
+CUID: ${escapeHtml(patient.cuid || '—')}${detail ? `\n${escapeHtml(detail)}` : ''}</pre>
+          </article>
+        `;
+      }).join('');
+
+      carePlanDetails.innerHTML = `
+        <div class="sync-summary">
+          <div class="sync-summary-item"><strong>Checked</strong>${summary.patientsProcessed ?? 0}</div>
+          <div class="sync-summary-item"><strong>Opened</strong>${summary.opened ?? 0}</div>
+          <div class="sync-summary-item"><strong>Ended</strong>${summary.closed ?? 0}</div>
+          <div class="sync-summary-item"><strong>Switched</strong>${summary.replaced ?? 0}</div>
+          <div class="sync-summary-item"><strong>Unchanged</strong>${summary.unchanged ?? 0}</div>
+          <div class="sync-summary-item"><strong>Skipped</strong>${summary.skipped ?? 0}</div>
+          <div class="sync-summary-item"><strong>Failed</strong>${summary.patientsFailed ?? 0}</div>
+        </div>
+        ${cards || '<p class="muted">No patients were checked.</p>'}
+      `;
+    };
+
+    const runCarePlanCheck = async () => {
+      const companyKey = syncCompanyKey.value.trim();
+      const organizationIdValue = syncOrganizationId.value.trim();
+      const communityId = Number(syncCommunityId.value.trim());
+      const patientIdValue = carePlanPatientId.value.trim();
+
+      if (!companyKey || !organizationIdValue || !Number.isFinite(communityId)) {
+        carePlanOutput.textContent = 'Care plan check validation failed';
+        carePlanDetails.innerHTML = `<div class="error-banner">companyKey, communityId, and organizationId are required</div>`;
+        return;
+      }
+
+      runCarePlanButton.disabled = true;
+      carePlanOutput.textContent = patientIdValue
+        ? 'Checking care plan and writing the service table...'
+        : 'Checking every active patient. This writes the service table and may take a few minutes.';
+      carePlanDetails.innerHTML = '';
+
+      try {
+        const { response, data } = await fetchJson('/admin/yardi-fhir-test/care-plan', {
+          method: 'POST',
+          body: JSON.stringify({
+            companyKey,
+            communityId,
+            organizationId: organizationIdValue,
+            patientId: patientIdValue || undefined,
+          }),
+        });
+        renderCarePlanResult(data, response.ok);
+      } catch (error) {
+        carePlanOutput.textContent = 'Care plan check failed';
+        carePlanDetails.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
+      } finally {
+        runCarePlanButton.disabled = false;
+      }
+    };
+
     const applyPreset = (preset) => {
       const today = new Date();
       const yyyy = today.getFullYear();
@@ -841,6 +958,14 @@
         syncOutput.textContent = 'Sync failed';
         syncDetails.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
         runSyncButton.disabled = false;
+      });
+    });
+
+    runCarePlanButton.addEventListener('click', () => {
+      runCarePlanCheck().catch((error) => {
+        carePlanOutput.textContent = 'Care plan check failed';
+        carePlanDetails.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
+        runCarePlanButton.disabled = false;
       });
     });
 
