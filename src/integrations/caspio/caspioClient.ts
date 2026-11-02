@@ -3,6 +3,7 @@ import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import { createHttpClient } from '../../config/axios.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { parseCaspioSortableDate } from './caspioDateTime.js';
 
 type TokenCache = {
   token: string;
@@ -258,30 +259,7 @@ function extractRecordId(record: Record<string, unknown>): string | undefined {
 }
 
 function parseSortableDate(value: unknown): number {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const trimmed = value.trim();
-  const ts = Date.parse(trimmed);
-  if (!Number.isNaN(ts)) {
-    return ts;
-  }
-  const mdYDateTimeMatch = trimmed.match(
-    /^(\d{1,2})[/:](\d{1,2})[/:](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
-  );
-  if (mdYDateTimeMatch) {
-    const [, month, day, year, hour, minute, second] = mdYDateTimeMatch;
-    return Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      Number(second),
-      0,
-    );
-  }
-  return Number.NEGATIVE_INFINITY;
+  return parseCaspioSortableDate(value);
 }
 
 function isDefaultServiceEndDate(value: string): boolean {

@@ -31,6 +31,11 @@ import {
   redactForLogs,
 } from './caspioMapper.js';
 import {
+  communityTimeZone,
+  formatCaspioDateTime,
+  parseCaspioSortableDate,
+} from './caspioDateTime.js';
+import {
   POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
   ROOM_VACANCY_SERVICE_TYPE,
   SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
@@ -78,30 +83,7 @@ function isPatientRecordMovedOut(record?: CarePatientTableApiRecord): boolean {
 }
 
 function parseServiceDate(value: unknown): number {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const trimmed = value.trim();
-  const parsed = Date.parse(trimmed);
-  if (!Number.isNaN(parsed)) {
-    return parsed;
-  }
-  const mdYDateTimeMatch = trimmed.match(
-    /^(\d{1,2})[/:](\d{1,2})[/:](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
-  );
-  if (!mdYDateTimeMatch) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const [, month, day, year, hour, minute, second] = mdYDateTimeMatch;
-  return Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-    0,
-  );
+  return parseCaspioSortableDate(value);
 }
 
 function stripPremFieldsFromPatch(patch: Partial<CarePatientTableApiRecord>): void {
@@ -595,22 +577,13 @@ function normalizeScenarioDate(primary?: string, fallback?: string): string {
   return value;
 }
 
-function formatCaspioDateTime(value?: string): string {
-  const source = value && value.trim().length > 0 ? value : undefined;
-  const parsed = source ? new Date(source) : new Date();
-  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(date.getUTCDate()).padStart(2, '0');
-  const yyyy = String(date.getUTCFullYear());
-  const hh = String(date.getUTCHours()).padStart(2, '0');
-  const min = String(date.getUTCMinutes()).padStart(2, '0');
-  const ss = String(date.getUTCSeconds()).padStart(2, '0');
-  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
-}
-
-function normalizeScenarioDateTime(primary?: string, fallback?: string): string {
-  const value = (primary && primary.trim().length > 0 ? primary : undefined) ?? fallback;
-  return formatCaspioDateTime(value);
+function normalizeScenarioDateTime(
+  primary: string | undefined,
+  fallback: string | undefined,
+  communityName: string | undefined,
+): string {
+  const value = primary && primary.trim().length > 0 ? primary : fallback;
+  return formatCaspioDateTime(value, communityTimeZone(communityName));
 }
 
 function isDefaultEndDateValue(value: string): boolean {
@@ -1031,7 +1004,11 @@ async function applyRoomTransferServiceTable(params: {
   nextCommunityName?: string;
   incomingServiceType: string | undefined;
 }): Promise<void> {
-  const boundaryDate = normalizeScenarioDateTime(params.event.EventMessageDate);
+  const boundaryDate = normalizeScenarioDateTime(
+    params.event.EventMessageDate,
+    undefined,
+    params.nextCommunityName,
+  );
 
   let incomingServiceType = params.incomingServiceType;
   if (!incomingServiceType) {
@@ -1230,7 +1207,11 @@ async function handleMoveInEvent(
       communityName: serviceCommunity.communityName,
       roomNumber: serviceCommunity.roomNumber,
       serviceType,
-      startDate: normalizeScenarioDateTime(patientRecord.Move_in_Date, event.EventMessageDate),
+      startDate: normalizeScenarioDateTime(
+        patientRecord.Move_in_Date,
+        event.EventMessageDate,
+        serviceCommunity.communityName,
+      ),
       eventMessageId: event.EventMessageId,
       eventType: event.EventType,
       residentId,
@@ -1302,7 +1283,6 @@ async function handleMoveOutEvent(
     extractStringValue(notificationData, ['PhysicalMoveOutDate', 'MoveOutDate', 'MoveOutDateTime']),
     event.EventMessageDate,
   );
-  const serviceBoundaryDate = formatCaspioDateTime();
 
   const updateData: Partial<CarePatientTableApiRecord> = {
     PatientNumber: String(residentId),
@@ -1349,6 +1329,10 @@ async function handleMoveOutEvent(
       communityContext.CommunityName ?? trimNonEmpty(existing.record?.CommunityName),
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
+    const serviceBoundaryDate = formatCaspioDateTime(
+      event.EventMessageDate,
+      communityTimeZone(serviceCommunity.communityName ?? communityContext.CommunityName),
+    );
     await closeLatestServiceRow({
       companyId,
       patientNumber: String(residentId),
@@ -1454,11 +1438,6 @@ async function handleRoomUnassignedEvent(
     return;
   }
 
-  const boundaryDate = normalizeScenarioDateTime(
-    extractStringValue(notificationData, ['AsOfDateUTC', 'asOfDateUTC']),
-    event.EventMessageDate,
-  );
-
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, {
     PatientNumber: String(residentId),
     RoomNumber: UNASSIGNED_ROOM_LABEL,
@@ -1489,6 +1468,12 @@ async function handleRoomUnassignedEvent(
   if (!serviceCommunity.matched || !serviceCommunity.cuid) {
     return;
   }
+
+  const boundaryDate = normalizeScenarioDateTime(
+    extractStringValue(notificationData, ['AsOfDateUTC', 'asOfDateUTC']),
+    event.EventMessageDate,
+    serviceCommunity.communityName ?? communityContext.CommunityName,
+  );
 
   await closeLatestServiceRow({
     companyId,
@@ -1708,7 +1693,11 @@ async function handleUpdateEvent(
         patientRecord.CommunityName ?? communityContext.CommunityName ?? trimNonEmpty(existing.record?.CommunityName),
     });
     if (serviceCommunity.matched && serviceCommunity.cuid) {
-      const boundaryDate = normalizeScenarioDateTime(event.EventMessageDate);
+      const boundaryDate = normalizeScenarioDateTime(
+        event.EventMessageDate,
+        undefined,
+        serviceCommunity.communityName,
+      );
       const existingService = await findActiveOrLatestServiceRow({
         patientNumber: String(residentId),
         cuid: serviceCommunity.cuid,

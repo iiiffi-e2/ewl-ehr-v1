@@ -118,7 +118,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'Service_Table_API',
       expect.arrayContaining([
         { field: 'CUID', value: '259' },
-        { field: 'StartDate', value: '01/10/2026 00:00:00' },
+        { field: 'StartDate', value: '01/10/2026' },
         { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Assisted Living' },
       ]),
@@ -128,7 +128,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         RoomNumber: '101',
         CommunityName: 'Test Community',
         ServiceType: 'Assisted Living',
-        StartDate: '01/10/2026 00:00:00',
+        StartDate: '01/10/2026',
       }),
     );
   });
@@ -231,20 +231,20 @@ describe('eventOrchestrator service-table scenarios', () => {
       await handleAlisEvent(event, 10, 'appstoresandbox');
 
       expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
-        EndDate: '01/21/2026 14:00:00',
+        EndDate: '01/20/2026 05:00:00',
       });
       expect(upsertByFieldsMock).toHaveBeenCalledWith(
         'Service_Table_API',
         [
           { field: 'CUID', value: '259' },
-          { field: 'StartDate', value: '01/21/2026 14:00:00' },
+          { field: 'StartDate', value: '01/20/2026 05:00:00' },
           { field: 'PatientNumber', value: '70508' },
           { field: 'ServiceType', value: 'Vacant' },
         ],
         expect.objectContaining({
           CUID: '259',
           ServiceType: 'Vacant',
-          StartDate: '01/21/2026 14:00:00',
+          StartDate: '01/20/2026 05:00:00',
           PatientNumber: '70508',
         }),
       );
@@ -294,7 +294,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     });
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
-      EndDate: '05/30/2026 05:00:00',
+      EndDate: '05/30/2026 01:00:00',
     });
 
     const vacantCall = upsertByFieldsMock.mock.calls.find((call) => {
@@ -310,7 +310,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.objectContaining({
         CUID: '259',
         ServiceType: 'Vacant',
-        StartDate: '05/30/2026 05:00:00',
+        StartDate: '05/30/2026 01:00:00',
       }),
     );
     expect(vacantRow.PatientNumber).toBeUndefined();
@@ -354,13 +354,13 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
-      EndDate: '01/22/2026 12:00:00',
+      EndDate: '01/22/2026 07:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
       expect.arrayContaining([
         { field: 'CUID', value: '259' },
-        { field: 'StartDate', value: '01/22/2026 12:00:00' },
+        { field: 'StartDate', value: '01/22/2026 07:00:00' },
         { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Memory Care' },
       ]),
@@ -370,7 +370,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         RoomNumber: '101',
         CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
-        StartDate: '01/22/2026 12:00:00',
+        StartDate: '01/22/2026 07:00:00',
       }),
     );
   });
@@ -467,7 +467,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '70508',
         CUID: '259',
         ServiceType: 'Assisted Living',
-        StartDate: '01/22/2026 12:00:00',
+        StartDate: '01/22/2026 07:00:00',
       }),
     );
   });
@@ -521,7 +521,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         PatientNumber: '70508',
         CUID: '259',
         ServiceType: 'Memory Care',
-        StartDate: '01/22/2026 12:00:00',
+        StartDate: '01/22/2026 07:00:00',
       }),
     );
   });
@@ -578,7 +578,7 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
-      EndDate: '01/22/2026 12:00:00',
+      EndDate: '01/22/2026 07:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
@@ -589,7 +589,7 @@ describe('eventOrchestrator service-table scenarios', () => {
         RoomNumber: '53',
         CommunityName: 'Test Community',
         ServiceType: 'Memory Care',
-        StartDate: '01/22/2026 12:00:00',
+        StartDate: '01/22/2026 07:00:00',
       }),
     );
   });
@@ -630,18 +630,18 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-default-enddate', {
-      EndDate: '01/22/2026 12:00:00',
+      EndDate: '01/22/2026 07:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
       expect.arrayContaining([
-        { field: 'StartDate', value: '01/22/2026 12:00:00' },
+        { field: 'StartDate', value: '01/22/2026 07:00:00' },
         { field: 'ServiceType', value: 'Memory Care' },
       ]),
       expect.objectContaining({
         PatientNumber: '70508',
         ServiceType: 'Memory Care',
-        StartDate: '01/22/2026 12:00:00',
+        StartDate: '01/22/2026 07:00:00',
       }),
     );
   });
@@ -1214,13 +1214,13 @@ describe('eventOrchestrator service-table scenarios', () => {
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
     expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old-cuid', {
-      EndDate: '01/22/2026 15:00:00',
+      EndDate: '01/22/2026 10:00:00',
     });
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
       'Service_Table_API',
       [
         { field: 'CUID', value: '111' },
-        { field: 'StartDate', value: '01/22/2026 15:00:00' },
+        { field: 'StartDate', value: '01/22/2026 10:00:00' },
         { field: 'ServiceType', value: 'Vacant' },
       ],
       expect.objectContaining({
@@ -1232,7 +1232,7 @@ describe('eventOrchestrator service-table scenarios', () => {
       'Service_Table_API',
       [
         { field: 'CUID', value: '222' },
-        { field: 'StartDate', value: '01/22/2026 15:00:00' },
+        { field: 'StartDate', value: '01/22/2026 10:00:00' },
         { field: 'PatientNumber', value: '70508' },
         { field: 'ServiceType', value: 'Assisted Living' },
       ],
@@ -1450,7 +1450,7 @@ describe('eventOrchestrator service-table scenarios', () => {
 
     await handleAlisEvent(event, 10, 'appstoresandbox');
 
-    const boundaryDate = '03/29/2026 23:24:55';
+    const boundaryDate = '03/29/2026 14:24:55';
     expect(findOpenServiceRowByCuidAndServiceTypeMock).toHaveBeenCalledWith({
       cuid: '222',
       serviceType: 'Vacant',
@@ -1782,5 +1782,103 @@ describe('eventOrchestrator service-table scenarios', () => {
       (call) => call[0] === 'Service_Table_API',
     );
     expect(serviceUpserts).toHaveLength(0);
+  });
+
+  it('formats service boundaries in the community zone, including across November 1', async () => {
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: { CUID: '259', CommunityName: 'YourLife Pensacola', RoomNumber: '305B' },
+    });
+    findActiveOrLatestServiceRowMock.mockReset();
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-old',
+      record: { ServiceType: 'Assisted Living', StartDate: '2026-01-10' },
+    });
+    fetchAllResidentDataMock.mockResolvedValue({
+      resident: { Classification: 'Memory Care' },
+      basicInfo: {},
+      insurance: [],
+      roomAssignments: [],
+      diagnosesAndAllergies: [],
+      contacts: [],
+      community: { CommunityName: 'YourLife Pensacola' },
+    });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.basic_info_updated',
+        EventMessageId: 'evt-pensacola-time',
+        EventMessageDate: '2026-10-28T18:41:05Z',
+        NotificationData: {
+          ResidentId: 70508,
+          RoomNumber: '305B',
+          Classification: 'Memory Care',
+        },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
+      EndDate: '10/28/2026 13:41:05',
+    });
+
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: { CUID: '260', CommunityName: 'YourLife Tallahassee', RoomNumber: '155' },
+    });
+    updateRecordByIdMock.mockClear();
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 933,
+        EventType: 'residents.basic_info_updated',
+        EventMessageId: 'evt-tallahassee-time',
+        EventMessageDate: '2026-11-02T18:41:05Z',
+        NotificationData: {
+          ResidentId: 70508,
+          RoomNumber: '155',
+          Classification: 'Memory Care',
+        },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-old', {
+      EndDate: '11/02/2026 13:41:05',
+    });
+  });
+
+  it('keeps a date-only effective date without a clock time', async () => {
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: { CUID: '259', CommunityName: 'YourLife Pensacola', RoomNumber: '305B' },
+    });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'resident.room_unassigned',
+        EventMessageId: 'evt-date-only',
+        EventMessageDate: '2026-10-28T18:41:05Z',
+        NotificationData: {
+          ResidentId: 70508,
+          UnassignedRoom: '305B',
+          AsOfDateUTC: '2026-10-24',
+        },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith('Service_Table_API', 'svc-1', {
+      EndDate: '10/24/2026',
+    });
   });
 });
