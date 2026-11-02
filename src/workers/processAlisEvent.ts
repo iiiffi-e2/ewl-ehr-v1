@@ -21,6 +21,7 @@ import { requiresLeaveFetch, requiresResidentFetch } from '../webhook/schemas.js
 import type { AlisEvent } from '../webhook/schemas.js';
 
 import { getRedisConnection } from './connection.js';
+import { residentLifecycleKey, withResidentLock } from './residentEventLock.js';
 import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
 import type { ProcessAlisEventJobData } from './types.js';
 
@@ -267,7 +268,9 @@ async function processJob(job: Job<ProcessAlisEventJobData>): Promise<void> {
 
     if (shouldProcessCaspio) {
       try {
-        await handleAlisEvent(event, companyId, companyKey);
+        await withResidentLock(residentLifecycleKey(companyId, residentId), () =>
+          handleAlisEvent(event, companyId, companyKey),
+        );
       } catch (caspioError) {
         await recordEventIssue({
           companyId,

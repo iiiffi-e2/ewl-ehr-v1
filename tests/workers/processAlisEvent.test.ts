@@ -156,4 +156,44 @@ describe('processAlisEvent worker', () => {
       }),
     );
   });
+
+  it('runs events for one resident one at a time and lets different residents overlap', async () => {
+    let activeForResident = 0;
+    let maxForResident = 0;
+    let activeTotal = 0;
+    let maxTotal = 0;
+    handleAlisEventMock.mockImplementation(async (event: { NotificationData: { ResidentId: number } }) => {
+      const residentId = event.NotificationData.ResidentId;
+      activeTotal += 1;
+      maxTotal = Math.max(maxTotal, activeTotal);
+      if (residentId === 70508) {
+        activeForResident += 1;
+        maxForResident = Math.max(maxForResident, activeForResident);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (residentId === 70508) {
+        activeForResident -= 1;
+      }
+      activeTotal -= 1;
+    });
+
+    startProcessAlisEventWorker();
+    const job = (residentId: number, eventMessageId: string) =>
+      mockWorkerProcessor?.({
+        data: {
+          eventMessageId,
+          eventType: 'residents.move_in',
+          companyKey: 'appstoresandbox',
+          companyId: 10,
+          communityId: 113,
+          notificationData: { ResidentId: residentId },
+          eventMessageDate: '2026-10-28T18:41:05Z',
+        },
+      });
+
+    await Promise.all([job(70508, 'evt-a'), job(70508, 'evt-b'), job(80001, 'evt-c')]);
+
+    expect(maxForResident).toBe(1);
+    expect(maxTotal).toBeGreaterThan(1);
+  });
 });

@@ -42,6 +42,11 @@ import {
   SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
   UNASSIGNED_ROOM_LABEL,
 } from './serviceLineTypes.js';
+import {
+  isStaleResidentUpdate,
+  rememberResidentLifecycle,
+  residentLifecycleKey,
+} from '../../workers/residentEventLock.js';
 
 /** Prefer NotificationData room over stale API data for these event types. */
 const ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES = new Set([
@@ -1055,6 +1060,11 @@ async function applyRoomTransferServiceTable(params: {
   nextCommunityGroup?: string;
   incomingServiceType: string | undefined;
 }): Promise<void> {
+  await rememberResidentLifecycle(
+    residentLifecycleKey(params.companyId, params.residentId),
+    params.event.EventMessageDate,
+  );
+
   const boundaryDate = normalizeScenarioDateTime(
     params.event.EventMessageDate,
     undefined,
@@ -1373,6 +1383,7 @@ async function handleMoveOutEvent(
   }
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, updateData);
+  await rememberResidentLifecycle(residentLifecycleKey(companyId, residentId), event.EventMessageDate);
 
   await fetchFullResidentDataIfNeeded(
     companyId,
@@ -1501,6 +1512,7 @@ async function handleRoomUnassignedEvent(
     PatientNumber: String(residentId),
     RoomNumber: UNASSIGNED_ROOM_LABEL,
   });
+  await rememberResidentLifecycle(residentLifecycleKey(companyId, residentId), event.EventMessageDate);
 
   logger.info(
     {
@@ -1710,7 +1722,24 @@ async function handleUpdateEvent(
     caspioRowLooksMovedOut &&
     ROOM_NOTIFICATION_PRIORITY_EVENT_TYPES.has(event.EventType) &&
     hasRoomMovementData(event);
-  const skipServiceTransitions = caspioRowLooksMovedOut && !roomEventAllowsServiceDespiteMoveOutFields;
+  const staleLifecycle = await isStaleResidentUpdate(
+    residentLifecycleKey(companyId, residentId),
+    event.EventMessageDate,
+  );
+  const skipServiceTransitions =
+    staleLifecycle || (caspioRowLooksMovedOut && !roomEventAllowsServiceDespiteMoveOutFields);
+  if (staleLifecycle) {
+    logger.info(
+      {
+        eventMessageId: event.EventMessageId,
+        eventType: event.EventType,
+        residentId,
+        communityId,
+        eventMessageDate: event.EventMessageDate,
+      },
+      'update_event_service_skipped_stale_lifecycle',
+    );
+  }
   if (roomEventAllowsServiceDespiteMoveOutFields) {
     logger.info(
       {
@@ -1723,15 +1752,17 @@ async function handleUpdateEvent(
     );
   }
   if (skipServiceTransitions) {
-    logger.info(
-      {
-        eventMessageId: event.EventMessageId,
-        eventType: event.EventType,
-        residentId,
-        communityId,
-      },
-      'update_event_service_skipped_patient_moved_out',
-    );
+    if (!staleLifecycle) {
+      logger.info(
+        {
+          eventMessageId: event.EventMessageId,
+          eventType: event.EventType,
+          residentId,
+          communityId,
+        },
+        'update_event_service_skipped_patient_moved_out',
+      );
+    }
   } else if (isCuidRoomTransfer && previousCuid && nextCuid) {
     await applyRoomTransferServiceTable({
       event,

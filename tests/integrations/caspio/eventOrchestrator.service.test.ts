@@ -60,10 +60,12 @@ jest.mock('../../../src/domains/eventIssues.js', () => ({
 }));
 
 import { handleAlisEvent } from '../../../src/integrations/caspio/eventOrchestrator.js';
+import { clearResidentEventStateForTests } from '../../../src/workers/residentEventLock.js';
 
 describe('eventOrchestrator service-table scenarios', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearResidentEventStateForTests();
     resolveAlisCredentialsMock.mockResolvedValue({ username: 'u', password: 'p' });
     fetchAllResidentDataMock.mockReset();
     fetchAllResidentDataMock.mockResolvedValue({
@@ -2129,5 +2131,47 @@ describe('eventOrchestrator service-table scenarios', () => {
       expect.any(Array),
       expect.objectContaining({ RoomNumber: '182A' }),
     );
+  });
+
+  it('does not reopen a service row for an update older than the resident move-out', async () => {
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.move_out',
+        EventMessageId: 'evt-move-out-watermark',
+        EventMessageDate: '2026-10-28T18:41:05Z',
+        NotificationData: { ResidentId: 70508, RoomNumber: '305B', MoveOutDate: '2026-10-28' },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    upsertByFieldsMock.mockClear();
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'svc-closed',
+      record: {
+        ServiceType: 'Assisted Living',
+        StartDate: '01/10/2026',
+        EndDate: '10/28/2026 14:41:05',
+      },
+    });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.basic_info_updated',
+        EventMessageId: 'evt-stale-update',
+        EventMessageDate: '2026-10-28T18:40:59Z',
+        NotificationData: { ResidentId: 70508, RoomNumber: '305B', Classification: 'Intervene 12' },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    const serviceWrites = upsertByFieldsMock.mock.calls.filter((call) => call[0] === 'Service_Table_API');
+    expect(serviceWrites).toHaveLength(0);
   });
 });
