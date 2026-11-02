@@ -182,6 +182,7 @@ type ServiceCommunityContext = {
   matched: boolean;
   cuid?: string;
   communityName?: string;
+  communityGroup?: string;
   roomNumber?: string;
 };
 
@@ -459,6 +460,7 @@ async function applyCommunityEnrichment(
   City?: string;
   State?: string;
   Zip?: string;
+  CommunityGroup?: string;
 }> {
   try {
     const enrichment = await getCommunityEnrichment(communityId, roomNumber, communityName);
@@ -478,6 +480,7 @@ async function applyCommunityEnrichment(
       City: enrichment.City,
       State: enrichment.State,
       Zip: enrichment.Zip,
+      CommunityGroup: enrichment.CommunityGroup,
     };
   } catch (error) {
     logger.warn(
@@ -786,13 +789,26 @@ async function resolveServiceCommunityContext(params: {
     'service_community_context_resolved',
   );
 
-  return { matched: true, cuid, communityName: matchedCommunityName, roomNumber: matchedRoomNumber };
+  const communityGroup =
+    typeof communityMatch.record.CommunityGroup === 'string' &&
+    communityMatch.record.CommunityGroup.trim().length > 0
+      ? communityMatch.record.CommunityGroup.trim()
+      : undefined;
+
+  return {
+    matched: true,
+    cuid,
+    communityName: matchedCommunityName,
+    communityGroup,
+    roomNumber: matchedRoomNumber,
+  };
 }
 
 async function createServiceRow(params: {
   patientNumber?: string;
   cuid: string;
   communityName?: string;
+  communityGroup?: string;
   roomNumber?: string;
   serviceType?: string;
   startDate: string;
@@ -807,6 +823,7 @@ async function createServiceRow(params: {
     patientNumber: params.patientNumber,
     cuid: params.cuid,
     communityName: params.communityName,
+    communityGroup: params.communityGroup,
     roomNumber: params.roomNumber,
     serviceType: params.serviceType,
     startDate: params.startDate,
@@ -1014,6 +1031,7 @@ async function applyRoomTransferServiceTable(params: {
   nextCuid: string;
   previousRoom?: string;
   nextCommunityName?: string;
+  nextCommunityGroup?: string;
   incomingServiceType: string | undefined;
 }): Promise<void> {
   const boundaryDate = normalizeScenarioDateTime(
@@ -1059,6 +1077,7 @@ async function applyRoomTransferServiceTable(params: {
     await createServiceRow({
       cuid: params.previousCuid,
       communityName: oldRoomEnrichment?.CommunityName ?? undefined,
+      communityGroup: oldRoomEnrichment?.CommunityGroup,
       roomNumber: previousRoomTrimmed,
       serviceType: ROOM_VACANCY_SERVICE_TYPE,
       startDate: boundaryDate,
@@ -1085,6 +1104,7 @@ async function applyRoomTransferServiceTable(params: {
     patientNumber: params.patientNumber,
     cuid: params.nextCuid,
     communityName: params.nextCommunityName,
+    communityGroup: params.nextCommunityGroup,
     roomNumber: normalizeRoomIdentifier(extractAssignedRoom(params.event) ?? extractRoomNumber(params.event)),
     serviceType: resolvedServiceType,
     startDate: boundaryDate,
@@ -1226,6 +1246,7 @@ async function handleMoveInEvent(
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
+      communityGroup: serviceCommunity.communityGroup,
       roomNumber: serviceCommunity.roomNumber,
       serviceType,
       startDate: normalizeScenarioDateTime(
@@ -1369,6 +1390,7 @@ async function handleMoveOutEvent(
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
       communityName: serviceCommunity.communityName,
+      communityGroup: serviceCommunity.communityGroup,
       roomNumber: serviceCommunity.roomNumber,
       serviceType: POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
       startDate: serviceBoundaryDate,
@@ -1511,6 +1533,7 @@ async function handleRoomUnassignedEvent(
   await createServiceRow({
     cuid: serviceCommunity.cuid,
     communityName: serviceCommunity.communityName,
+    communityGroup: serviceCommunity.communityGroup,
     roomNumber: serviceCommunity.roomNumber,
     serviceType: ROOM_VACANCY_SERVICE_TYPE,
     startDate: boundaryDate,
@@ -1706,6 +1729,7 @@ async function handleUpdateEvent(
       nextCuid: nextCuid,
       previousRoom,
       nextCommunityName: patientRecord.CommunityName ?? communityContext.CommunityName,
+      nextCommunityGroup: communityContext.CommunityGroup,
       incomingServiceType: classificationForService,
     });
   } else {
@@ -1790,6 +1814,7 @@ async function handleUpdateEvent(
           patientNumber: String(residentId),
           cuid: serviceCommunity.cuid,
           communityName: serviceCommunity.communityName,
+          communityGroup: serviceCommunity.communityGroup,
           roomNumber: serviceCommunity.roomNumber,
           serviceType: incomingServiceType,
           startDate: boundaryDate,
@@ -1878,6 +1903,7 @@ async function handleUpdateEvent(
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
             communityName: serviceCommunity.communityName,
+            communityGroup: serviceCommunity.communityGroup,
             roomNumber: serviceCommunity.roomNumber,
             serviceType: incomingServiceType,
             startDate: boundaryDate,
@@ -1892,6 +1918,7 @@ async function handleUpdateEvent(
             patientNumber: String(residentId),
             cuid: serviceCommunity.cuid,
             communityName: serviceCommunity.communityName,
+            communityGroup: serviceCommunity.communityGroup,
             roomNumber: serviceCommunity.roomNumber,
             serviceType: incomingServiceType,
             startDate: boundaryDate,

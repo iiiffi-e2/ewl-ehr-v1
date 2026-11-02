@@ -155,6 +155,7 @@ export async function pushToCaspio(
         startDate: patientRecord.Service_Start_Date ?? patientRecord.Move_in_Date,
         endDate: patientRecord.Service_End_Date,
         communityName: patientRecord.CommunityName,
+        communityGroup: communityRecord.CommunityGroup,
       });
 
       await caspioRequestWithRetry(() =>

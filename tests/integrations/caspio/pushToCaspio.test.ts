@@ -199,6 +199,24 @@ describe('pushToCaspio new-table routing', () => {
     );
   });
 
+  it('writes CommunityGroup on the service row from community enrichment', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '259',
+      CommunityName: 'YourLife Pensacola',
+      CommunityGroup: 'YourLife',
+    });
+
+    await pushToCaspio(buildPayload());
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      [{ field: 'Service_ID', value: expect.any(String) }],
+      expect.objectContaining({
+        CommunityGroup: 'YourLife',
+      }),
+    );
+  });
+
   it('falls back to the community address and does not replace a stored resident address', async () => {
     const payload = buildPayload();
     payload.data.community = {

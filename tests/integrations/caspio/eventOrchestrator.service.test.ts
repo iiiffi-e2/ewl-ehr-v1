@@ -1882,6 +1882,40 @@ describe('eventOrchestrator service-table scenarios', () => {
     });
   });
 
+  it('writes CommunityGroup from the community row onto new service rows', async () => {
+    findCommunityByIdAndRoomNumberMock.mockResolvedValue({
+      found: true,
+      record: {
+        CUID: '259',
+        CommunityName: 'YourLife Pensacola',
+        CommunityGroup: 'YourLife',
+        RoomNumber: '305B',
+      },
+    });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.move_in',
+        EventMessageId: 'evt-community-group',
+        EventMessageDate: '2026-10-24T15:00:00Z',
+        NotificationData: { ResidentId: 70508, RoomNumber: '305B' },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.any(Array),
+      expect.objectContaining({
+        CommunityGroup: 'YourLife',
+        CommunityName: 'YourLife Pensacola',
+      }),
+    );
+  });
+
   it('move-in writes the community address when the resident has none', async () => {
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: '259',

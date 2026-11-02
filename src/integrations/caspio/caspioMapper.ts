@@ -131,6 +131,7 @@ export type ServiceTableApiRecord = {
   StartDate?: string;
   EndDate?: string;
   CommunityName?: string;
+  CommunityGroup?: string;
 };
 
 export type OffPremHistoryTableRecord = {
@@ -640,6 +641,7 @@ export function mapServiceRecord(params: {
   startDate?: string;
   endDate?: string;
   communityName?: string;
+  communityGroup?: string;
   serviceId?: string;
 }): ServiceTableApiRecord {
   const patientNumber = params.patientNumber !== undefined ? String(params.patientNumber) : undefined;
@@ -659,6 +661,7 @@ export function mapServiceRecord(params: {
     StartDate: params.startDate,
     EndDate: params.endDate,
     CommunityName: params.communityName,
+    CommunityGroup: params.communityGroup,
   });
 }
 
