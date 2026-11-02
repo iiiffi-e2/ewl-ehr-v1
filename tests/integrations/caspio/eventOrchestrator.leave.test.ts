@@ -2,6 +2,8 @@ const findRecordByFieldsMock = jest.fn();
 const findByPatientNumberMock = jest.fn();
 const findCommunityByIdAndRoomNumberMock = jest.fn();
 const findActiveOrLatestServiceRowMock = jest.fn();
+const listOpenServiceRowsForPatientMock = jest.fn();
+const listOpenServiceRowsByCuidAndServiceTypeMock = jest.fn();
 const findOpenOffPremEpisodeMock = jest.fn();
 const upsertByFieldsMock = jest.fn();
 const upsertOffPremEpisodeByEpisodeIdMock = jest.fn();
@@ -12,6 +14,8 @@ jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   findByPatientNumber: findByPatientNumberMock,
   findCommunityByIdAndRoomNumber: findCommunityByIdAndRoomNumberMock,
   findActiveOrLatestServiceRow: findActiveOrLatestServiceRowMock,
+  listOpenServiceRowsForPatient: listOpenServiceRowsForPatientMock,
+  listOpenServiceRowsByCuidAndServiceType: listOpenServiceRowsByCuidAndServiceTypeMock,
   findOpenOffPremEpisode: findOpenOffPremEpisodeMock,
   upsertByFields: upsertByFieldsMock,
   upsertOffPremEpisodeByEpisodeId: upsertOffPremEpisodeByEpisodeIdMock,
@@ -65,6 +69,10 @@ describe('eventOrchestrator leave events with off-prem history', () => {
       id: 'svc-1',
       record: { ServiceType: 'Assisted Living', StartDate: '2025-01-01' },
     });
+    listOpenServiceRowsForPatientMock.mockResolvedValue([
+      { id: 'svc-1', record: { ServiceType: 'Assisted Living', StartDate: '2025-01-01' } },
+    ]);
+    listOpenServiceRowsByCuidAndServiceTypeMock.mockResolvedValue([]);
     findOpenOffPremEpisodeMock.mockResolvedValue({
       found: true,
       id: 'ep-1',

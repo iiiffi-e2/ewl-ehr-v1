@@ -1294,10 +1294,119 @@ export async function findActiveOrLatestServiceRow(params: {
   };
 }
 
-export async function findOpenServiceRowByCuidAndServiceType(params: {
+export async function listServiceRowsForPatient(params: {
+  patientNumber: string;
+  cuid?: string;
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
+  const records = (await caspioRequestWithRetry(async () => {
+    const token = await getAccessToken();
+    const patientNumberString = String(params.patientNumber).trim();
+    const cuidString = params.cuid?.trim() ?? '';
+    const patientVariants: Array<string | number> = [patientNumberString];
+    const cuidVariants: Array<string | number> = cuidString ? [cuidString] : [];
+    const parsedPatientNumber = Number(patientNumberString);
+    const parsedCuid = Number(cuidString);
+    if (/^-?\d+(\.\d+)?$/.test(patientNumberString) && Number.isFinite(parsedPatientNumber)) {
+      patientVariants.push(parsedPatientNumber);
+    }
+    if (cuidString && /^-?\d+(\.\d+)?$/.test(cuidString) && Number.isFinite(parsedCuid)) {
+      cuidVariants.push(parsedCuid);
+    }
+
+    const aggregated: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    const appendRecords = (rows: unknown[]) => {
+      for (const row of rows as Array<Record<string, unknown>>) {
+        const id = extractRecordId(row);
+        const key = id ?? JSON.stringify(row);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        aggregated.push(row);
+      }
+    };
+
+    if (cuidVariants.length > 0) {
+      for (const patientVariant of patientVariants) {
+        for (const cuidVariant of cuidVariants) {
+          const whereClause = buildWhereClause([
+            { field: 'PatientNumber', value: patientVariant },
+            { field: 'CUID', value: cuidVariant },
+          ]);
+          appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+        }
+      }
+    }
+
+    if (aggregated.length === 0) {
+      for (const patientVariant of patientVariants) {
+        const whereClause = buildWhereClause([{ field: 'PatientNumber', value: patientVariant }]);
+        appendRecords(await fetchRecordsWithWherePaged(env.CASPIO_SERVICE_TABLE_NAME, token, whereClause));
+      }
+    }
+
+    return aggregated;
+  })) as Array<Record<string, unknown>>;
+
+  if (records.length === 0) {
+    return [];
+  }
+
+  const exactMatches = records.filter((record) => {
+    const recordPatientNumber = readComparableField(record, [
+      'PatientNumber',
+      'patientNumber',
+      'Patient_Number',
+      'patient_number',
+    ]);
+    const recordCuid = readComparableField(record, ['CUID', 'cuid']);
+    const patientMatches = recordPatientNumber === params.patientNumber;
+    if (!params.cuid) {
+      return patientMatches;
+    }
+    return patientMatches && recordCuid === params.cuid;
+  });
+
+  if (exactMatches.length === 0) {
+    logger.warn(
+      {
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+        scannedCount: records.length,
+      },
+      'caspio_service_rows_no_exact_match_after_lookup',
+    );
+    return [];
+  }
+
+  const withIds = exactMatches
+    .map((record) => ({ record: record as ServiceTableRecord, id: extractRecordId(record) }))
+    .filter((entry): entry is { record: ServiceTableRecord; id: string } => Boolean(entry.id));
+
+  if (withIds.length === 0) {
+    logger.warn(
+      { patientNumber: params.patientNumber, cuid: params.cuid, matchCount: exactMatches.length },
+      'caspio_service_rows_found_without_ids',
+    );
+    return [];
+  }
+
+  return withIds;
+}
+
+export async function listOpenServiceRowsForPatient(params: {
+  patientNumber: string;
+  cuid?: string;
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
+  const rows = await listServiceRowsForPatient(params);
+  return rows.filter(({ record }) => isOpenServiceEndDate(record.EndDate));
+}
+
+export async function listOpenServiceRowsByCuidAndServiceType(params: {
   cuid: string;
   serviceType: string;
-}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
   const records = (await caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const cuidString = String(params.cuid).trim();
@@ -1344,27 +1453,38 @@ export async function findOpenServiceRowByCuidAndServiceType(params: {
   });
 
   if (exactOpenMatches.length === 0) {
-    return { found: false };
+    return [];
   }
 
   const withIds = exactOpenMatches
-    .map((record) => ({ record, id: extractRecordId(record) }))
-    .filter((entry) => entry.id);
+    .map((record) => ({ record: record as ServiceTableRecord, id: extractRecordId(record) }))
+    .filter((entry): entry is { record: ServiceTableRecord; id: string } => Boolean(entry.id));
 
   if (withIds.length === 0) {
     logger.warn(
       { cuid: params.cuid, serviceType: params.serviceType, matchCount: exactOpenMatches.length },
       'caspio_open_service_rows_found_without_ids',
     );
-    return { found: false };
+    return [];
   }
 
   withIds.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
-  const selected = withIds[0];
+  return withIds;
+}
+
+export async function findOpenServiceRowByCuidAndServiceType(params: {
+  cuid: string;
+  serviceType: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const rows = await listOpenServiceRowsByCuidAndServiceType(params);
+  const selected = rows[0];
+  if (!selected) {
+    return { found: false };
+  }
   return {
     found: true,
     id: selected.id,
-    record: selected.record as ServiceTableRecord,
+    record: selected.record,
   };
 }
 

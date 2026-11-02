@@ -12,7 +12,8 @@ import type { AlisPayload } from '../alis/types.js';
 import {
   findActiveOrLatestServiceRow,
   findOpenOffPremEpisode,
-  findOpenServiceRowByCuidAndServiceType,
+  listOpenServiceRowsByCuidAndServiceType,
+  listOpenServiceRowsForPatient,
   findByPatientNumber,
   findCommunityByIdAndRoomNumber,
   findRecordByFields,
@@ -37,7 +38,6 @@ import {
   parseCaspioSortableDate,
 } from './caspioDateTime.js';
 import {
-  POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
   ROOM_VACANCY_SERVICE_TYPE,
   SERVICE_LINE_UNASSIGNED_CLASSIFICATION,
   UNASSIGNED_ROOM_LABEL,
@@ -877,12 +877,12 @@ async function closeLatestServiceRow(params: {
   communityId?: number;
   source?: string;
 }): Promise<void> {
-  const serviceRow = await findActiveOrLatestServiceRow({
+  const openRows = await listOpenServiceRowsForPatient({
     patientNumber: params.patientNumber,
     cuid: params.cuid,
   });
 
-  if (!serviceRow.found || !serviceRow.id) {
+  if (openRows.length === 0) {
     await recordEventIssue({
       companyId: params.companyId,
       eventType: params.eventType ?? 'unknown',
@@ -914,24 +914,11 @@ async function closeLatestServiceRow(params: {
     return;
   }
 
-  logger.info(
-    {
-      eventMessageId: params.eventMessageId,
-      eventType: params.eventType,
-      residentId: params.residentId,
-      communityId: params.communityId,
-      source: params.source,
-      serviceRowId: serviceRow.id,
-      patientNumber: params.patientNumber,
-      cuid: params.cuid,
-      currentStartDate: serviceRow.record?.StartDate ?? null,
-      currentEndDate: serviceRow.record?.EndDate ?? null,
-      requestedEndDate: params.endDate,
-    },
-    'service_close_target_resolved',
-  );
-
-  if (serviceRow.record?.EndDate === params.endDate) {
+  for (const serviceRow of openRows) {
+    if (serviceRow.record?.EndDate === params.endDate) {
+      continue;
+    }
+    await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, { EndDate: params.endDate });
     logger.info(
       {
         eventMessageId: params.eventMessageId,
@@ -940,28 +927,13 @@ async function closeLatestServiceRow(params: {
         communityId: params.communityId,
         source: params.source,
         serviceRowId: serviceRow.id,
-        requestedEndDate: params.endDate,
+        patientNumber: params.patientNumber,
+        cuid: params.cuid,
+        endDate: params.endDate,
       },
-      'service_close_skipped_same_end_date',
+      'service_row_closed',
     );
-    return;
   }
-
-  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, { EndDate: params.endDate });
-  logger.info(
-    {
-      eventMessageId: params.eventMessageId,
-      eventType: params.eventType,
-      residentId: params.residentId,
-      communityId: params.communityId,
-      source: params.source,
-      serviceRowId: serviceRow.id,
-      patientNumber: params.patientNumber,
-      cuid: params.cuid,
-      endDate: params.endDate,
-    },
-    'service_row_closed',
-  );
 }
 
 async function closeOpenVacantServiceRowForCuid(params: {
@@ -973,12 +945,12 @@ async function closeOpenVacantServiceRowForCuid(params: {
   communityId?: number;
   source?: string;
 }): Promise<void> {
-  const openVacantRow = await findOpenServiceRowByCuidAndServiceType({
+  const openVacantRows = await listOpenServiceRowsByCuidAndServiceType({
     cuid: params.cuid,
     serviceType: ROOM_VACANCY_SERVICE_TYPE,
   });
 
-  if (!openVacantRow.found || !openVacantRow.id) {
+  if (openVacantRows.length === 0) {
     logger.info(
       {
         eventMessageId: params.eventMessageId,
@@ -993,20 +965,69 @@ async function closeOpenVacantServiceRowForCuid(params: {
     return;
   }
 
-  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, openVacantRow.id, { EndDate: params.endDate });
-  logger.info(
-    {
-      eventMessageId: params.eventMessageId,
-      eventType: params.eventType,
-      residentId: params.residentId,
-      communityId: params.communityId,
-      source: params.source,
-      serviceRowId: openVacantRow.id,
-      cuid: params.cuid,
-      endDate: params.endDate,
-    },
-    'destination_vacant_service_row_closed',
-  );
+  for (const openVacantRow of openVacantRows) {
+    await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, openVacantRow.id, { EndDate: params.endDate });
+    logger.info(
+      {
+        eventMessageId: params.eventMessageId,
+        eventType: params.eventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        source: params.source,
+        serviceRowId: openVacantRow.id,
+        cuid: params.cuid,
+        endDate: params.endDate,
+      },
+      'destination_vacant_service_row_closed',
+    );
+  }
+}
+
+async function ensureOpenRoomVacant(params: {
+  cuid: string;
+  communityName?: string;
+  communityGroup?: string;
+  roomNumber?: string;
+  startDate: string;
+  eventMessageId?: string | number;
+  eventType?: string;
+  residentId?: number;
+  communityId?: number;
+  source: string;
+}): Promise<void> {
+  const openVacantRows = await listOpenServiceRowsByCuidAndServiceType({
+    cuid: params.cuid,
+    serviceType: ROOM_VACANCY_SERVICE_TYPE,
+  });
+  if (openVacantRows.length > 0) {
+    logger.info(
+      {
+        eventMessageId: params.eventMessageId,
+        eventType: params.eventType,
+        residentId: params.residentId,
+        communityId: params.communityId,
+        source: params.source,
+        cuid: params.cuid,
+        openVacantCount: openVacantRows.length,
+      },
+      'room_vacant_skipped_open_row_exists',
+    );
+    return;
+  }
+
+  await createServiceRow({
+    cuid: params.cuid,
+    communityName: params.communityName,
+    communityGroup: params.communityGroup,
+    roomNumber: params.roomNumber,
+    serviceType: ROOM_VACANCY_SERVICE_TYPE,
+    startDate: params.startDate,
+    eventMessageId: params.eventMessageId,
+    eventType: params.eventType,
+    residentId: params.residentId,
+    communityId: params.communityId,
+    source: params.source,
+  });
 }
 
 /**
@@ -1074,12 +1095,11 @@ async function applyRoomTransferServiceTable(params: {
   });
 
   if (previousRoomTrimmed) {
-    await createServiceRow({
+    await ensureOpenRoomVacant({
       cuid: params.previousCuid,
       communityName: oldRoomEnrichment?.CommunityName ?? undefined,
       communityGroup: oldRoomEnrichment?.CommunityGroup,
       roomNumber: previousRoomTrimmed,
-      serviceType: ROOM_VACANCY_SERVICE_TYPE,
       startDate: boundaryDate,
       eventMessageId: params.event.EventMessageId,
       eventType: params.event.EventType,
@@ -1242,6 +1262,20 @@ async function handleMoveInEvent(
     fallbackCommunityName: communityContext.CommunityName ?? mappedCommunityName,
   });
   if (serviceCommunity.matched && serviceCommunity.cuid) {
+    const startDate = normalizeScenarioDateTime(
+      patientRecord.Move_in_Date,
+      event.EventMessageDate,
+      serviceCommunity.communityName,
+    );
+    await closeOpenVacantServiceRowForCuid({
+      cuid: serviceCommunity.cuid,
+      endDate: startDate,
+      eventMessageId: event.EventMessageId,
+      eventType: event.EventType,
+      residentId,
+      communityId,
+      source: 'move_in_close_vacant',
+    });
     await createServiceRow({
       patientNumber: String(residentId),
       cuid: serviceCommunity.cuid,
@@ -1249,11 +1283,7 @@ async function handleMoveInEvent(
       communityGroup: serviceCommunity.communityGroup,
       roomNumber: serviceCommunity.roomNumber,
       serviceType,
-      startDate: normalizeScenarioDateTime(
-        patientRecord.Move_in_Date,
-        event.EventMessageDate,
-        serviceCommunity.communityName,
-      ),
+      startDate,
       eventMessageId: event.EventMessageId,
       eventType: event.EventType,
       residentId,
@@ -1386,20 +1416,6 @@ async function handleMoveOutEvent(
       communityId,
       source: 'move_out',
     });
-    await createServiceRow({
-      patientNumber: String(residentId),
-      cuid: serviceCommunity.cuid,
-      communityName: serviceCommunity.communityName,
-      communityGroup: serviceCommunity.communityGroup,
-      roomNumber: serviceCommunity.roomNumber,
-      serviceType: POST_MOVE_OUT_RESIDENT_SERVICE_TYPE,
-      startDate: serviceBoundaryDate,
-      eventMessageId: event.EventMessageId,
-      eventType: event.EventType,
-      residentId,
-      communityId,
-      source: 'move_out_resident_post_exit',
-    });
   }
 
   await closeOpenOffPremEpisode({
@@ -1530,12 +1546,11 @@ async function handleRoomUnassignedEvent(
     source: 'room_unassigned_close',
   });
 
-  await createServiceRow({
+  await ensureOpenRoomVacant({
     cuid: serviceCommunity.cuid,
     communityName: serviceCommunity.communityName,
     communityGroup: serviceCommunity.communityGroup,
     roomNumber: serviceCommunity.roomNumber,
-    serviceType: ROOM_VACANCY_SERVICE_TYPE,
     startDate: boundaryDate,
     eventMessageId: event.EventMessageId,
     eventType: event.EventType,
