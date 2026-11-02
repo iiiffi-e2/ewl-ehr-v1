@@ -272,4 +272,56 @@ describe('processAlisEvent worker', () => {
       source: 'alis',
     });
   });
+
+  it('runs events for one resident one at a time and lets different residents overlap', async () => {
+    let activeForResident = 0;
+    let maxForResident = 0;
+    let activeTotal = 0;
+    let maxTotal = 0;
+    handleEhrEventMock.mockImplementation(async (args: { event: { notificationData: { ResidentId: number } } }) => {
+      const residentId = args.event.notificationData.ResidentId;
+      activeTotal += 1;
+      maxTotal = Math.max(maxTotal, activeTotal);
+      if (residentId === 70508) {
+        activeForResident += 1;
+        maxForResident = Math.max(maxForResident, activeForResident);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (residentId === 70508) {
+        activeForResident -= 1;
+      }
+      activeTotal -= 1;
+    });
+    resolveResidentIdMock.mockImplementation(
+      ({ event }: { event: { notificationData: { ResidentId: number } } }) =>
+        event.notificationData.ResidentId,
+    );
+    fetchResidentBundleMock.mockImplementation(
+      async ({ residentId, event }: { residentId: number; event: Record<string, unknown> }) => ({
+        event: {
+          ...event,
+          notificationData: { ResidentId: residentId },
+        },
+        demographics: { externalResidentId: String(residentId), status: 'CurrentResident' },
+        vendorPayload: {},
+      }),
+    );
+
+    const job = (residentId: number, eventMessageId: string) =>
+      processAlisEventJob({
+        source: 'alis',
+        eventMessageId,
+        eventType: 'residents.move_in',
+        companyKey: 'appstoresandbox',
+        companyId: 10,
+        communityId: 113,
+        notificationData: { ResidentId: residentId },
+        eventMessageDate: '2026-10-28T18:41:05Z',
+      });
+
+    await Promise.all([job(70508, 'evt-a'), job(70508, 'evt-b'), job(80001, 'evt-c')]);
+
+    expect(maxForResident).toBe(1);
+    expect(maxTotal).toBeGreaterThan(1);
+  });
 });

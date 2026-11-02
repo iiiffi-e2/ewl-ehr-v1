@@ -16,6 +16,7 @@ import { upsertResident } from '../domains/residents.js';
 import { lifecycleFromYardiHl7EventType } from '../integrations/yardi/yardiHl7Triggers.js';
 
 import { getRedisConnection } from './connection.js';
+import { residentLifecycleKey, withResidentLock } from './residentEventLock.js';
 import { PROCESS_ALIS_EVENT_QUEUE } from './queue.js';
 import type { ProcessAlisEventJobData } from './types.js';
 
@@ -306,13 +307,15 @@ export async function processAlisEventJob(data: ProcessAlisEventJobData): Promis
 
     if (shouldProcessCaspio && !shouldShadowOnly) {
       try {
-        await handleEhrEvent({
-          source,
-          companyId,
-          companyKey,
-          event: residentBundle.event,
-          residentBundle,
-        });
+        await withResidentLock(residentLifecycleKey(companyId, residentId), () =>
+          handleEhrEvent({
+            source,
+            companyId,
+            companyKey,
+            event: residentBundle.event,
+            residentBundle,
+          }),
+        );
       } catch (caspioError) {
         await recordEventIssue({
           companyId,

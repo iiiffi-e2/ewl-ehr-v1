@@ -3,6 +3,7 @@ import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import { createHttpClient } from '../../config/axios.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { parseCaspioSortableDate } from './caspioDateTime.js';
 import { noteCaspioWrite } from './caspioWriteRecorder.js';
 
 type TokenCache = {
@@ -259,30 +260,7 @@ function extractRecordId(record: Record<string, unknown>): string | undefined {
 }
 
 function parseSortableDate(value: unknown): number {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const trimmed = value.trim();
-  const ts = Date.parse(trimmed);
-  if (!Number.isNaN(ts)) {
-    return ts;
-  }
-  const mdYDateTimeMatch = trimmed.match(
-    /^(\d{1,2})[/:](\d{1,2})[/:](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
-  );
-  if (mdYDateTimeMatch) {
-    const [, month, day, year, hour, minute, second] = mdYDateTimeMatch;
-    return Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      Number(second),
-      0,
-    );
-  }
-  return Number.NEGATIVE_INFINITY;
+  return parseCaspioSortableDate(value);
 }
 
 function isDefaultServiceEndDate(value: string): boolean {
@@ -1494,10 +1472,18 @@ export async function findActiveOrLatestServiceRow(params: {
   };
 }
 
-export async function findOpenServiceRowByCuidAndServiceType(params: {
+export async function listOpenServiceRowsForPatient(params: {
+  patientNumber: string;
+  cuid?: string;
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
+  const rows = await listServiceRowsForPatient(params);
+  return rows.filter(({ record }) => isOpenServiceEndDate(record.EndDate));
+}
+
+export async function listOpenServiceRowsByCuidAndServiceType(params: {
   cuid: string;
   serviceType: string;
-}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+}): Promise<Array<{ id: string; record: ServiceTableRecord }>> {
   const records = (await caspioRequestWithRetry(async () => {
     const token = await getAccessToken();
     const cuidString = String(params.cuid).trim();
@@ -1544,27 +1530,38 @@ export async function findOpenServiceRowByCuidAndServiceType(params: {
   });
 
   if (exactOpenMatches.length === 0) {
-    return { found: false };
+    return [];
   }
 
   const withIds = exactOpenMatches
-    .map((record) => ({ record, id: extractRecordId(record) }))
-    .filter((entry) => entry.id);
+    .map((record) => ({ record: record as ServiceTableRecord, id: extractRecordId(record) }))
+    .filter((entry): entry is { record: ServiceTableRecord; id: string } => Boolean(entry.id));
 
   if (withIds.length === 0) {
     logger.warn(
       { cuid: params.cuid, serviceType: params.serviceType, matchCount: exactOpenMatches.length },
       'caspio_open_service_rows_found_without_ids',
     );
-    return { found: false };
+    return [];
   }
 
   withIds.sort((a, b) => parseSortableDate(b.record.StartDate) - parseSortableDate(a.record.StartDate));
-  const selected = withIds[0];
+  return withIds;
+}
+
+export async function findOpenServiceRowByCuidAndServiceType(params: {
+  cuid: string;
+  serviceType: string;
+}): Promise<{ found: boolean; id?: string; record?: ServiceTableRecord }> {
+  const rows = await listOpenServiceRowsByCuidAndServiceType(params);
+  const selected = rows[0];
+  if (!selected) {
+    return { found: false };
+  }
   return {
     found: true,
     id: selected.id,
-    record: selected.record as ServiceTableRecord,
+    record: selected.record,
   };
 }
 

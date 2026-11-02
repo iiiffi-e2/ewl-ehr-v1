@@ -131,6 +131,7 @@ export type ServiceTableApiRecord = {
   StartDate?: string;
   EndDate?: string;
   CommunityName?: string;
+  CommunityGroup?: string;
 };
 
 export type OffPremHistoryTableRecord = {
@@ -426,6 +427,10 @@ export function mapPatientRecord(
   community: {
     CUID?: string;
     CommunityName?: string;
+    Address?: string;
+    City?: string;
+    State?: string;
+    Zip?: string;
   } = {},
 ): CarePatientTableApiRecord {
   const resident = getResidentRecord(payload);
@@ -534,10 +539,10 @@ export function mapPatientRecord(
     PatientDOB: dob,
     PatientCommunity: community.CommunityName ?? getStringValue(communityPayload, ['CommunityName', 'communityName']),
     RoomNumber: apartmentNumber,
-    PatientAddress: patientAddress,
-    PatientAddressCity: patientAddressCity,
-    PatientAddressState: patientAddressState,
-    PatientAddressZip: patientAddressZip,
+    PatientAddress: patientAddress ?? blankToUndefined(community.Address),
+    PatientAddressCity: patientAddressCity ?? blankToUndefined(community.City),
+    PatientAddressState: patientAddressState ?? blankToUndefined(community.State),
+    PatientAddressZip: patientAddressZip ?? blankToUndefined(community.Zip),
     PatientPrimaryInsurance: slot1?.name ?? null,
     PrimaryInsuranceNum: slot1?.number ?? null,
     GroupNumber1: slot1?.group ?? null,
@@ -585,6 +590,49 @@ export function mapPatientRecord(
   return stripUndefined(record);
 }
 
+/**
+ * A resident address from ALIS replaces whatever is stored.
+ * A community-address fallback must not replace an address already on the Caspio row.
+ */
+export function retainStoredPatientAddress(
+  record: CarePatientTableApiRecord,
+  existing: CarePatientTableApiRecord | undefined,
+  payload: AlisPayload,
+): void {
+  if (!existing) return;
+  const resident = getResidentRecord(payload);
+  const basicInfo = getBasicInfoRecord(payload);
+  const fields: Array<{
+    field: 'PatientAddress' | 'PatientAddressCity' | 'PatientAddressState' | 'PatientAddressZip';
+    residentKeys: string[];
+  }> = [
+    {
+      field: 'PatientAddress',
+      residentKeys: ['Address', 'address', 'StreetAddress', 'streetAddress', 'StreetAddress1', 'streetAddress1'],
+    },
+    { field: 'PatientAddressCity', residentKeys: ['City', 'city'] },
+    { field: 'PatientAddressState', residentKeys: ['State', 'state'] },
+    {
+      field: 'PatientAddressZip',
+      residentKeys: ['Zip', 'zip', 'ZipCode', 'zipCode', 'PostalCode', 'postalCode'],
+    },
+  ];
+  for (const entry of fields) {
+    const residentValue = getPatientAddressField(resident, basicInfo, entry.residentKeys, entry.residentKeys);
+    if (residentValue) continue;
+    const stored = existing[entry.field];
+    if (typeof stored === 'string' && stored.trim().length > 0) {
+      record[entry.field] = stored.trim();
+    }
+  }
+}
+
+function blankToUndefined(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function mapServiceRecord(params: {
   patientNumber?: string | number;
   cuid?: string;
@@ -593,6 +641,7 @@ export function mapServiceRecord(params: {
   startDate?: string;
   endDate?: string;
   communityName?: string;
+  communityGroup?: string;
   serviceId?: string;
 }): ServiceTableApiRecord {
   const patientNumber = params.patientNumber !== undefined ? String(params.patientNumber) : undefined;
@@ -612,6 +661,7 @@ export function mapServiceRecord(params: {
     StartDate: params.startDate,
     EndDate: params.endDate,
     CommunityName: params.communityName,
+    CommunityGroup: params.communityGroup,
   });
 }
 

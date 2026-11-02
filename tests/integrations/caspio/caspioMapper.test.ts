@@ -6,6 +6,7 @@ import {
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
+  retainStoredPatientAddress,
 } from '../../../src/integrations/caspio/caspioMapper.js';
 import type { AlisPayload } from '../../../src/integrations/alis/types.js';
 
@@ -183,6 +184,46 @@ describe('caspioMapper new table mappings', () => {
     });
 
     expect(record.RoomNumber).toBeUndefined();
+  });
+
+  it('fills a blank resident address from the community and keeps a stored address', () => {
+    const payload = buildPayload();
+    (payload.data.resident as Record<string, unknown>).Address = undefined;
+    const community = {
+      CUID: '259',
+      CommunityName: 'YourLife Pensacola',
+      Address: '123 Community Way',
+      City: 'Pensacola',
+      State: 'FL',
+      Zip: '32501',
+    };
+
+    const filled = mapPatientRecord(payload, community);
+    expect(filled.PatientAddress).toBe('123 Community Way');
+    expect(filled.PatientAddressCity).toBe('Pensacola');
+    expect(filled.PatientAddressState).toBe('FL');
+    expect(filled.PatientAddressZip).toBe('32501');
+
+    (payload.data.resident as Record<string, unknown>).Address = '9 Resident Lane';
+    (payload.data.resident as Record<string, unknown>).City = 'Gulf Breeze';
+    const residentWins = mapPatientRecord(payload, community);
+    expect(residentWins.PatientAddress).toBe('9 Resident Lane');
+    expect(residentWins.PatientAddressCity).toBe('Gulf Breeze');
+
+    const blankResident = buildPayload();
+    const fallback = mapPatientRecord(blankResident, community);
+    retainStoredPatientAddress(
+      fallback,
+      {
+        PatientAddress: '400 Stored St',
+        PatientAddressCity: 'Pensacola',
+        PatientAddressState: 'FL',
+        PatientAddressZip: '32502',
+      },
+      blankResident,
+    );
+    expect(fallback.PatientAddress).toBe('400 Stored St');
+    expect(fallback.PatientAddressZip).toBe('32502');
   });
 
   it('sanitizes diagnosis fields to a safe compact value', () => {
