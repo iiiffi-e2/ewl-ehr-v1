@@ -29,6 +29,7 @@ import {
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
+  retainStoredPatientAddress,
 } from './caspioMapper.js';
 import {
   communityTimeZone,
@@ -451,7 +452,14 @@ async function applyCommunityEnrichment(
   communityId: number,
   roomNumber: string | undefined,
   communityName?: string,
-): Promise<{ CUID?: string; CommunityName?: string }> {
+): Promise<{
+  CUID?: string;
+  CommunityName?: string;
+  Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
+}> {
   try {
     const enrichment = await getCommunityEnrichment(communityId, roomNumber, communityName);
     logger.info(
@@ -466,6 +474,10 @@ async function applyCommunityEnrichment(
     return {
       CUID: enrichment.CUID,
       CommunityName: enrichment.CommunityName,
+      Address: enrichment.Address,
+      City: enrichment.City,
+      State: enrichment.State,
+      Zip: enrichment.Zip,
     };
   } catch (error) {
     logger.warn(
@@ -1166,9 +1178,18 @@ async function handleMoveInEvent(
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
   const roomNumber = normalizeRoomIdentifier(extractRoomNumber(event));
-  const mappedCommunityName = mapCommunityRecord(payload).CommunityName;
+  const mappedCommunity = mapCommunityRecord(payload);
+  const mappedCommunityName = mappedCommunity.CommunityName;
   const communityContext = await applyCommunityEnrichment(communityId, roomNumber, mappedCommunityName);
-  const patientRecord = mapPatientRecord(payload, communityContext);
+  const existingPatient = await findExistingPatient(String(residentId), communityContext.CUID);
+  const patientRecord = mapPatientRecord(payload, {
+    ...communityContext,
+    Address: communityContext.Address ?? mappedCommunity.Address,
+    City: communityContext.City ?? mappedCommunity.City,
+    State: communityContext.State ?? mappedCommunity.State,
+    Zip: communityContext.Zip ?? mappedCommunity.Zip,
+  });
+  retainStoredPatientAddress(patientRecord, existingPatient.record, payload);
   patientRecord.PatientNumber = String(residentId);
   if (roomNumber) {
     patientRecord.RoomNumber = roomNumber;
@@ -1567,8 +1588,16 @@ async function handleUpdateEvent(
   );
 
   const payload = buildAlisPayload(residentId, event, fullResidentData);
-  const mappedCommunityName = mapCommunityRecord(payload).CommunityName;
-  const patientRecord = mapPatientRecord(payload, communityContext);
+  const mappedCommunity = mapCommunityRecord(payload);
+  const mappedCommunityName = mappedCommunity.CommunityName;
+  const patientRecord = mapPatientRecord(payload, {
+    ...communityContext,
+    Address: communityContext.Address ?? mappedCommunity.Address,
+    City: communityContext.City ?? mappedCommunity.City,
+    State: communityContext.State ?? mappedCommunity.State,
+    Zip: communityContext.Zip ?? mappedCommunity.Zip,
+  });
+  retainStoredPatientAddress(patientRecord, existing.record, payload);
   applyPreferredRoomFromEvent(event, patientRecord, roomNumber);
   const selectedRoomNumber = chooseRoomNumberForUpdate(
     event,

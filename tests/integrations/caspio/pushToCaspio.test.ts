@@ -1,9 +1,11 @@
 const upsertByFieldsMock = jest.fn();
+const findByPatientNumberMock = jest.fn();
 const caspioRequestWithRetryMock = jest.fn(async (operation: () => Promise<unknown>) => operation());
 const getCommunityEnrichmentMock = jest.fn();
 
 jest.mock('../../../src/integrations/caspio/caspioClient.js', () => ({
   upsertByFields: upsertByFieldsMock,
+  findByPatientNumber: findByPatientNumberMock,
   caspioRequestWithRetry: caspioRequestWithRetryMock,
 }));
 
@@ -83,6 +85,7 @@ describe('pushToCaspio new-table routing', () => {
       CommunityName: 'Sunset Manor',
     });
     upsertByFieldsMock.mockResolvedValue({ action: 'update', id: 'id-1' });
+    findByPatientNumberMock.mockResolvedValue({ found: false });
   });
 
   it('resolves community CUID and uses it in patient/service writes', async () => {
@@ -192,6 +195,58 @@ describe('pushToCaspio new-table routing', () => {
       expect.any(Array),
       expect.objectContaining({
         PatientNumber: '12345',
+      }),
+    );
+  });
+
+  it('falls back to the community address and does not replace a stored resident address', async () => {
+    const payload = buildPayload();
+    payload.data.community = {
+      CommunityId: 113,
+      CommunityName: 'YourLife Pensacola',
+    };
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '259',
+      CommunityName: 'YourLife Pensacola',
+      Address: '123 Community Way',
+      City: 'Pensacola',
+      State: 'FL',
+      Zip: '32501',
+    });
+
+    await pushToCaspio(payload, { skipServiceUpsert: true });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [{ field: 'PatientNumber', value: '12345' }],
+      expect.objectContaining({
+        PatientAddress: '123 Community Way',
+        PatientAddressCity: 'Pensacola',
+        PatientAddressState: 'FL',
+        PatientAddressZip: '32501',
+      }),
+    );
+
+    findByPatientNumberMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      raw: {
+        PatientAddress: '400 Stored St',
+        PatientAddressCity: 'Pensacola',
+        PatientAddressState: 'FL',
+        PatientAddressZip: '32502',
+      },
+    });
+    upsertByFieldsMock.mockClear();
+
+    await pushToCaspio(payload, { skipServiceUpsert: true });
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [{ field: 'PatientNumber', value: '12345' }],
+      expect.objectContaining({
+        PatientAddress: '400 Stored St',
+        PatientAddressZip: '32502',
       }),
     );
   });

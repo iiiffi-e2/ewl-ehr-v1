@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import {
   caspioRequestWithRetry,
+  findByPatientNumber,
   upsertByFields,
 } from './caspioClient.js';
 import { getCommunityEnrichment } from './caspioCommunityEnrichment.js';
@@ -12,7 +13,9 @@ import {
   mapPatientRecord,
   mapServiceRecord,
   redactForLogs,
+  retainStoredPatientAddress,
 } from './caspioMapper.js';
+import type { CarePatientTableApiRecord } from './caspioMapper.js';
 import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from './serviceLineTypes.js';
 
 import type { AlisPayload } from '../alis/types.js';
@@ -117,10 +120,20 @@ export async function pushToCaspio(
       }
     }
 
+    const existingPatient = await findByPatientNumber(env.CASPIO_TABLE_NAME, residentId);
     const patientRecord = mapPatientRecord(payload, {
       CUID: communityRecord.CUID,
       CommunityName: communityRecord.CommunityName,
+      Address: communityRecord.Address,
+      City: communityRecord.City,
+      State: communityRecord.State,
+      Zip: communityRecord.Zip,
     });
+    retainStoredPatientAddress(
+      patientRecord,
+      existingPatient.found ? (existingPatient.raw as CarePatientTableApiRecord | undefined) : undefined,
+      payload,
+    );
     if (!patientRecord.PatientNumber) {
       patientRecord.PatientNumber = residentId;
     }

@@ -1881,4 +1881,86 @@ describe('eventOrchestrator service-table scenarios', () => {
       EndDate: '10/24/2026',
     });
   });
+
+  it('move-in writes the community address when the resident has none', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '259',
+      CommunityName: 'YourLife Pensacola',
+      Address: '123 Community Way',
+      City: 'Pensacola',
+      State: 'FL',
+      Zip: '32501',
+    });
+    findRecordByFieldsMock.mockResolvedValue({ found: false });
+    findByPatientNumberMock.mockResolvedValue({ found: false });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.move_in',
+        EventMessageId: 'evt-address-fallback',
+        EventMessageDate: '2026-10-24T15:00:00Z',
+        NotificationData: { ResidentId: 70508, RoomNumber: '305B' },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({
+        PatientAddress: '123 Community Way',
+        PatientAddressCity: 'Pensacola',
+        PatientAddressState: 'FL',
+        PatientAddressZip: '32501',
+      }),
+    );
+  });
+
+  it('update keeps a stored patient address instead of replacing it with the community', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: '259',
+      CommunityName: 'YourLife Pensacola',
+      Address: '123 Community Way',
+      City: 'Pensacola',
+      State: 'FL',
+      Zip: '32501',
+    });
+    findRecordByFieldsMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      record: {
+        PatientNumber: '70508',
+        CUID: '259',
+        PatientAddress: '400 Stored St',
+        PatientAddressCity: 'Pensacola',
+        PatientAddressState: 'FL',
+        PatientAddressZip: '32502',
+      },
+    });
+
+    await handleAlisEvent(
+      {
+        CompanyKey: 'appstoresandbox',
+        CommunityId: 932,
+        EventType: 'residents.basic_info_updated',
+        EventMessageId: 'evt-keep-address',
+        EventMessageDate: '2026-10-24T15:00:00Z',
+        NotificationData: { ResidentId: 70508, RoomNumber: '305B' },
+      },
+      10,
+      'appstoresandbox',
+    );
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({
+        PatientAddress: '400 Stored St',
+        PatientAddressZip: '32502',
+      }),
+    );
+  });
 });
