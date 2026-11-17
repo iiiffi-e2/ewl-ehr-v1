@@ -48,7 +48,7 @@ A03, A21, and A22 require an existing patient. A missing patient is recorded as 
 
 ### Patient fields on an HL7 write
 
-From HL7 alone: PatientNumber, first name, last name, date of birth, room number, CUID, and community name.
+From HL7 alone: PatientNumber, first name, last name, date of birth, room number, CUID, and community name. When the message includes them, the first two `NK1` segments fill the two family contacts and the first two `IN1` segments fill the two insurance slots. A message without those segments leaves the existing Caspio values unchanged.
 
 When a FHIR bundle is attached, the same field set as the FHIR patient sync is used (address, phone, two insurance slots, two family contacts, two diagnoses, apartment number). Move-in is the only HL7 path that also writes move-in date, service start, and on-prem from the event. Updates strip those presence flags so an A02, A05, A08, or A60 does not overwrite leave or move-in state from the FHIR encounter.
 

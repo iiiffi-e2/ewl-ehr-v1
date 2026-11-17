@@ -147,7 +147,7 @@ Each facility id should appear with the company key and community id you set.
 
 Each organization id should appear with the same company key and community id. Skip this check when you are not enabling FHIR for the facility. Leave that facility off `YARDI_FHIR_POLL_TARGETS`. HL7 then writes from the ADT message only.
 
-An HL7-only write includes patient number, name, date of birth, room, `CUID`, and community name. Service type is `Unassigned`. Insurance, contacts, diagnoses, and address stay blank until the facility is also on the FHIR roster.
+An HL7-only write includes patient number, name, date of birth, room, `CUID`, and community name. Service type is `Unassigned`. The first two `NK1` contacts and the first two `IN1` insurance segments are written when Yardi sends them. Resident address and diagnoses stay blank until the facility is also on the FHIR roster.
 
 ## 6. Test HL7 without the mailbox
 

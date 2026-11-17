@@ -193,6 +193,33 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
+  it('writes NK1 contacts and IN1 insurance from the HL7 message', async () => {
+    const input = baseInput();
+    input.residentBundle!.vendorPayload = {
+      hl7: [
+        'MSH|^~\\&|Yardi|LNGFAY|EyeWatchLive|EyeWatchLive|20261116182020||ADT^A01|65789|P|2.5',
+        'PID|1||418612||Bradley^Joe',
+        'NK1|1|Ngo^Roger^H|^Spouse|430 S Fairview Ave^^Goleta^CA^93117|5555555555',
+        'IN1|1|^Medicare A/B||Medicare A/B||||||||||||||||||||||||||||||||AB6873803',
+      ].join('\r'),
+    };
+
+    await handleYardiHl7Event(input);
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({
+        FamilyContact1Name: 'Roger H Ngo',
+        FamilyContact1Relationship: 'Spouse',
+        FamilyContact1Number: '5555555555',
+        FamilyContact1Address: '430 S Fairview Ave, Goleta, CA 93117',
+        PatientPrimaryInsurance: 'Medicare A/B',
+        PrimaryInsuranceNum: 'AB6873803',
+      }),
+    );
+  });
+
   it('does not delegate A01 to the ALIS orchestrator', async () => {
     await handleYardiHl7Event(baseInput());
 
