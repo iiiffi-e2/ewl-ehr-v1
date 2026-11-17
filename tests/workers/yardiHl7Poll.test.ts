@@ -1,6 +1,6 @@
 const addMock = jest.fn();
 const drainYardiHl7MailboxMock = jest.fn();
-const fromEnvMock = jest.fn();
+const forFacilityMock = jest.fn();
 const mockWorkerOn = jest.fn();
 const getConfiguredYardiHl7PollTargetsMock = jest.fn();
 let mockWorkerProcessor: ((job: { id?: string; data: Record<string, never> }) => Promise<void>) | undefined;
@@ -10,6 +10,7 @@ const envState = {
   YARDI_HL7_POLL_INTERVAL_MS: 300_000,
   YARDI_HL7_POLL_MAX_MESSAGES: 50,
   YARDI_HL7_MAILBOX_PASSWORD: undefined as string | undefined,
+  YARDI_HL7_SENDING_FACILITY: 'EYELIVE',
 };
 
 jest.mock('bullmq', () => ({
@@ -50,7 +51,7 @@ jest.mock('../../src/workers/queue.js', () => ({
 
 jest.mock('../../src/integrations/yardi/yardiHl7BrokerClient.js', () => ({
   YardiHl7BrokerClient: {
-    fromEnv: fromEnvMock,
+    forFacility: forFacilityMock,
   },
 }));
 
@@ -88,7 +89,11 @@ describe('yardiHl7Poll worker', () => {
       errors: 0,
       empty: true,
     });
-    fromEnvMock.mockReturnValue({ getMessage: jest.fn(), processAck: jest.fn() });
+    forFacilityMock.mockImplementation((facilityId: string) => ({
+      facilityId,
+      getMessage: jest.fn(),
+      processAck: jest.fn(),
+    }));
   });
 
   it('register does not add when disabled', async () => {
@@ -158,9 +163,7 @@ describe('yardiHl7Poll worker', () => {
     expect(addMock).toHaveBeenCalled();
   });
 
-  it('processJob drains mailbox via broker client', async () => {
-    const client = { getMessage: jest.fn(), processAck: jest.fn() };
-    fromEnvMock.mockReturnValue(client);
+  it('processJob drains the roster facility mailbox', async () => {
     envState.YARDI_HL7_POLL_MAX_MESSAGES = 25;
 
     startYardiHl7PollWorker();
@@ -168,10 +171,44 @@ describe('yardiHl7Poll worker', () => {
 
     await mockWorkerProcessor!({ id: 'job-1', data: {} });
 
-    expect(fromEnvMock).toHaveBeenCalled();
+    expect(forFacilityMock).toHaveBeenCalledWith('EYELIVE');
     expect(drainYardiHl7MailboxMock).toHaveBeenCalledWith({
-      client,
+      client: expect.objectContaining({ facilityId: 'EYELIVE' }),
       maxMessages: 25,
     });
+  });
+
+  it('processJob drains each distinct roster mailbox and continues after a failure', async () => {
+    getConfiguredYardiHl7PollTargetsMock.mockReturnValue([
+      { companyKey: 'eyewatch', communityId: 237, facilityId: 'EYELIVE' },
+      { companyKey: 'srifayetteville', communityId: 20, facilityId: 'LNGFAY' },
+      { companyKey: '3rivers', communityId: 28, facilityId: 'CRKTHREE' },
+      { companyKey: 'srifayetteville', communityId: 20, facilityId: 'lngfay' },
+    ]);
+    drainYardiHl7MailboxMock
+      .mockResolvedValueOnce({ captured: 1, duplicates: 0, errors: 0, empty: true })
+      .mockRejectedValueOnce(new Error('broker down'))
+      .mockResolvedValueOnce({ captured: 0, duplicates: 0, errors: 0, empty: true });
+
+    startYardiHl7PollWorker();
+
+    await expect(mockWorkerProcessor!({ id: 'job-2', data: {} })).rejects.toThrow(/LNGFAY/);
+
+    expect(forFacilityMock.mock.calls.map((call) => call[0])).toEqual([
+      'EYELIVE',
+      'LNGFAY',
+      'CRKTHREE',
+    ]);
+    expect(drainYardiHl7MailboxMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('processJob uses the sending facility when the roster is empty', async () => {
+    getConfiguredYardiHl7PollTargetsMock.mockReturnValue([]);
+
+    startYardiHl7PollWorker();
+    await mockWorkerProcessor!({ id: 'job-3', data: {} });
+
+    expect(forFacilityMock).toHaveBeenCalledTimes(1);
+    expect(forFacilityMock).toHaveBeenCalledWith('EYELIVE');
   });
 });

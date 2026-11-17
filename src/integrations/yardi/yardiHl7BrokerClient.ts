@@ -32,6 +32,19 @@ export class YardiHl7BrokerClient {
   }
 
   static fromEnv(): YardiHl7BrokerClient {
+    return YardiHl7BrokerClient.forFacility(env.YARDI_HL7_SENDING_FACILITY);
+  }
+
+  /**
+   * One Yardi mailbox per roster facility. The password and the other MSH ids
+   * stay the same; ExternalFacilityID (GetMessage MSH.6 and ProcessACK) is the
+   * facility id.
+   */
+  static forFacility(facilityId: string): YardiHl7BrokerClient {
+    const yardiFacilityId = facilityId.trim();
+    if (!yardiFacilityId) {
+      throw new Error('HL7 facility id is required');
+    }
     if (!env.YARDI_HL7_MAILBOX_PASSWORD) {
       throw new Error('YARDI_HL7_MAILBOX_PASSWORD is required when using the HL7 broker client');
     }
@@ -40,7 +53,7 @@ export class YardiHl7BrokerClient {
       processAckUrl: env.YARDI_HL7_PROCESS_ACK_URL,
       identity: {
         yardiApplicationId: env.YARDI_HL7_SENDING_APPLICATION,
-        yardiFacilityId: env.YARDI_HL7_SENDING_FACILITY,
+        yardiFacilityId,
         pharmacySoftwareId: env.YARDI_HL7_RECEIVING_APPLICATION,
         pharmacyId: env.YARDI_HL7_RECEIVING_FACILITY,
         password: env.YARDI_HL7_MAILBOX_PASSWORD,

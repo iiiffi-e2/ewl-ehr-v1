@@ -13,6 +13,24 @@ jest.mock('../../../src/config/logger.js', () => ({
   },
 }));
 
+const brokerHttpPost = jest.fn();
+
+jest.mock('../../../src/config/axios.js', () => ({
+  createHttpClient: () => ({ post: brokerHttpPost }),
+}));
+
+jest.mock('../../../src/config/env.js', () => ({
+  env: {
+    YARDI_HL7_MAILBOX_PASSWORD: 'secret',
+    YARDI_HL7_GET_MESSAGE_URL: 'https://example.test/GetMessage',
+    YARDI_HL7_PROCESS_ACK_URL: 'https://example.test/ProcessACK/',
+    YARDI_HL7_SENDING_APPLICATION: 'Yardi',
+    YARDI_HL7_SENDING_FACILITY: 'EYELIVE',
+    YARDI_HL7_RECEIVING_APPLICATION: 'EyeWatchLive',
+    YARDI_HL7_RECEIVING_FACILITY: 'EyeWatchLive',
+  },
+}));
+
 const identity: YardiHl7BrokerIdentity = {
   yardiApplicationId: 'Yardi',
   yardiFacilityId: 'EYELIVE',
@@ -27,6 +45,27 @@ describe('YardiHl7BrokerClient', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('sends the roster facility id as the mailbox external facility id', async () => {
+    brokerHttpPost.mockResolvedValueOnce({
+      status: 200,
+      data: '<HL7MessageBroker><response>MSH|^~\\&amp;|Yardi|LNGFAY|EyeWatchLive|EyeWatchLive|dt||ACK^Q11|id|P|2.4&#13;MSA|CR|id&#13;</response></HL7MessageBroker>',
+    });
+    brokerHttpPost.mockResolvedValueOnce({ status: 200, data: 'ok' });
+
+    const client = YardiHl7BrokerClient.forFacility('LNGFAY');
+    await client.getMessage();
+    await client.processAck(
+      'MSH|^~\\&|Yardi|LNGFAY|EyeWatchLive|EyeWatchLive|20261117000235||ADT^A01|99|P|2.5\r',
+    );
+
+    const getMessageBody = String(brokerHttpPost.mock.calls[0]?.[1]);
+    const ackBody = String(brokerHttpPost.mock.calls[1]?.[1]);
+    expect(getMessageBody).toContain('EyeWatchLive|EyeWatchLive|Yardi|LNGFAY|');
+    expect(getMessageBody).not.toContain('|EYELIVE|');
+    expect(ackBody).toContain('<ExternalFacilityID>LNGFAY</ExternalFacilityID>');
+    expect(ackBody).toContain('<Password>secret</Password>');
   });
 
   it('posts GetMessage as text/xml and classifies ADT', async () => {

@@ -102,22 +102,58 @@ export async function registerYardiHl7PollSchedule(): Promise<void> {
   );
 }
 
+function uniqueFacilityIds(facilityIds: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const facilityId of facilityIds) {
+    const trimmed = facilityId.trim();
+    const key = trimmed.toUpperCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(trimmed);
+  }
+  return unique;
+}
+
 async function processJob(job: Job<YardiHl7PollJobData>): Promise<void> {
-  logger.info({ jobId: job.id }, 'yardi_hl7_poll_job_started');
-
-  const summary = await drainYardiHl7Mailbox({
-    client: YardiHl7BrokerClient.fromEnv(),
-    maxMessages: env.YARDI_HL7_POLL_MAX_MESSAGES,
-  });
-
-  logger.info(
-    {
-      jobId: job.id,
-      captured: summary.captured,
-      duplicates: summary.duplicates,
-      errors: summary.errors,
-      empty: summary.empty,
-    },
-    'yardi_hl7_poll_job_finished',
+  const facilityIds = uniqueFacilityIds(
+    getConfiguredYardiHl7PollTargets().map((target) => target.facilityId),
   );
+  const mailboxes = facilityIds.length > 0 ? facilityIds : [env.YARDI_HL7_SENDING_FACILITY];
+
+  logger.info({ jobId: job.id, facilityIds: mailboxes }, 'yardi_hl7_poll_job_started');
+
+  const failures: string[] = [];
+  for (const facilityId of mailboxes) {
+    try {
+      const summary = await drainYardiHl7Mailbox({
+        client: YardiHl7BrokerClient.forFacility(facilityId),
+        maxMessages: env.YARDI_HL7_POLL_MAX_MESSAGES,
+      });
+      logger.info(
+        {
+          jobId: job.id,
+          facilityId,
+          captured: summary.captured,
+          duplicates: summary.duplicates,
+          errors: summary.errors,
+          empty: summary.empty,
+        },
+        'yardi_hl7_poll_mailbox_finished',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${facilityId}: ${message}`);
+      logger.error(
+        { jobId: job.id, facilityId, error: message },
+        'yardi_hl7_poll_mailbox_failed',
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`Yardi HL7 poll failed for ${failures.join('; ')}`);
+  }
+
+  logger.info({ jobId: job.id, facilityIds: mailboxes }, 'yardi_hl7_poll_job_finished');
 }

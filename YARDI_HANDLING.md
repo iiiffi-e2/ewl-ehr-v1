@@ -9,7 +9,7 @@ HL7 wins for room, resident id, and event time when both sources are present on 
 
 ## HL7 ADT events
 
-The HL7 poller calls Yardi GetMessage, parses the ADT message, matches the facility to `YARDI_HL7_POLL_TARGETS` (`companyKey:communityId:facilityId`), and stores the event. Facility match uses MSH sending facility, then PV1 facility if MSH is empty.
+The HL7 poller calls Yardi GetMessage once per facility id on `YARDI_HL7_POLL_TARGETS` (`companyKey:communityId:facilityId`). That facility id is the mailbox external facility id. The password and the other MSH ids stay the same. It parses each ADT message, matches the facility in the message to the same roster, and stores the event. Facility match uses MSH sending facility, then PV1 facility if MSH is empty.
 
 Supported triggers are enqueued and processed by `handleYardiHl7Event`. Unknown facilities are stored and ignored (`unknown_facility`). Unsupported triggers are stored and ignored (`unsupported_trigger`). Duplicates are acknowledged and are not processed again unless the earlier copy never left `received`. A successful persist is always ACKed. A persist or enqueue failure is not ACKed, so Yardi can redeliver.
 
