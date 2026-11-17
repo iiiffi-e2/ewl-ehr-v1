@@ -96,6 +96,14 @@ function insuranceType(value: string | undefined): string | undefined {
   return INSURANCE_TYPE_LABELS[value.toUpperCase()] ?? value;
 }
 
+function parseDiagnosis(segment: string): string | undefined {
+  const coded = field(segment, 3);
+  const code = component(coded, 0);
+  const name = component(coded, 1);
+  if (code && name) return `${code} ${name}`;
+  return name ?? code;
+}
+
 function parseInsurance(segment: string): YardiHl7Insurance | undefined {
   const planName = component(field(segment, 2), 1) ?? component(field(segment, 2), 0);
   const companyName = field(segment, 4);
@@ -123,6 +131,14 @@ export function parseYardiHl7Contacts(hl7: string): YardiHl7Contact[] {
     .map(parseContact)
     .filter((contact): contact is YardiHl7Contact => contact !== undefined)
     .slice(0, 2);
+}
+
+export function parseYardiHl7Diagnoses(hl7: string): string[] {
+  return segmentsOf(hl7, 'DG1')
+    .slice()
+    .sort((left, right) => setId(left) - setId(right))
+    .map(parseDiagnosis)
+    .filter((diagnosis): diagnosis is string => diagnosis !== undefined);
 }
 
 export function parseYardiHl7Insurances(hl7: string): YardiHl7Insurance[] {
@@ -174,5 +190,9 @@ export function mapYardiHl7PartyFields(hl7: string | undefined): Record<string, 
   assignContact(record, contacts[1], 2);
   assignInsurance(record, insurances[0], 1);
   assignInsurance(record, insurances[1], 2);
+  const diagnoses = parseYardiHl7Diagnoses(hl7);
+  if (diagnoses.length > 0) {
+    record.Diagnosis1 = diagnoses.join('; ');
+  }
   return record;
 }

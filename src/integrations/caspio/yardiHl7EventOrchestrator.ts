@@ -72,6 +72,20 @@ function hl7Message(input: CanonicalEventOrchestrationInput): string | undefined
   return undefined;
 }
 
+function communityPatientAddress(enrichment: {
+  Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
+}): Record<string, string> {
+  const record: Record<string, string> = {};
+  if (enrichment.Address) record.PatientAddress = enrichment.Address;
+  if (enrichment.City) record.PatientAddressCity = enrichment.City;
+  if (enrichment.State) record.PatientAddressState = enrichment.State;
+  if (enrichment.Zip) record.PatientAddressZip = enrichment.Zip;
+  return record;
+}
+
 function withHl7PartyFields(
   record: Record<string, unknown>,
   input: CanonicalEventOrchestrationInput,
@@ -155,35 +169,41 @@ async function handleYardiMoveIn(
       { ...bundle, vendorPayload: fhirBundle },
       communityId,
     );
-    patientRecord = withHl7PartyFields(
-      {
-        ...records.patientRecord,
-        PatientNumber: demographics.externalResidentId,
-        RoomNumber: roomNumber,
-        CUID: cuid,
-        Move_in_Date: moveInDate,
-        Service_Start_Date: moveInDate,
-        On_Prem: true,
-      },
-      input,
-    );
+    patientRecord = {
+      ...withHl7PartyFields(
+        {
+          ...records.patientRecord,
+          PatientNumber: demographics.externalResidentId,
+          RoomNumber: roomNumber,
+          CUID: cuid,
+          Move_in_Date: moveInDate,
+          Service_Start_Date: moveInDate,
+          On_Prem: true,
+        },
+        input,
+      ),
+      ...communityPatientAddress(enrichment),
+    };
   } else {
-    patientRecord = withHl7PartyFields(
-      {
-        PatientNumber: demographics.externalResidentId,
-        FirstName: demographics.firstName ?? undefined,
-        LastName: demographics.lastName ?? undefined,
-        PatientDOB: formatCaspioDate(demographics.dateOfBirth),
-        RoomNumber: roomNumber,
-        CUID: cuid,
-        CommunityName: enrichment.CommunityName ?? communityName,
-        PatientCommunity: enrichment.CommunityName ?? communityName,
-        Move_in_Date: moveInDate,
-        Service_Start_Date: moveInDate,
-        On_Prem: true,
-      },
-      input,
-    );
+    patientRecord = {
+      ...withHl7PartyFields(
+        {
+          PatientNumber: demographics.externalResidentId,
+          FirstName: demographics.firstName ?? undefined,
+          LastName: demographics.lastName ?? undefined,
+          PatientDOB: formatCaspioDate(demographics.dateOfBirth),
+          RoomNumber: roomNumber,
+          CUID: cuid,
+          CommunityName: enrichment.CommunityName ?? communityName,
+          PatientCommunity: enrichment.CommunityName ?? communityName,
+          Move_in_Date: moveInDate,
+          Service_Start_Date: moveInDate,
+          On_Prem: true,
+        },
+        input,
+      ),
+      ...communityPatientAddress(enrichment),
+    };
   }
 
   const patientNumber = String(patientRecord.PatientNumber);
@@ -260,7 +280,17 @@ async function findExistingPatient(
 async function getRequiredEnrichment(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
-): Promise<{ CUID: string; CommunityName?: string } | undefined> {
+): Promise<
+  | {
+      CUID: string;
+      CommunityName?: string;
+      Address?: string;
+      City?: string;
+      State?: string;
+      Zip?: string;
+    }
+  | undefined
+> {
   const bundle = input.residentBundle!;
   const roomNumber =
     bundle.demographics.roomNumber ??
@@ -287,13 +317,24 @@ async function getRequiredEnrichment(
   return {
     CUID: cuid,
     CommunityName: enrichment.CommunityName ?? communityName,
+    Address: enrichment.Address,
+    City: enrichment.City,
+    State: enrichment.State,
+    Zip: enrichment.Zip,
   };
 }
 
 async function buildYardiPatientPatch(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
-  enrichment: { CUID: string; CommunityName?: string },
+  enrichment: {
+    CUID: string;
+    CommunityName?: string;
+    Address?: string;
+    City?: string;
+    State?: string;
+    Zip?: string;
+  },
 ): Promise<Record<string, unknown>> {
   const bundle = input.residentBundle!;
   const demographics = bundle.demographics;
@@ -314,30 +355,36 @@ async function buildYardiPatientPatch(
     delete patientRecord.On_Prem_Date;
     delete patientRecord.Off_Prem;
     delete patientRecord.Off_Prem_Date;
-    return withHl7PartyFields(
-      {
-        ...patientRecord,
-        PatientNumber: demographics.externalResidentId,
-        RoomNumber: roomNumber,
-        CUID: enrichment.CUID,
-      },
-      input,
-    );
+    return {
+      ...withHl7PartyFields(
+        {
+          ...patientRecord,
+          PatientNumber: demographics.externalResidentId,
+          RoomNumber: roomNumber,
+          CUID: enrichment.CUID,
+        },
+        input,
+      ),
+      ...communityPatientAddress(enrichment),
+    };
   }
 
-  return withHl7PartyFields(
-    {
-      PatientNumber: demographics.externalResidentId,
-      FirstName: demographics.firstName ?? undefined,
-      LastName: demographics.lastName ?? undefined,
-      PatientDOB: formatCaspioDate(demographics.dateOfBirth),
-      RoomNumber: roomNumber,
-      CUID: enrichment.CUID,
-      CommunityName: enrichment.CommunityName,
-      PatientCommunity: enrichment.CommunityName,
-    },
-    input,
-  );
+  return {
+    ...withHl7PartyFields(
+      {
+        PatientNumber: demographics.externalResidentId,
+        FirstName: demographics.firstName ?? undefined,
+        LastName: demographics.lastName ?? undefined,
+        PatientDOB: formatCaspioDate(demographics.dateOfBirth),
+        RoomNumber: roomNumber,
+        CUID: enrichment.CUID,
+        CommunityName: enrichment.CommunityName,
+        PatientCommunity: enrichment.CommunityName,
+      },
+      input,
+    ),
+    ...communityPatientAddress(enrichment),
+  };
 }
 
 async function openYardiService(

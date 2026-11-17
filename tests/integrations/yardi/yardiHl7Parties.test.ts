@@ -1,6 +1,7 @@
 import {
   mapYardiHl7PartyFields,
   parseYardiHl7Contacts,
+  parseYardiHl7Diagnoses,
   parseYardiHl7Insurances,
 } from '../../../src/integrations/yardi/yardiHl7Parties.js';
 
@@ -76,6 +77,24 @@ describe('yardiHl7Parties', () => {
       Secondinsurance: 'Medicaid',
       SecondInsuranceNum: 'CD6873803',
       Insurance_2_Type: 'Medicaid',
+    });
+  });
+
+  it('joins every DG1 diagnosis into Diagnosis1 in set-id order', () => {
+    const hl7 = [
+      'DG1|2||E11^Type 2 diabetes mellitus^I10^|||W',
+      'DG1|1||J44.9^Chronic obstructive pulmonary disease, unspecified^I10^|||W',
+      'DG1|3||I10^Essential (primary) hypertension^I10^|||W',
+    ].join('\r');
+
+    expect(parseYardiHl7Diagnoses(hl7)).toEqual([
+      'J44.9 Chronic obstructive pulmonary disease, unspecified',
+      'E11 Type 2 diabetes mellitus',
+      'I10 Essential (primary) hypertension',
+    ]);
+    expect(mapYardiHl7PartyFields(hl7)).toEqual({
+      Diagnosis1:
+        'J44.9 Chronic obstructive pulmonary disease, unspecified; E11 Type 2 diabetes mellitus; I10 Essential (primary) hypertension',
     });
   });
 

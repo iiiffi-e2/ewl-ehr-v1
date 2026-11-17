@@ -110,6 +110,10 @@ describe('handleYardiHl7Event', () => {
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: 'room-cuid',
       CommunityName: 'EyeWatch Live',
+      Address: '100 Community Way',
+      City: 'Fayetteville',
+      State: 'AR',
+      Zip: '72701',
     });
     upsertByFieldsMock.mockResolvedValue({ action: 'insert', id: 'record-1' });
     updateRecordByIdMock.mockResolvedValue({});
@@ -174,6 +178,10 @@ describe('handleYardiHl7Event', () => {
         FirstName: 'Denise',
         LastName: 'Morgan',
         Move_in_Date: '08/20/2026 14:15:16',
+        PatientAddress: '100 Community Way',
+        PatientAddressCity: 'Fayetteville',
+        PatientAddressState: 'AR',
+        PatientAddressZip: '72701',
       }),
     );
     expect(upsertByFieldsMock).toHaveBeenCalledWith(
