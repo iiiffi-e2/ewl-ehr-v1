@@ -16,6 +16,7 @@ model Company {
   residents   Resident[]
   events      EventLog[]
   eventIssues EventProcessingIssue[]
+  unmatchedCuids UnmatchedCuid[]
   credential  Credential?
   alisCredential AlisCredential?
 }
@@ -107,4 +108,31 @@ model EventProcessingIssue {
   @@index([stage])
   @@index([severity])
   @@index([resolvedAt])
+}
+
+model UnmatchedCuid {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  communityId        Int
+  externalResidentId String
+  roomNumber         String    @default("")
+  source             String
+  firstName          String?
+  lastName           String?
+  dateOfBirth        DateTime?
+  syntheticCuid      String
+  status             String    @default("open")
+  firstSeenAt        DateTime  @default(now())
+  lastSeenAt         DateTime  @default(now())
+  lastEventType      String
+  lastEventMessageId String
+  resolvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, communityId, externalResidentId, roomNumber])
+  @@index([communityId, status])
+  @@index([status, lastSeenAt])
 }
