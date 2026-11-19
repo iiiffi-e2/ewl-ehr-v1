@@ -113,7 +113,10 @@ router.get('/admin/unmatched-cuids/rows', authAdmin, async (req, res) => {
       res.status(400).json({ success: false, error: error.message });
       return;
     }
-    throw error;
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 });
 
@@ -123,12 +126,19 @@ router.post('/admin/unmatched-cuids/:id/resolve', authAdmin, async (req, res) =>
     res.status(400).json({ success: false, error: 'id must be an integer' });
     return;
   }
-  const row = await resolveUnmatchedCuid(id);
-  if (!row) {
-    res.status(404).json({ success: false, error: 'Unmatched CUID row not found' });
-    return;
+  try {
+    const row = await resolveUnmatchedCuid(id);
+    if (!row) {
+      res.status(404).json({ success: false, error: 'Unmatched CUID row not found' });
+      return;
+    }
+    res.json({ success: true, row });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
-  res.json({ success: true, row });
 });
 
 router.get('/health/deps', async (_req, res) => {

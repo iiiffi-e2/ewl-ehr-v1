@@ -51,6 +51,16 @@ describe('unmatched CUID admin routes', () => {
     });
   });
 
+  it('returns 500 when listing rows fails unexpectedly', async () => {
+    listUnmatchedCuidsMock.mockRejectedValueOnce(new Error('database unavailable'));
+    const response = await request(app)
+      .get('/admin/unmatched-cuids/rows')
+      .set('Authorization', authHeader);
+    expect(response.status).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBe('database unavailable');
+  });
+
   it('returns 400 for an unknown status', async () => {
     listUnmatchedCuidsMock.mockRejectedValueOnce(
       new UnmatchedCuidQueryError('status must be open, resolved, or all'),

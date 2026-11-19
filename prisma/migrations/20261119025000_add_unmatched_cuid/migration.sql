@@ -21,7 +21,7 @@ CREATE TABLE "UnmatchedCuid" (
     CONSTRAINT "UnmatchedCuid_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "UnmatchedCuid_companyId_communityId_externalResidentId_roomNumber_key"
+CREATE UNIQUE INDEX "UnmatchedCuid_companyId_communityId_externalResidentId_room_key"
 ON "UnmatchedCuid"("companyId", "communityId", "externalResidentId", "roomNumber");
 
 CREATE INDEX "UnmatchedCuid_communityId_status_idx"
