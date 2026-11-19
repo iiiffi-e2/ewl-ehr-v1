@@ -63,10 +63,10 @@ In that environment's Caspio account, open `CommunityTable_API` and pick a numer
 
 Until a room row exists:
 
-- HL7 stores the event and skips the Caspio write (`missing_cuid`).
-- FHIR still writes the patient, with a synthetic id `COMM-{communityId}-{room}`, and does not insert the community row.
+- HL7 writes the patient under `COMM-{communityId}-{room}` and opens an `UnmatchedCuid` row. It does not skip the patient write.
+- FHIR writes the patient under that same synthetic id, skips the community insert, and opens the same kind of Postgres row.
 
-If you do not yet know the rooms, you can add the roster in step 4 and wait to create room rows. Live HL7 events for unknown rooms will be stored and skipped until the row exists.
+If you do not yet know the rooms, you can add the roster in step 4 and wait to create room rows. Live events for unknown rooms are stored, written under the synthetic id, and listed at `/admin/unmatched-cuids` until someone resolves them.
 
 ### Finding rooms from FHIR
 
@@ -168,7 +168,7 @@ On `/monitor`, source `yardi-hl7`:
 | Result | Meaning |
 | --- | --- |
 | `unknown_facility` | Facility id is not on the HL7 roster the app loaded |
-| `missing_cuid` | That room has no Caspio row with a `CUID` |
+| Synthetic `CUID` | The room has no Caspio `CUID`. The patient was written under `COMM-{communityId}-{room}`. Open rows are at `/admin/unmatched-cuids`. |
 | `ehr_community_not_enabled` | Community id is missing from `EHR_ENABLED_COMMUNITY_IDS` |
 | `ehr_shadow_mode` | `EHR_SHADOW_MODE` is true, so Caspio was not written |
 
