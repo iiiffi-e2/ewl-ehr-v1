@@ -7,6 +7,7 @@ const getCommunityEnrichmentMock = jest.fn();
 const eventLogFindFirstMock = jest.fn();
 const eventLogFindUniqueMock = jest.fn();
 const issueFindManyMock = jest.fn();
+const unmatchedFindFirstMock = jest.fn();
 const resolveYardiHl7FacilityMock = jest.fn();
 const getConfiguredYardiHl7PollTargetsMock = jest.fn();
 
@@ -57,6 +58,9 @@ jest.mock('../../src/db/prisma.js', () => ({
     },
     eventProcessingIssue: {
       findMany: (...args: unknown[]) => issueFindManyMock(...args),
+    },
+    unmatchedCuid: {
+      findFirst: (...args: unknown[]) => unmatchedFindFirstMock(...args),
     },
   },
 }));
@@ -136,6 +140,7 @@ describe('runYardiHl7Test', () => {
     markEventIgnoredMock.mockResolvedValue(undefined);
     markEventQueuedMock.mockResolvedValue(undefined);
     queueAddMock.mockResolvedValue({ id: 'job-1' });
+    unmatchedFindFirstMock.mockResolvedValue(null);
   });
 
   it('rejects form trigger that is not supported', async () => {
@@ -195,6 +200,7 @@ describe('runYardiHl7Test', () => {
       facilityId: 'EYELIVE',
     });
     expect(result.success).toBe(true);
+    expect(result.syntheticCuid).toBeNull();
     expect(result.event.eventMessageId).not.toBe('10529');
     expect(processAlisEventJobMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -484,5 +490,50 @@ describe('runYardiHl7Test', () => {
     expect(result.issues).toEqual([
       { stage: 'caspio', severity: 'error', message: 'worker exploded' },
     ]);
+  });
+
+  it('returns the synthetic CUID opened by the run', async () => {
+    recordIncomingEventMock.mockImplementation(async (event: { eventMessageId: string; eventType: string }) => ({
+      eventLog: {
+        id: 99,
+        eventMessageId: event.eventMessageId,
+        eventType: event.eventType,
+        status: 'received',
+        communityId: 113,
+        error: null,
+        payload: {},
+      },
+      company: { id: 10, companyKey: 'yourlife' },
+      isDuplicate: false,
+    }));
+    eventLogFindUniqueMock.mockResolvedValue({
+      id: 99,
+      eventMessageId: 'x',
+      eventType: 'hl7.adt.a01',
+      status: 'processed',
+      communityId: 113,
+      error: null,
+      payload: {},
+      company: { companyKey: 'yourlife' },
+    });
+    issueFindManyMock.mockResolvedValue([]);
+    getCommunityEnrichmentMock.mockResolvedValue({});
+    unmatchedFindFirstMock.mockResolvedValueOnce({ syntheticCuid: 'COMM-113-141' });
+
+    const result = await runYardiHl7Test({
+      mode: 'inline',
+      source: 'form',
+      trigger: 'A01',
+      residentId: '418612',
+      roomNumber: '141',
+      facilityId: 'EYELIVE',
+    });
+
+    expect(result.syntheticCuid).toBe('COMM-113-141');
+    expect(result.caspio.skipReason).not.toBe('missing_cuid');
+    expect(unmatchedFindFirstMock).toHaveBeenCalledWith({
+      where: { companyId: 10, lastEventMessageId: result.event.eventMessageId },
+      orderBy: { lastSeenAt: 'desc' },
+    });
   });
 });

@@ -105,6 +105,7 @@ export type YardiHl7TestResult = {
   issues: Array<{ stage: string; severity: string; message: string }>;
   hl7: string;
   jobId: string | null;
+  syntheticCuid: string | null;
 };
 
 export function getYardiHl7TestConfig(): YardiHl7TestConfig {
@@ -285,15 +286,6 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
       } else if (operations.length === 0) {
         const gate = skipReasonForGates(event.communityId ?? null);
         if (gate) skipReason = gate;
-        const issues = await prisma.eventProcessingIssue.findMany({
-          where: {
-            companyId: recorded.company.id,
-            eventMessageId: event.eventMessageId,
-          },
-        });
-        if (issues.some((issue) => /cuid/i.test(issue.message))) {
-          skipReason = 'missing_cuid';
-        }
       }
     } catch (error) {
       success = false;
@@ -312,6 +304,15 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
       const failedIssues = await prisma.eventProcessingIssue.findMany({
         where: { companyId: recorded.company.id, eventMessageId: event.eventMessageId },
       });
+      const unmatched = recorded.company?.id
+        ? await prisma.unmatchedCuid.findFirst({
+            where: {
+              companyId: recorded.company.id,
+              lastEventMessageId: event.eventMessageId,
+            },
+            orderBy: { lastSeenAt: 'desc' },
+          })
+        : null;
       return {
         success: false,
         mode,
@@ -344,6 +345,7 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
         })),
         hl7: reminted.hl7,
         jobId: null,
+        syntheticCuid: unmatched?.syntheticCuid ?? null,
       };
     }
   }
@@ -382,6 +384,16 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
 
   const wrote = mode === 'inline' && operations.length > 0 && skipReason === null;
 
+  const unmatched = recorded.company?.id
+    ? await prisma.unmatchedCuid.findFirst({
+        where: {
+          companyId: recorded.company.id,
+          lastEventMessageId: event.eventMessageId,
+        },
+        orderBy: { lastSeenAt: 'desc' },
+      })
+    : null;
+
   return {
     success,
     mode,
@@ -415,5 +427,6 @@ export async function runYardiHl7Test(input: YardiHl7TestInput): Promise<YardiHl
     })),
     hl7: reminted.hl7,
     jobId,
+    syntheticCuid: unmatched?.syntheticCuid ?? null,
   };
 }
