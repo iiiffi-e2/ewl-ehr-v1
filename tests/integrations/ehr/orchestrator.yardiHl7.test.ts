@@ -55,3 +55,57 @@ describe('handleEhrEvent yardi-hl7 routing', () => {
     expect(handleAlisEventMock).not.toHaveBeenCalled();
   });
 });
+
+describe('handleEhrEvent yardi-fhir routing', () => {
+  it('passes unmatched context when pushing a FHIR bundle', async () => {
+    const event = {
+      source: 'yardi-fhir' as const,
+      companyKey: 'yardi-company',
+      communityId: 113,
+      eventType: 'patient.updated',
+      eventMessageId: 'fhir-event-1',
+      eventMessageDate: '2026-08-20T14:15:16Z',
+      lifecycleKind: 'update' as const,
+      notificationData: {},
+      raw: {},
+    };
+    const input: CanonicalEventOrchestrationInput = {
+      source: 'yardi-fhir',
+      companyId: 10,
+      companyKey: 'yardi-company',
+      event,
+      residentBundle: {
+        source: 'yardi-fhir',
+        companyId: 10,
+        companyKey: 'yardi-company',
+        communityId: 113,
+        residentId: '418612',
+        event,
+        demographics: {
+          externalResidentId: '418612',
+          roomNumber: '141',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          dateOfBirth: '1815-12-10',
+        },
+      },
+    };
+
+    await handleEhrEvent(input);
+
+    expect(pushYardiFhirBundleToCaspioMock).toHaveBeenCalledWith(input.residentBundle, 113, {
+      unmatched: {
+        companyId: 10,
+        externalResidentId: '418612',
+        roomNumber: '141',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        dateOfBirth: '1815-12-10',
+        eventType: 'patient.updated',
+        eventMessageId: 'fhir-event-1',
+      },
+    });
+    expect(handleYardiHl7EventMock).not.toHaveBeenCalled();
+    expect(handleAlisEventMock).not.toHaveBeenCalled();
+  });
+});

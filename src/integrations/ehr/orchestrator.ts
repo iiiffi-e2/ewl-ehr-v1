@@ -15,10 +15,22 @@ export async function handleEhrEvent(input: CanonicalEventOrchestrationInput): P
     if (!input.residentBundle) {
       throw new Error('Yardi FHIR event orchestration requires residentBundle');
     }
-    if (input.residentBundle.communityId === null) {
+    const bundle = input.residentBundle;
+    if (bundle.communityId === null) {
       throw new Error('Yardi FHIR event orchestration requires communityId');
     }
-    await pushYardiFhirBundleToCaspio(input.residentBundle, input.residentBundle.communityId);
+    await pushYardiFhirBundleToCaspio(bundle, bundle.communityId, {
+      unmatched: {
+        companyId: bundle.companyId,
+        externalResidentId: bundle.demographics.externalResidentId,
+        roomNumber: bundle.demographics.roomNumber,
+        firstName: bundle.demographics.firstName,
+        lastName: bundle.demographics.lastName,
+        dateOfBirth: bundle.demographics.dateOfBirth,
+        eventType: bundle.event.eventType,
+        eventMessageId: bundle.event.eventMessageId,
+      },
+    });
     return;
   }
 
