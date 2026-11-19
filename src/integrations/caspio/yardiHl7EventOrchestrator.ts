@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { recordEventIssue } from '../../domains/eventIssues.js';
+import { recordUnmatchedCuid } from '../../domains/unmatchedCuid.js';
 import type {
   CanonicalEventOrchestrationInput,
   CanonicalResidentBundle,
@@ -7,6 +8,7 @@ import type {
 import {
   buildYardiFhirCaspioRecords,
   extractYardiCommunityName,
+  resolveEffectiveCuid,
 } from '../yardi/yardiFhirSync.js';
 import type { YardiFhirPatientBundle } from '../yardi/yardiFhirTypes.js';
 import { mapYardiHl7PartyFields } from '../yardi/yardiHl7Parties.js';
@@ -133,34 +135,61 @@ async function recordYardiIssue(
   });
 }
 
+type RoomEnrichment = {
+  CUID: string;
+  synthetic: boolean;
+  CommunityName?: string;
+  Address?: string;
+  City?: string;
+  State?: string;
+  Zip?: string;
+  roomNumber?: string;
+};
+
+async function rememberUnmatched(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+  enrichment: RoomEnrichment,
+): Promise<void> {
+  if (!enrichment.synthetic) return;
+  const demographics = input.residentBundle!.demographics;
+  await recordUnmatchedCuid({
+    companyId: input.companyId,
+    communityId,
+    externalResidentId: String(demographics.externalResidentId ?? ''),
+    roomNumber: enrichment.roomNumber,
+    source: 'yardi-hl7',
+    firstName: demographics.firstName,
+    lastName: demographics.lastName,
+    dateOfBirth: demographics.dateOfBirth,
+    syntheticCuid: enrichment.CUID,
+    eventType: input.event.eventType,
+    eventMessageId: input.event.eventMessageId,
+  });
+}
+
+async function findPatientOnCuid(patientNumber: string, cuid: string) {
+  const match = await findRecordByFields(env.CASPIO_TABLE_NAME, [
+    { field: 'PatientNumber', value: patientNumber },
+    { field: 'CUID', value: cuid },
+  ]);
+  return {
+    found: match.found,
+    id: match.id,
+    record: match.record as Record<string, unknown> | undefined,
+  };
+}
+
 async function handleYardiMoveIn(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
 ): Promise<void> {
   const bundle = input.residentBundle!;
   const demographics = bundle.demographics;
-  const roomNumber =
-    demographics.roomNumber ??
-    notificationString(input.event.notificationData, ['RoomNumber']);
+  const enrichment = await getRoomEnrichment(input, communityId);
   const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
   const fhirBundle = vendorPayload?.fhirBundle;
   const communityName = fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined;
-  const enrichment = await getCommunityEnrichment(
-    communityId,
-    roomNumber,
-    communityName,
-  );
-  const cuid = enrichment.CUID?.trim();
-
-  if (!cuid) {
-    await recordYardiIssue(
-      input,
-      'missing_cuid',
-      `No Caspio CUID found for Yardi HL7 community '${communityId}' and room '${roomNumber ?? ''}'`,
-      communityId,
-    );
-    return;
-  }
 
   const moveInDate = formatCaspioDateTime(input.event.eventMessageDate);
   let patientRecord: Record<string, unknown>;
@@ -174,8 +203,8 @@ async function handleYardiMoveIn(
         {
           ...records.patientRecord,
           PatientNumber: demographics.externalResidentId,
-          RoomNumber: roomNumber,
-          CUID: cuid,
+          RoomNumber: enrichment.roomNumber,
+          CUID: enrichment.CUID,
           Move_in_Date: moveInDate,
           Service_Start_Date: moveInDate,
           On_Prem: true,
@@ -192,8 +221,8 @@ async function handleYardiMoveIn(
           FirstName: demographics.firstName ?? undefined,
           LastName: demographics.lastName ?? undefined,
           PatientDOB: formatCaspioDate(demographics.dateOfBirth),
-          RoomNumber: roomNumber,
-          CUID: cuid,
+          RoomNumber: enrichment.roomNumber,
+          CUID: enrichment.CUID,
           CommunityName: enrichment.CommunityName ?? communityName,
           PatientCommunity: enrichment.CommunityName ?? communityName,
           Move_in_Date: moveInDate,
@@ -211,7 +240,7 @@ async function handleYardiMoveIn(
     env.CASPIO_TABLE_NAME,
     [
       { field: 'PatientNumber', value: patientNumber },
-      { field: 'CUID', value: cuid },
+      { field: 'CUID', value: enrichment.CUID },
     ],
     patientRecord,
   );
@@ -220,8 +249,8 @@ async function handleYardiMoveIn(
     demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
   const serviceRecord = mapServiceRecord({
     patientNumber,
-    cuid,
-    roomNumber: roomNumber ?? undefined,
+    cuid: enrichment.CUID,
+    roomNumber: enrichment.roomNumber,
     serviceType,
     startDate: moveInDate,
     communityName:
@@ -232,13 +261,14 @@ async function handleYardiMoveIn(
   await upsertByFields(
     env.CASPIO_SERVICE_TABLE_NAME,
     [
-      { field: 'CUID', value: cuid },
+      { field: 'CUID', value: enrichment.CUID },
       { field: 'PatientNumber', value: patientNumber },
       { field: 'ServiceType', value: serviceType },
       { field: 'StartDate', value: moveInDate },
     ],
     serviceRecord,
   );
+  await rememberUnmatched(input, communityId, enrichment);
 }
 
 function cuidFromRecord(record?: Record<string, unknown>): string | undefined {
@@ -277,20 +307,10 @@ async function findExistingPatient(
   };
 }
 
-async function getRequiredEnrichment(
+async function getRoomEnrichment(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
-): Promise<
-  | {
-      CUID: string;
-      CommunityName?: string;
-      Address?: string;
-      City?: string;
-      State?: string;
-      Zip?: string;
-    }
-  | undefined
-> {
+): Promise<RoomEnrichment> {
   const bundle = input.residentBundle!;
   const roomNumber =
     bundle.demographics.roomNumber ??
@@ -298,29 +318,17 @@ async function getRequiredEnrichment(
   const vendorPayload = bundle.vendorPayload as YardiHl7VendorPayload | undefined;
   const fhirBundle = vendorPayload?.fhirBundle;
   const communityName = fhirBundle ? extractYardiCommunityName(fhirBundle) : undefined;
-  const enrichment = await getCommunityEnrichment(
-    communityId,
-    roomNumber,
-    communityName,
-  );
-  const cuid = enrichment.CUID?.trim();
-  if (!cuid) {
-    await recordYardiIssue(
-      input,
-      'missing_cuid',
-      `No Caspio CUID found for Yardi HL7 community '${communityId}' and room '${roomNumber ?? ''}'`,
-      communityId,
-    );
-    return undefined;
-  }
-
+  const enrichment = await getCommunityEnrichment(communityId, roomNumber, communityName);
+  const realCuid = enrichment.CUID?.trim();
   return {
-    CUID: cuid,
+    CUID: realCuid || resolveEffectiveCuid({}, communityId, roomNumber),
+    synthetic: !realCuid,
     CommunityName: enrichment.CommunityName ?? communityName,
     Address: enrichment.Address,
     City: enrichment.City,
     State: enrichment.State,
     Zip: enrichment.Zip,
+    roomNumber: roomNumber ?? undefined,
   };
 }
 
@@ -421,13 +429,15 @@ async function handleYardiUpdate(
   communityId: number,
   options: { insertIfMissing: boolean; isTransfer: boolean },
 ): Promise<void> {
-  const enrichment = await getRequiredEnrichment(input, communityId);
-  if (!enrichment) return;
+  const enrichment = await getRoomEnrichment(input, communityId);
 
   const patientNumber = String(
     input.residentBundle!.demographics.externalResidentId,
   );
-  const existing = await findExistingPatient(patientNumber, enrichment.CUID);
+  const restrictToSynthetic = enrichment.synthetic && !options.isTransfer;
+  const existing = restrictToSynthetic
+    ? await findPatientOnCuid(patientNumber, enrichment.CUID)
+    : await findExistingPatient(patientNumber, enrichment.CUID);
   const trigger = normalizeYardiHl7Trigger(
     String(
       input.event.notificationData.TriggerEvent ??
@@ -438,6 +448,19 @@ async function handleYardiUpdate(
   const patientPatch = await buildYardiPatientPatch(input, communityId, enrichment);
 
   if (!existing.found || !existing.id) {
+    if (restrictToSynthetic && !options.insertIfMissing) {
+      const anyPatient = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
+      if (!anyPatient.found) {
+        await recordYardiIssue(
+          input,
+          'patient_not_found',
+          `${trigger} event skipped because resident was not found in Caspio`,
+          communityId,
+        );
+      }
+      await rememberUnmatched(input, communityId, enrichment);
+      return;
+    }
     if (!options.insertIfMissing) {
       await recordYardiIssue(
         input,
@@ -463,6 +486,7 @@ async function handleYardiUpdate(
       patientRecord,
     );
     await openYardiService(input, enrichment, eventDate);
+    await rememberUnmatched(input, communityId, enrichment);
     return;
   }
 
@@ -495,6 +519,7 @@ async function handleYardiUpdate(
   }
 
   await updateRecordById(env.CASPIO_TABLE_NAME, existing.id, patientPatch);
+  await rememberUnmatched(input, communityId, enrichment);
 }
 
 async function requireExistingPatient(
@@ -523,17 +548,47 @@ async function requireExistingPatient(
   };
 }
 
+async function requirePatientForRoomEvent(
+  input: CanonicalEventOrchestrationInput,
+  communityId: number,
+  enrichment: RoomEnrichment,
+  missingMessage: string,
+): Promise<
+  { patientNumber: string; existing: { id: string; record?: Record<string, unknown> } } | undefined
+> {
+  const patientNumber = String(input.residentBundle!.demographics.externalResidentId);
+  if (!enrichment.synthetic) {
+    return requireExistingPatient(input, communityId, enrichment.CUID, missingMessage);
+  }
+
+  const onSynthetic = await findPatientOnCuid(patientNumber, enrichment.CUID);
+  if (onSynthetic.found && onSynthetic.id) {
+    return {
+      patientNumber,
+      existing: {
+        id: onSynthetic.id,
+        record: onSynthetic.record as Record<string, unknown> | undefined,
+      },
+    };
+  }
+
+  const anyPatient = await findByPatientNumber(env.CASPIO_TABLE_NAME, patientNumber);
+  if (!anyPatient.found) {
+    await recordYardiIssue(input, 'patient_not_found', missingMessage, communityId);
+  }
+  await rememberUnmatched(input, communityId, enrichment);
+  return undefined;
+}
+
 async function handleYardiMoveOut(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
 ): Promise<void> {
-  const enrichment = await getRequiredEnrichment(input, communityId);
-  if (!enrichment) return;
-
-  const patient = await requireExistingPatient(
+  const enrichment = await getRoomEnrichment(input, communityId);
+  const patient = await requirePatientForRoomEvent(
     input,
     communityId,
-    enrichment.CUID,
+    enrichment,
     'Move-out event skipped because resident was not found in Caspio',
   );
   if (!patient) return;
@@ -556,25 +611,24 @@ async function handleYardiMoveOut(
       'Move-out completed but no service row was found to close',
       communityId,
     );
-    return;
+  } else {
+    await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
+      EndDate: endDate,
+    });
   }
 
-  await updateRecordById(env.CASPIO_SERVICE_TABLE_NAME, serviceRow.id, {
-    EndDate: endDate,
-  });
+  await rememberUnmatched(input, communityId, enrichment);
 }
 
 async function handleYardiLeaveStart(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
 ): Promise<void> {
-  const enrichment = await getRequiredEnrichment(input, communityId);
-  if (!enrichment) return;
-
-  const patient = await requireExistingPatient(
+  const enrichment = await getRoomEnrichment(input, communityId);
+  const patient = await requirePatientForRoomEvent(
     input,
     communityId,
-    enrichment.CUID,
+    enrichment,
     'Leave-start event skipped because resident was not found in Caspio',
   );
   if (!patient) return;
@@ -593,19 +647,18 @@ async function handleYardiLeaveStart(
       offPremStart,
     }),
   );
+  await rememberUnmatched(input, communityId, enrichment);
 }
 
 async function handleYardiLeaveEnd(
   input: CanonicalEventOrchestrationInput,
   communityId: number,
 ): Promise<void> {
-  const enrichment = await getRequiredEnrichment(input, communityId);
-  if (!enrichment) return;
-
-  const patient = await requireExistingPatient(
+  const enrichment = await getRoomEnrichment(input, communityId);
+  const patient = await requirePatientForRoomEvent(
     input,
     communityId,
-    enrichment.CUID,
+    enrichment,
     'Leave-end event skipped because resident was not found in Caspio',
   );
   if (!patient) return;
@@ -635,6 +688,7 @@ async function handleYardiLeaveEnd(
     Off_Prem: false,
     On_Prem: true,
   });
+  await rememberUnmatched(input, communityId, enrichment);
 }
 
 export async function handleYardiHl7Event(

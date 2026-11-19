@@ -7,6 +7,7 @@ const findActiveOrLatestServiceRowMock = jest.fn();
 const findOpenOffPremEpisodeMock = jest.fn();
 const upsertOffPremEpisodeByEpisodeIdMock = jest.fn();
 const recordEventIssueMock = jest.fn();
+const recordUnmatchedCuidMock = jest.fn();
 const handleAlisEventMock = jest.fn();
 const buildYardiFhirCaspioRecordsMock = jest.fn();
 
@@ -28,6 +29,10 @@ jest.mock('../../../src/domains/eventIssues.js', () => ({
   recordEventIssue: recordEventIssueMock,
 }));
 
+jest.mock('../../../src/domains/unmatchedCuid.js', () => ({
+  recordUnmatchedCuid: (...args: unknown[]) => recordUnmatchedCuidMock(...args),
+}));
+
 jest.mock('../../../src/config/env.js', () => ({
   env: {
     CASPIO_TABLE_NAME: 'CarePatientTable_API',
@@ -43,6 +48,17 @@ jest.mock('../../../src/integrations/caspio/eventOrchestrator.js', () => ({
 jest.mock('../../../src/integrations/yardi/yardiFhirSync.js', () => ({
   buildYardiFhirCaspioRecords: buildYardiFhirCaspioRecordsMock,
   extractYardiCommunityName: jest.fn(),
+  resolveEffectiveCuid: (
+    enrichment: { CUID?: string },
+    communityId: number,
+    roomNumber?: string | null,
+  ) => {
+    const fromEnrichment = enrichment.CUID?.trim();
+    if (fromEnrichment) return fromEnrichment;
+    const room = roomNumber?.trim();
+    if (room) return `COMM-${communityId}-${room}`;
+    return `COMM-${communityId}`;
+  },
 }));
 
 import type {
@@ -106,7 +122,7 @@ function baseInput(
 
 describe('handleYardiHl7Event', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     getCommunityEnrichmentMock.mockResolvedValue({
       CUID: 'room-cuid',
       CommunityName: 'EyeWatch Live',
@@ -125,6 +141,7 @@ describe('handleYardiHl7Event', () => {
       action: 'insert',
       id: 'episode-1',
     });
+    recordUnmatchedCuidMock.mockResolvedValue(undefined);
   });
 
   it('records a non-retryable warning and skips writes when communityId is missing', async () => {
@@ -144,21 +161,55 @@ describe('handleYardiHl7Event', () => {
     expect(upsertByFieldsMock).not.toHaveBeenCalled();
   });
 
-  it('records missing_cuid and skips patient writes when room enrichment has no CUID', async () => {
+  it('writes an A01 under the synthetic CUID and records one unmatched row', async () => {
     getCommunityEnrichmentMock.mockResolvedValueOnce({ CommunityName: 'EyeWatch Live' });
 
     await handleYardiHl7Event(baseInput());
 
-    expect(recordEventIssueMock).toHaveBeenCalledWith(
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      [
+        { field: 'PatientNumber', value: '418612' },
+        { field: 'CUID', value: 'COMM-113-141' },
+      ],
+      expect.objectContaining({ CUID: 'COMM-113-141', RoomNumber: '141' }),
+    );
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.arrayContaining([{ field: 'CUID', value: 'COMM-113-141' }]),
+      expect.objectContaining({ CUID: 'COMM-113-141' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'missing_cuid',
-        severity: 'warning',
-        retryable: false,
-        residentId: 418612,
+        companyId: 10,
         communityId: 113,
+        externalResidentId: '418612',
+        roomNumber: '141',
+        source: 'yardi-hl7',
+        syntheticCuid: 'COMM-113-141',
+        eventType: 'hl7.adt.a01',
+        eventMessageId: 'yardi-hl7-event-1',
       }),
     );
-    expect(upsertByFieldsMock).not.toHaveBeenCalled();
+    expect(recordUnmatchedCuidMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      upsertByFieldsMock.mock.invocationCallOrder[0],
+    );
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'missing_cuid' }),
+    );
+  });
+
+  it('does not record an unmatched row when A01 has a real CUID', async () => {
+    await handleYardiHl7Event(baseInput());
+    expect(recordUnmatchedCuidMock).not.toHaveBeenCalled();
+  });
+
+  it('does not record an unmatched row when the A01 patient write throws', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    upsertByFieldsMock.mockRejectedValueOnce(new Error('caspio down'));
+
+    await expect(handleYardiHl7Event(baseInput())).rejects.toThrow('caspio down');
+    expect(recordUnmatchedCuidMock).not.toHaveBeenCalled();
   });
 
   it('upserts the A01 patient and service using the enriched CUID', async () => {
@@ -662,19 +713,169 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
-  it('requires an enriched CUID before update workflow writes', async () => {
-    for (const trigger of ['A02', 'A03', 'A05', 'A08', 'A21', 'A22', 'A60']) {
-      jest.clearAllMocks();
-      getCommunityEnrichmentMock.mockResolvedValueOnce({ CommunityName: 'EyeWatch Live' });
+  it('inserts A05 on the synthetic key and leaves a different CUID row alone', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-real',
+      raw: { PatientNumber: '418612', CUID: 'room-cuid' },
+    });
 
-      await handleYardiHl7Event(
-        baseInput(`hl7.adt.${trigger.toLowerCase()}`, { trigger }),
-      );
+    await handleYardiHl7Event(baseInput('hl7.adt.a05', { trigger: 'A05' }));
 
-      expect(recordEventIssueMock).toHaveBeenCalledWith(
-        expect.objectContaining({ stage: 'missing_cuid' }),
-      );
-      expect(updateRecordByIdMock).not.toHaveBeenCalled();
-    }
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.arrayContaining([{ field: 'CUID', value: 'COMM-113-141' }]),
+      expect.objectContaining({ CUID: 'COMM-113-141' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('moves an A02 patient onto the synthetic destination CUID', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: { PatientNumber: '418612', CUID: 'room-cuid', RoomNumber: '100' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({
+      found: true,
+      id: 'svc-1',
+      record: { CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a02', { trigger: 'A02' }));
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({ CUID: 'COMM-113-141', RoomNumber: '141' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalledWith(
+      expect.objectContaining({ syntheticCuid: 'COMM-113-141', source: 'yardi-hl7' }),
+    );
+  });
+
+  it('leaves an A08 real CUID row unchanged and still records the unmatched row', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: { CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a08', { trigger: 'A08' }));
+
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(upsertByFieldsMock).not.toHaveBeenCalled();
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('records patient_not_found and the unmatched row when A08 has no Caspio patient', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a08', { trigger: 'A08' }));
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('updates A03 only when the patient is already on the synthetic CUID', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      record: { CUID: 'COMM-113-141' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValueOnce({ found: false });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a03', { trigger: 'A03' }));
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({ On_Prem: false }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('does not move-out a patient who only exists under a different CUID', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: { CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a03', { trigger: 'A03' }));
+
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('records patient_not_found for A21 when no patient exists', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({ found: false });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a21', { trigger: 'A21' }));
+
+    expect(recordEventIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+  });
+
+  it('does not end leave for a patient who only exists under a different CUID', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: { CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a22', { trigger: 'A22' }));
+
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
+  });
+
+  it('leaves an A60 real CUID row unchanged and still records the unmatched row', async () => {
+    getCommunityEnrichmentMock.mockResolvedValueOnce({});
+    findRecordByFieldsMock.mockResolvedValueOnce({ found: false });
+    findByPatientNumberMock.mockResolvedValueOnce({
+      found: true,
+      id: 'patient-1',
+      raw: { CUID: 'room-cuid' },
+    });
+
+    await handleYardiHl7Event(baseInput('hl7.adt.a60', { trigger: 'A60' }));
+
+    expect(updateRecordByIdMock).not.toHaveBeenCalled();
+    expect(upsertByFieldsMock).not.toHaveBeenCalled();
+    expect(recordEventIssueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'patient_not_found' }),
+    );
+    expect(recordUnmatchedCuidMock).toHaveBeenCalled();
   });
 });
