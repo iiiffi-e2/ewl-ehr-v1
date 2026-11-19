@@ -39,6 +39,11 @@ import {
   runYardiHl7Test,
   YardiHl7TestValidationError,
 } from '../admin/yardiHl7Test.js';
+import {
+  listUnmatchedCuids,
+  resolveUnmatchedCuid,
+  UnmatchedCuidQueryError,
+} from '../domains/unmatchedCuid.js';
 
 import type { AlisPayload } from '../integrations/alis/types.js';
 
@@ -79,6 +84,51 @@ router.get('/admin/yardi-hl7-test', authAdmin, (_req, res) => {
 // Admin page: Event processing issues
 router.get('/admin/event-issues-dashboard', authAdmin, (_req, res) => {
   res.redirect('/public/event-issues.html');
+});
+
+// Admin page: Unmatched room CUIDs
+router.get('/admin/unmatched-cuids', authAdmin, (_req, res) => {
+  res.redirect('/public/unmatched-cuids.html');
+});
+
+router.get('/admin/unmatched-cuids/rows', authAdmin, async (req, res) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const communityRaw = req.query.communityId;
+    let communityId: number | undefined;
+    if (typeof communityRaw === 'string' && communityRaw.trim() !== '') {
+      communityId = Number(communityRaw);
+      if (!Number.isInteger(communityId)) {
+        res.status(400).json({ success: false, error: 'communityId must be an integer' });
+        return;
+      }
+    }
+    const rows = await listUnmatchedCuids({
+      status: (status as 'open' | 'resolved' | 'all' | undefined) ?? 'open',
+      communityId,
+    });
+    res.json({ success: true, rows });
+  } catch (error) {
+    if (error instanceof UnmatchedCuidQueryError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    throw error;
+  }
+});
+
+router.post('/admin/unmatched-cuids/:id/resolve', authAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ success: false, error: 'id must be an integer' });
+    return;
+  }
+  const row = await resolveUnmatchedCuid(id);
+  if (!row) {
+    res.status(404).json({ success: false, error: 'Unmatched CUID row not found' });
+    return;
+  }
+  res.json({ success: true, row });
 });
 
 router.get('/health/deps', async (_req, res) => {

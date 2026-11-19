@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unmatched CUIDs</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+    header, .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 18px; padding: 16px; }
+    h1 { color: #58a6ff; font-size: 24px; margin-bottom: 8px; }
+    .muted { color: #8b949e; font-size: 13px; }
+    label { display: block; margin-bottom: 6px; color: #8b949e; font-size: 12px; text-transform: uppercase; }
+    input, select { padding: 9px 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
+    button { background: #238636; color: white; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #30363d; font-size: 13px; }
+    .error { color: #f85149; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Unmatched CUIDs</h1>
+    <p class="muted">Patients written under a synthetic room CUID. Resolve updates this list only.</p>
+  </header>
+  <section class="card">
+    <label for="status">Status</label>
+    <select id="status">
+      <option value="open" selected>open</option>
+      <option value="resolved">resolved</option>
+      <option value="all">all</option>
+    </select>
+    <label for="communityId">Community id</label>
+    <input id="communityId" type="text">
+    <button id="load" type="button">Load</button>
+    <p id="error" class="error"></p>
+  </section>
+  <section class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Community</th><th>Patient</th><th>Name</th><th>Room</th><th>Synthetic CUID</th>
+          <th>Source</th><th>First seen</th><th>Last seen</th><th>Last event</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+  <script>
+    const statusEl = document.getElementById('status');
+    const communityEl = document.getElementById('communityId');
+    const rowsEl = document.getElementById('rows');
+    const errorEl = document.getElementById('error');
+
+    function text(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[ch]));
+    }
+
+    function nameOf(row) {
+      return [row.lastName, row.firstName].filter(Boolean).join(', ');
+    }
+
+    function when(value) {
+      return value ? new Date(value).toLocaleString() : '';
+    }
+
+    async function load() {
+      errorEl.textContent = '';
+      const params = new URLSearchParams({ status: statusEl.value });
+      if (communityEl.value.trim()) params.set('communityId', communityEl.value.trim());
+      const response = await fetch('/admin/unmatched-cuids/rows?' + params.toString(), { credentials: 'include' });
+      const body = await response.json();
+      if (!response.ok) {
+        errorEl.textContent = body.error || 'Unable to load rows';
+        rowsEl.innerHTML = '';
+        return;
+      }
+      rowsEl.innerHTML = body.rows.map((row) => {
+        const resolve = row.status === 'open'
+          ? '<button type="button" data-id="' + row.id + '">Resolve</button>'
+          : '';
+        return '<tr><td>' + text(row.communityId) + '</td><td>' + text(row.externalResidentId) + '</td><td>'
+          + text(nameOf(row)) + '</td><td>' + text(row.roomNumber || '') + '</td><td>' + text(row.syntheticCuid)
+          + '</td><td>' + text(row.source) + '</td><td>' + text(when(row.firstSeenAt)) + '</td><td>'
+          + text(when(row.lastSeenAt)) + '</td><td>' + text(row.lastEventType) + '</td><td>' + resolve + '</td></tr>';
+      }).join('');
+    }
+
+    rowsEl.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-id]');
+      if (!button) return;
+      const response = await fetch('/admin/unmatched-cuids/' + button.dataset.id + '/resolve', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        errorEl.textContent = body.error || 'Unable to resolve row';
+        return;
+      }
+      await load();
+    });
+
+    document.getElementById('load').addEventListener('click', load);
+    load();
+  </script>
+</body>
+</html>
