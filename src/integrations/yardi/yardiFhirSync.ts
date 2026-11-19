@@ -13,8 +13,6 @@ import {
   type CommunityEnrichment,
 } from '../caspio/caspioCommunityEnrichment.js';
 import { mapServiceRecord } from '../caspio/caspioMapper.js';
-import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from '../caspio/serviceLineTypes.js';
-
 import { syncYardiCarePlanServiceForPatient } from './yardiCarePlanService.js';
 import { YardiFhirClient } from './yardiFhirClient.js';
 import {
@@ -533,9 +531,8 @@ export async function buildYardiFhirCaspioRecords(
     RoomNumber: bundle.demographics.roomNumber ?? undefined,
   };
 
-  const serviceType =
-    bundle.demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
-  const skipService = shouldSkipYardiServiceCaspio(options?.skipService);
+  const serviceType = bundle.demographics.classification?.trim();
+  const skipService = shouldSkipYardiServiceCaspio(options?.skipService) || !serviceType;
   const serviceRecord = skipService
     ? undefined
     : mapServiceRecord({

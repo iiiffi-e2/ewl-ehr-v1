@@ -147,7 +147,7 @@ Each facility id should appear with the company key and community id you set.
 
 Each organization id should appear with the same company key and community id. Skip this check when you are not enabling FHIR for the facility. Leave that facility off `YARDI_FHIR_POLL_TARGETS`. HL7 then writes from the ADT message only.
 
-An HL7-only write includes patient number, name, date of birth, room, `CUID`, and community name. Service type is `Unassigned`. The first two `NK1` contacts and the first two `IN1` insurance segments are written when Yardi sends them. Every `DG1` diagnosis is joined into `Diagnosis1`. The patient address is copied from the Caspio community row.
+An HL7-only write includes patient number, name, date of birth, room, `CUID`, and community name. It does not write a service row, because the ADT message has no service type. The first two `NK1` contacts and the first two `IN1` insurance segments are written when Yardi sends them. Every `DG1` diagnosis is joined into `Diagnosis1`. The patient address is copied from the Caspio community row.
 
 ## 6. Test HL7 without the mailbox
 
@@ -161,7 +161,7 @@ Build an ADT:
 - Room: a room you added in Caspio
 - Name and date of birth
 
-Leave **Dry-run** unchecked to write Caspio. Confirm the patient in `CarePatientTable_API` and a service row in `Service_Table_API`.
+Leave **Dry-run** unchecked to write Caspio. Confirm the patient in `CarePatientTable_API`. A service row in `Service_Table_API` is written only when the message has a service type, such as a FHIR encounter type. An HL7-only test does not create one.
 
 On `/monitor`, source `yardi-hl7`:
 

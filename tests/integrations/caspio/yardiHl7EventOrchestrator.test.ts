@@ -252,6 +252,26 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
+  it.each([null, '   '])(
+    'writes the A01 patient and skips the service table when classification is %p',
+    async (classification) => {
+      await handleYardiHl7Event(
+        baseInput('hl7.adt.a01', { demographics: { classification } }),
+      );
+
+      expect(upsertByFieldsMock).toHaveBeenCalledWith(
+        'CarePatientTable_API',
+        expect.any(Array),
+        expect.objectContaining({ PatientNumber: '418612', CUID: 'room-cuid' }),
+      );
+      expect(upsertByFieldsMock).not.toHaveBeenCalledWith(
+        'Service_Table_API',
+        expect.anything(),
+        expect.anything(),
+      );
+    },
+  );
+
   it('writes NK1 contacts and IN1 insurance from the HL7 message', async () => {
     const input = baseInput();
     input.residentBundle!.vendorPayload = {
@@ -428,6 +448,46 @@ describe('handleYardiHl7Event', () => {
     );
   });
 
+  it('closes the previous A02 service and does not open an Unassigned row without a service type', async () => {
+    getCommunityEnrichmentMock.mockResolvedValue({
+      CUID: 'new-cuid',
+      CommunityName: 'EyeWatch Live',
+    });
+    findByPatientNumberMock.mockResolvedValue({
+      found: true,
+      id: 'patient-1',
+      raw: { PatientNumber: '418612', CUID: 'old-cuid', RoomNumber: '100' },
+    });
+    findActiveOrLatestServiceRowMock.mockResolvedValue({
+      found: true,
+      id: 'old-service-1',
+      record: { CUID: 'old-cuid' },
+    });
+
+    await handleYardiHl7Event(
+      baseInput('hl7.adt.a02', {
+        trigger: 'A02',
+        demographics: { classification: null },
+      }),
+    );
+
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'Service_Table_API',
+      'old-service-1',
+      { EndDate: '08/20/2026 14:15:16' },
+    );
+    expect(upsertByFieldsMock).not.toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(updateRecordByIdMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      'patient-1',
+      expect.objectContaining({ CUID: 'new-cuid', RoomNumber: '141' }),
+    );
+  });
+
   it('inserts an A05 patient and service when the patient is missing', async () => {
     await handleYardiHl7Event(baseInput('hl7.adt.a05', { trigger: 'A05' }));
 
@@ -448,11 +508,33 @@ describe('handleYardiHl7Event', () => {
       expect.arrayContaining([
         { field: 'CUID', value: 'room-cuid' },
         { field: 'PatientNumber', value: '418612' },
+        { field: 'ServiceType', value: 'Assisted Living' },
       ]),
       expect.objectContaining({
         CUID: 'room-cuid',
         PatientNumber: '418612',
+        ServiceType: 'Assisted Living',
       }),
+    );
+  });
+
+  it('inserts an A05 patient and skips the service table when classification is missing', async () => {
+    await handleYardiHl7Event(
+      baseInput('hl7.adt.a05', {
+        trigger: 'A05',
+        demographics: { classification: null },
+      }),
+    );
+
+    expect(upsertByFieldsMock).toHaveBeenCalledWith(
+      'CarePatientTable_API',
+      expect.any(Array),
+      expect.objectContaining({ PatientNumber: '418612', CUID: 'room-cuid' }),
+    );
+    expect(upsertByFieldsMock).not.toHaveBeenCalledWith(
+      'Service_Table_API',
+      expect.anything(),
+      expect.anything(),
     );
   });
 

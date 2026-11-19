@@ -32,8 +32,6 @@ import {
   mapOffPremStartEpisode,
   mapServiceRecord,
 } from './caspioMapper.js';
-import { SERVICE_LINE_UNASSIGNED_CLASSIFICATION } from './serviceLineTypes.js';
-
 type YardiHl7VendorPayload = {
   hl7?: string;
   parsed?: unknown;
@@ -245,28 +243,17 @@ async function handleYardiMoveIn(
     patientRecord,
   );
 
-  const serviceType =
-    demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
-  const serviceRecord = mapServiceRecord({
-    patientNumber,
-    cuid: enrichment.CUID,
-    roomNumber: enrichment.roomNumber,
-    serviceType,
-    startDate: moveInDate,
-    communityName:
-      typeof patientRecord.CommunityName === 'string'
-        ? patientRecord.CommunityName
-        : enrichment.CommunityName ?? communityName,
-  });
-  await upsertByFields(
-    env.CASPIO_SERVICE_TABLE_NAME,
-    [
-      { field: 'CUID', value: enrichment.CUID },
-      { field: 'PatientNumber', value: patientNumber },
-      { field: 'ServiceType', value: serviceType },
-      { field: 'StartDate', value: moveInDate },
-    ],
-    serviceRecord,
+  await openYardiService(
+    input,
+    {
+      CUID: enrichment.CUID,
+      CommunityName:
+        typeof patientRecord.CommunityName === 'string'
+          ? patientRecord.CommunityName
+          : enrichment.CommunityName ?? communityName,
+      roomNumber: enrichment.roomNumber,
+    },
+    moveInDate,
   );
   await rememberUnmatched(input, communityId, enrichment);
 }
@@ -395,19 +382,27 @@ async function buildYardiPatientPatch(
   };
 }
 
+function yardiServiceType(
+  demographics: CanonicalResidentBundle['demographics'],
+): string | undefined {
+  const serviceType = demographics.classification?.trim();
+  return serviceType ? serviceType : undefined;
+}
+
 async function openYardiService(
   input: CanonicalEventOrchestrationInput,
-  enrichment: { CUID: string; CommunityName?: string },
+  enrichment: { CUID: string; CommunityName?: string; roomNumber?: string },
   startDate: string,
 ): Promise<void> {
   const demographics = input.residentBundle!.demographics;
+  const serviceType = yardiServiceType(demographics);
+  if (!serviceType) return;
+
   const patientNumber = String(demographics.externalResidentId);
-  const serviceType =
-    demographics.classification?.trim() || SERVICE_LINE_UNASSIGNED_CLASSIFICATION;
   const serviceRecord = mapServiceRecord({
     patientNumber,
     cuid: enrichment.CUID,
-    roomNumber: demographics.roomNumber ?? undefined,
+    roomNumber: enrichment.roomNumber ?? demographics.roomNumber ?? undefined,
     serviceType,
     startDate,
     communityName: enrichment.CommunityName,

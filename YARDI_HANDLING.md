@@ -17,14 +17,14 @@ CUID comes from the Caspio community table for that community and PV1 room (`PV1
 
 If the same company and community are also on `YARDI_FHIR_POLL_TARGETS`, the worker fetches the FHIR patient bundle and uses it for insurance, contacts, diagnoses, and address. HL7 still supplies the trigger, room, resident id, name, date of birth, and event timestamp. A FHIR failure is logged and the write continues from HL7 fields only.
 
-Service type on HL7 writes is the FHIR encounter type when that overlay is present. Otherwise the service type is `Unassigned`.
+A service row is written only when a service type is present. That type is the FHIR encounter type from the overlay. An HL7-only message has no service type, so it does not open a service row and does not write `Unassigned`.
 
 | Trigger | Event type | What it means | What we write |
 | --- | --- | --- | --- |
-| A01 | `hl7.adt.a01` | Move-in | Upsert the patient on PatientNumber + CUID. Set move-in date, service start, and on-prem. Open a service row. |
-| A02 | `hl7.adt.a02` | Room transfer | Treat the PV1 room as the new room. Close the open service on the previous CUID and open one on the new room CUID. Patch the patient with the new room and CUID. |
+| A01 | `hl7.adt.a01` | Move-in | Upsert the patient on PatientNumber + CUID. Set move-in date, service start, and on-prem. Open a service row when a service type is present. |
+| A02 | `hl7.adt.a02` | Room transfer | Treat the PV1 room as the new room. Close the open service on the previous CUID. Open one on the new room CUID when a service type is present. Patch the patient with the new room and CUID. |
 | A03 | `hl7.adt.a03` | Move-out | Set move-out date, service end date, and on-prem false. Close the active service. |
-| A05 | `hl7.adt.a05` | New resident / pre-admit | Same patient patch as an update. If the resident is missing, insert the patient and open a service. |
+| A05 | `hl7.adt.a05` | New resident / pre-admit | Same patient patch as an update. If the resident is missing, insert the patient and open a service when a service type is present. |
 | A08 | `hl7.adt.a08` | Patient update | Patch the existing patient (room, name, date of birth, and FHIR fields when present). Skip if the resident is missing. |
 | A21 | `hl7.adt.a21` | Leave start | Set off-prem, clear on-prem, and open an off-prem history episode. |
 | A22 | `hl7.adt.a22` | Leave end | Close the open off-prem episode and set the patient back on-prem. |
@@ -35,10 +35,10 @@ Service type on HL7 writes is the FHIR encounter type when that overlay is prese
 1. Resolve the new room's CUID from community enrichment.
 2. Find the existing patient, first by PatientNumber + new CUID, then by PatientNumber alone.
 3. If the patient row still has a different CUID, close the service on that previous CUID. If the patient row already has the new CUID, look up the latest service by patient number and close it when that service CUID is still the old one.
-4. Open a service on the new CUID with the event datetime as the start date.
+4. Open a service on the new CUID with the event datetime as the start date when a service type is present. With no service type, the previous service is still closed and no new row is opened.
 5. Update the patient row to the new room and CUID.
 
-If the previous service row cannot be found, the transfer is recorded as `service_not_found` and a new service is still opened. If the resident is not in Caspio, the event is skipped (`patient_not_found`).
+If the previous service row cannot be found, the transfer is recorded as `service_not_found`. A new service is opened only when a service type is present. If the resident is not in Caspio, the event is skipped (`patient_not_found`).
 
 ### A01, A03, and leave
 
